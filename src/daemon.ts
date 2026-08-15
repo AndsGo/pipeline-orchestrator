@@ -313,7 +313,8 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       await port.notify('执行', `在 ${project.alias} 上执行：${c.text.slice(0, 80)}…`);
       // 命中相关经验就带上（无关时为空串，简单问题不受噪音干扰）；斜杠指令不能前置任何文字，否则展不开
       const brief = isSlashCmd ? '' : await fetchKnowledgeBrief(c.text, project.alias);
-      if (brief) log(`  注入知识提示 ${brief.split('\n').length - 3} 条`);
+      // 条目行以「- **」开头；此前用 行数-3 推算，恒少报一条（1 头 + N 条 + 1 空行）——日志不许撒谎，哪怕小事
+      if (brief) log(`  注入知识提示 ${brief.split('\n').filter((l) => l.startsWith('- **')).length} 条`);
       const release = await sem.acquire();
       const t0 = Date.now();
       const prompt = brief ? `${brief}\n---\n${c.text}` : c.text;
