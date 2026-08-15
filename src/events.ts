@@ -1,0 +1,147 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * 节点级事件日志（append-only JSONL）。
+ * 定位：审计与可观测性的权威记录——每个节点的开始/结束/人工输入/决策都在这里；
+ * 工单快照（<ticket>.json）仍是断点恢复用的工作状态，两者互补。
+ */
+
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
+
+export type EventType =
+  | 'ticket.created'
+  | 'triage'
+  | 'stage.start'
+  | 'stage.end'
+  | 'question.asked'
+  | 'question.answered'
+  | 'gate.asked'
+  | 'gate.answered'
+  | 'human.message'
+  | 'amend'
+  | 'rewind'
+  | 'pause'
+  | 'resume'
+  | 'halt'
+  | 'done'
+  | 'error';
+
+export interface PipelineEvent {
+  ts: string;
+  ticket: string;
+  type: EventType;
+  stage?: string;
+  /** 一行人类可读描述，直接用于时间线渲染 */
+  summary: string;
+  payload?: Record<string, unknown>;
+}
+
+function eventFile(ticket: string): string {
+  return path.join(DATA_DIR, `${ticket}.events.jsonl`);
+}
+
+type Listener = (e: PipelineEvent) => void;
+const listeners: Listener[] = [];
+
+/** 订阅事件（投影到多维表格等旁路消费者用）。监听器异常绝不影响主流程 */
+export function onEvent(fn: Listener): void {
+  listeners.push(fn);
+}
+
+export function appendEvent(e: Omit<PipelineEvent, 'ts'>): PipelineEvent {
+  const full: PipelineEvent = { ts: new Date().toISOString(), ...e };
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.appendFileSync(eventFile(e.ticket), JSON.stringify(full) + '\n', 'utf-8');
+  for (const l of listeners) {
+    try {
+      l(full);
+    } catch {
+      /* 旁路消费者失败不影响事件已落盘的事实 */
+    }
+  }
+  return full;
+}
+
+export function readEvents(ticket: string): PipelineEvent[] {
+  const f = eventFile(ticket);
+  if (!fs.existsSync(f)) return [];
+  return fs
+    .readFileSync(f, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((l) => {
+      try {
+        return [JSON.parse(l) as PipelineEvent];
+      } catch {
+        return []; // 单行损坏不影响整体可读性
+      }
+    });
+}
+
+const ICON: Record<EventType, string> = {
+  'ticket.created': '🆕',
+  triage: '🔀',
+  'stage.start': '▶️',
+  'stage.end': '✅',
+  'question.asked': '❓',
+  'question.answered': '💬',
+  'gate.asked': '🚦',
+  'gate.answered': '👤',
+  'human.message': '🗣️',
+  amend: '✏️',
+  rewind: '⏪',
+  pause: '⏸️',
+  resume: '▶️',
+  halt: '⛔',
+  done: '🏁',
+  error: '⚠️',
+};
+
+function hhmm(ts: string): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 渲染最近 N 条为 markdown 时间线（飞书卡片可直接展示） */
+export function timeline(ticket: string, limit = 20): string {
+  const evs = readEvents(ticket);
+  if (!evs.length) return '（暂无事件记录）';
+  const shown = evs.slice(-limit);
+  const head = evs.length > limit ? `_（共 ${evs.length} 条，显示最近 ${limit} 条）_\n` : '';
+  return head + shown.map((e) => `${ICON[e.type] ?? '·'} \`${hhmm(e.ts)}\` ${e.summary}`).join('\n');
+}
+
+/** 工单成本合计（从 stage.end 事件累加，与快照台账互为校验） */
+export function totalCost(ticket: string): number {
+  return readEvents(ticket)
+    .filter((e) => e.type === 'stage.end')
+    .reduce((s, e) => s + (Number(e.payload?.costUsd) || 0), 0);
+}
+
+/**
+ * 列出 data/ 下所有已知工单。
+ * 必须按内容判定而不是按扩展名——data/ 里还有 bitable-index.json 这类基础设施文件，
+ * 只看 .json 会把它们当成工单混进 /list。
+ */
+export function listTickets(): string[] {
+  if (!fs.existsSync(DATA_DIR)) return [];
+  const names = new Set<string>();
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    if (f.endsWith('.events.jsonl')) {
+      names.add(f.slice(0, -'.events.jsonl'.length));
+      continue;
+    }
+    if (!f.endsWith('.json')) continue;
+    const name = f.slice(0, -'.json'.length);
+    try {
+      const snap = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf-8')) as { ticket?: string; cursor?: string };
+      if (snap.ticket === name && snap.cursor) names.add(name); // 工单快照的自证字段
+    } catch {
+      /* 不是合法快照就不是工单 */
+    }
+  }
+  return [...names].sort();
+}

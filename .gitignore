@@ -1,0 +1,6 @@
+# 凭据与运行时数据永不入库（.env 是明文密钥；data/ 含工单状态与 /run 落盘记录）
+.env
+data/
+logs/
+node_modules/
+*.log
