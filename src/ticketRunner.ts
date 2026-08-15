@@ -481,7 +481,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     if (envelope.is_error || !envelope.structured_output) {
       const msg = `会话异常：${envelope.result ?? '无结构化返回'}`;
       appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300) });
-      await port.notify(ticket, msg);
+      // 挂起消息教人怎么恢复，异常消息也必须教——否则人只看到一句 API Error，不知道下一步说什么
+      await port.notify(ticket, `${msg}\n本阶段未产生结果（通常是瞬时故障）。在群里说「继续 ${ticket}」即可从 ${stage} 阶段重跑`);
       return;
     }
     const res = envelope.structured_output;
