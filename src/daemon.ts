@@ -53,6 +53,16 @@ const active = new Map<string, { mainRepo: string; workdir: string }>();
 const adhoc: Array<{ at: string; project: string; text: string; costUsd: number }> = [];
 const log = (m: string) => console.log(`[daemon] ${new Date().toISOString()} ${m}`);
 
+// 进程级兜底：SDK/axios 的网络错误曾以未处理 rejection 的形式击穿整个进程（2026-08-17 DNS 抖动实证）。
+// rejection 记日志继续跑（多为网络瞬时故障）；uncaughtException 状态已不可信，退出交给看门狗拉起。
+process.on('unhandledRejection', (reason) => {
+  log(`未处理的 rejection（继续运行）：${String((reason as Error)?.message ?? reason).slice(0, 300)}`);
+});
+process.on('uncaughtException', (err) => {
+  log(`未捕获异常，进程退出交由看门狗拉起：${err.message.slice(0, 300)}`);
+  process.exit(1);
+});
+
 /** 已有工单的项目归属：优先快照里固化的，其次按工单号前缀推断 */
 function projectOf(ticket: string): Project | null {
   const alias = readSnapshot(ticket)?.project;

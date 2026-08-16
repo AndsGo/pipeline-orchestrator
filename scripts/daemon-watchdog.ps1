@@ -15,7 +15,8 @@ function WdLog([string]$msg) {
 function RestartDaemon([string]$reason) {
   # 节流：10 分钟内已重启过就不再动（DNS 长时间断时避免无意义的重启循环）
   if (Test-Path $wdLog) {
-    $last = Get-Content $wdLog -Tail 20 -Encoding UTF8 | Where-Object { $_ -match 'RESTART' } | Select-Object -Last 1
+    # -cmatch 大小写敏感：skip 行里的小写 restart 不能刷新节流时间戳（曾因此永久跳过重启）
+    $last = Get-Content $wdLog -Tail 50 -Encoding UTF8 | Where-Object { $_ -cmatch ' RESTART ' } | Select-Object -Last 1
     if ($last -and ($last -match '^(\S+) ') -and ((Get-Date) - [datetime]$matches[1]).TotalMinutes -lt 10) {
       WdLog "skip restart ($reason)：10 分钟内已重启过"
       return
