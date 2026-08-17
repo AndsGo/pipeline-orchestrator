@@ -105,6 +105,19 @@ export const KB_FIELDS: FieldDef[] = [
   date('记录时间'),
 ];
 
+/** 术语表：业务领域词汇的唯一真源。agent 会放大喂给它的词汇歧义，所以术语要治理：状态门与知识表同款 */
+export const GLOSSARY_TABLE = '术语';
+export const GLOSSARY_FIELDS: FieldDef[] = [
+  text('术语'), // 主字段：规范用词
+  text('定义'),
+  text('禁用同义词'), // 业务上指同一概念但不允许使用的说法，「、」分隔
+  text('所属域'), // bounded context / 模块
+  sel('状态', KB_STATUSES),
+  text('项目'),
+  text('来源工单'),
+  date('记录时间'),
+];
+
 /** 关联字段单独加：需要工单表的 table_id，建表后再补 */
 export const nodeLinkField = (ticketTableId: string): FieldDef => ({
   field_name: '工单',

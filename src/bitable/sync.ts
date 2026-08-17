@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { onEvent, readEvents, type PipelineEvent } from '../events.js';
+import { activeTermsOnly, filterTermsByProject, matchTerms, readTermsFile, renderTermsBrief, writeGlossaryFile } from '../glossary.js';
 import { activeOnly, filterByProject, keywords, readKnowledgeFile, scoreEntry, selectHints, writeHints } from '../knowledge.js';
 import { readSnapshot } from '../ticket.js';
 import { BitableBoard } from './client.js';
@@ -163,6 +164,68 @@ export async function publishKnowledge(
     }
   }
   return { count, missingScope, created, updated, error };
+}
+
+/** 开工前预取项目术语表 → 06-glossary.md（全量项目子集，术语表小不做相关性筛选） */
+export async function prefetchGlossary(repo: string, ticket: string, project?: string): Promise<number> {
+  const board = BitableBoard.fromEnv();
+  if (!board) return 0;
+  try {
+    const terms = filterTermsByProject(activeTermsOnly(await board.listGlossary()), project);
+    writeGlossaryFile(repo, ticket, terms);
+    return terms.length;
+  } catch {
+    return 0;
+  }
+}
+
+/** /run 注入用：只带命中查询文本的词条（规范词或禁用同义词出现即命中） */
+export async function fetchGlossaryBrief(query: string, project?: string): Promise<string> {
+  const board = BitableBoard.fromEnv();
+  if (!board) return '';
+  try {
+    const hits = matchTerms(query, filterTermsByProject(activeTermsOnly(await board.listGlossary()), project));
+    return renderTermsBrief(hits);
+  } catch {
+    return '';
+  }
+}
+
+/** clarify 产出的新术语提议入表（待审）。返回新建词条名，供人审卡生效 */
+export async function publishTerms(
+  repo: string,
+  ticket: string,
+  project?: string,
+): Promise<{ count: number; created: string[]; error?: string }> {
+  const board = BitableBoard.fromEnv();
+  if (!board) return { count: 0, created: [] };
+  const { terms, error } = readTermsFile(repo, ticket);
+  let count = 0;
+  const created: string[] = [];
+  for (const t of terms) {
+    try {
+      const r = await board.upsertTerm({ ...t, project: t.project ?? project });
+      count++;
+      if (r === 'created') created.push(t.term);
+    } catch {
+      /* 单条失败不影响其余 */
+    }
+  }
+  return { count, created, error };
+}
+
+export async function activateTerms(names: string[]): Promise<number> {
+  const board = BitableBoard.fromEnv();
+  if (!board) return 0;
+  let ok = 0;
+  for (const n of names) {
+    try {
+      if (await board.setTermStatus(n, '生效')) ok++;
+    } catch {
+      /* 留在待审 */
+    }
+  }
+  return ok;
 }
 
 /** 人审通过后把新条目从「待审」翻到「生效」。返回成功条数（best-effort，单条失败不阻塞） */

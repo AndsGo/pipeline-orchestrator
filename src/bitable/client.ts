@@ -2,6 +2,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Term } from '../glossary.js';
 import type { KnowledgeEntry } from '../knowledge.js';
 import {
   KB_KINDS,
@@ -36,16 +37,20 @@ export interface BitableCfg {
   nodeTableId: string;
   /** 知识表（可选：未建则不做知识投影与预取） */
   kbTableId?: string;
+  /** 术语表（可选：未建则不做术语注入与采集） */
+  glossaryTableId?: string;
 }
 
 export function bitableCfgFromEnv(): BitableCfg | null {
-  const { BITABLE_APP_TOKEN, BITABLE_TICKET_TABLE_ID, BITABLE_NODE_TABLE_ID, BITABLE_KB_TABLE_ID } = process.env;
+  const { BITABLE_APP_TOKEN, BITABLE_TICKET_TABLE_ID, BITABLE_NODE_TABLE_ID, BITABLE_KB_TABLE_ID, BITABLE_GLOSSARY_TABLE_ID } =
+    process.env;
   if (!BITABLE_APP_TOKEN || !BITABLE_TICKET_TABLE_ID || !BITABLE_NODE_TABLE_ID) return null;
   return {
     appToken: BITABLE_APP_TOKEN,
     ticketTableId: BITABLE_TICKET_TABLE_ID,
     nodeTableId: BITABLE_NODE_TABLE_ID,
     kbTableId: BITABLE_KB_TABLE_ID,
+    glossaryTableId: BITABLE_GLOSSARY_TABLE_ID,
   };
 }
 
@@ -208,6 +213,70 @@ export class BitableBoard {
         evidence: linkOf(f['证据']),
       };
     }).filter((e) => e.title);
+  }
+
+  /** 术语 upsert：同「术语」视为同一词条；新建为「待审」，更新不动状态（与知识表同规则） */
+  async upsertTerm(t: Term): Promise<'created' | 'updated' | 'skipped'> {
+    if (!this.cfg.glossaryTableId) return 'skipped';
+    const fields: Record<string, unknown> = {
+      术语: t.term.slice(0, 100),
+      定义: t.definition.slice(0, 900),
+      禁用同义词: (t.banned ?? []).join('、').slice(0, 200),
+      所属域: t.domain ?? '',
+      项目: t.project ?? '',
+      来源工单: t.ticket ?? '',
+      记录时间: Date.now(),
+    };
+    const existing = await this.findRecord(this.cfg.glossaryTableId, '术语', t.term);
+    if (existing) {
+      await this.client.bitable.appTableRecord.update({
+        path: { app_token: this.cfg.appToken, table_id: this.cfg.glossaryTableId, record_id: existing },
+        data: { fields: fields as Record<string, never> },
+      });
+      return 'updated';
+    }
+    const createFields: Record<string, unknown> = { ...fields, 状态: '待审' };
+    await this.client.bitable.appTableRecord.create({
+      path: { app_token: this.cfg.appToken, table_id: this.cfg.glossaryTableId },
+      data: { fields: createFields as Record<string, never> },
+    });
+    return 'created';
+  }
+
+  async setTermStatus(term: string, status: string): Promise<boolean> {
+    if (!this.cfg.glossaryTableId) return false;
+    const recordId = await this.findRecord(this.cfg.glossaryTableId, '术语', term);
+    if (!recordId) return false;
+    const statusField: Record<string, unknown> = { 状态: status };
+    await this.client.bitable.appTableRecord.update({
+      path: { app_token: this.cfg.appToken, table_id: this.cfg.glossaryTableId, record_id: recordId },
+      data: { fields: statusField as Record<string, never> },
+    });
+    return true;
+  }
+
+  /** 拉取全部术语（供预取与 /run 命中） */
+  async listGlossary(): Promise<Term[]> {
+    if (!this.cfg.glossaryTableId) return [];
+    const res = (await this.client.bitable.appTableRecord.list({
+      path: { app_token: this.cfg.appToken, table_id: this.cfg.glossaryTableId },
+      params: { page_size: 200 },
+    })) as { data?: { items?: Array<{ fields?: Record<string, unknown> }> } };
+    return (res?.data?.items ?? [])
+      .map((it) => {
+        const f = it.fields ?? {};
+        const s = (k: string): string => textOf(f[k]);
+        return {
+          term: s('术语'),
+          definition: s('定义'),
+          banned: s('禁用同义词') ? s('禁用同义词').split(/[、,，]/).filter(Boolean) : [],
+          domain: s('所属域') || undefined,
+          status: s('状态') || undefined,
+          project: s('项目') || undefined,
+          ticket: s('来源工单') || undefined,
+        };
+      })
+      .filter((t) => t.term);
   }
 
   private async findRecord(tableId: string, fieldName: string, value: string): Promise<string | undefined> {

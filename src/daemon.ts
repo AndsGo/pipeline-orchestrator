@@ -13,7 +13,7 @@ import {
   type Command,
   type TicketContext,
 } from './commands.js';
-import { fetchKnowledgeBrief, initBitableSync } from './bitable/sync.js';
+import { fetchGlossaryBrief, fetchKnowledgeBrief, initBitableSync } from './bitable/sync.js';
 import { buildDashboard, renderDashboard, type TicketRow } from './dashboard.js';
 import { appendEvent, listTickets, readEvents, timeline, totalCost } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
@@ -321,10 +321,13 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         log('  已确认，开始执行');
       }
       await port.notify('执行', `在 ${project.alias} 上执行：${c.text.slice(0, 80)}…`);
-      // 命中相关经验就带上（无关时为空串，简单问题不受噪音干扰）；斜杠指令不能前置任何文字，否则展不开
-      const brief = isSlashCmd ? '' : await fetchKnowledgeBrief(c.text, project.alias);
+      // 命中相关经验/术语就带上（无关时为空串，简单问题不受噪音干扰）；斜杠指令不能前置任何文字，否则展不开
+      const kbBrief = isSlashCmd ? '' : await fetchKnowledgeBrief(c.text, project.alias);
+      const glBrief = isSlashCmd ? '' : await fetchGlossaryBrief(c.text, project.alias);
       // 条目行以「- **」开头；此前用 行数-3 推算，恒少报一条（1 头 + N 条 + 1 空行）——日志不许撒谎，哪怕小事
-      if (brief) log(`  注入知识提示 ${brief.split('\n').filter((l) => l.startsWith('- **')).length} 条`);
+      if (kbBrief) log(`  注入知识提示 ${kbBrief.split('\n').filter((l) => l.startsWith('- **')).length} 条`);
+      if (glBrief) log(`  注入术语 ${glBrief.split('\n').filter((l) => l.startsWith('- 「')).length} 条`);
+      const brief = [glBrief, kbBrief].filter(Boolean).join('\n');
       const release = await sem.acquire();
       const t0 = Date.now();
       const prompt = brief ? `${brief}\n---\n${c.text}` : c.text;

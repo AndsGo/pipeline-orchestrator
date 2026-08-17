@@ -4,11 +4,20 @@ import path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { gateDetail } from './artifacts.js';
 import { appendAnswers, type Answer } from './backfill.js';
-import { activateKnowledge, prefetchKnowledgeHints, publishKnowledge, setDeliveryDocLink } from './bitable/sync.js';
+import {
+  activateKnowledge,
+  activateTerms,
+  prefetchGlossary,
+  prefetchKnowledgeHints,
+  publishKnowledge,
+  publishTerms,
+  setDeliveryDocLink,
+} from './bitable/sync.js';
 import { ticketDir } from './config.js';
 import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
 import { moveDocToWiki, publishMarkdownDoc } from './feishu/docs.js';
+import { readTermsFile } from './glossary.js';
 import { DELIVERY_FILE, readKnowledgeFile } from './knowledge.js';
 import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import { runFastlane, runTriage, type Lane } from './lanes.js';
@@ -219,6 +228,47 @@ async function reviewKnowledge(
     ticket,
     ok === created.length ? `${ok} 条知识已生效，开始参与后续工单的提示` : `${ok}/${created.length} 条已生效，其余仍为待审（可在知识表手工处理）`,
   );
+}
+
+/**
+ * 术语人审：clarify 访谈中提议的新词条（93-terms.json）已以「待审」入术语表，
+ * 人审通过才「生效」参与注入——术语是喂给所有后续会话的用词标准，必须过人。
+ */
+async function reviewTerms(repo: string, ticket: string, port: InteractionPort): Promise<void> {
+  const t = await publishTerms(repo, ticket, readSnapshot(ticket)?.project);
+  if (t.error) {
+    await port.notify(ticket, `93-terms.json 格式有误，术语未入表：${t.error}`);
+    return;
+  }
+  if (!t.created.length) return;
+
+  const { terms } = readTermsFile(repo, ticket);
+  const detail = t.created
+    .map((n, i) => {
+      const x = terms.find((v) => v.term === n);
+      return `${i + 1}. **${n}**${x ? `：${x.definition.slice(0, 120)}${x.banned?.length ? `（禁用：${x.banned.join('、')}）` : ''}` : ''}`;
+    })
+    .join('\n');
+  appendEvent({ ticket, type: 'gate.asked', stage: 'compound', summary: `术语人审：新增 ${t.created.length} 条待生效` });
+  const d = await port.confirmGate(
+    ticket,
+    '术语入表',
+    `本单访谈中提炼出 ${t.created.length} 条业务术语，当前为「待审」。通过 → 生效，成为后续所有工单的用词标准；驳回 → 保持待审，可在术语表逐条处理。`,
+    [],
+    detail,
+  );
+  appendEvent({
+    ticket,
+    type: 'gate.answered',
+    stage: 'compound',
+    summary: `术语人审 → ${d.approved ? '生效' : '保持待审'}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
+  });
+  if (!d.approved) {
+    await port.notify(ticket, `术语保持「待审」${d.note ? `：${d.note}` : ''}`);
+    return;
+  }
+  const ok = await activateTerms(t.created);
+  await port.notify(ticket, ok === t.created.length ? `${ok} 条术语已生效` : `${ok}/${t.created.length} 条术语已生效，其余待审`);
 }
 
 /**
@@ -445,6 +495,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       const requirement = fs.existsSync(intakeFile) ? fs.readFileSync(intakeFile, 'utf-8') : '';
       const n = await prefetchKnowledgeHints(repo, ticket, requirement, project?.alias);
       if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供本阶段参考`);
+      const g = await prefetchGlossary(repo, ticket, project?.alias);
+      if (g && stage === 'clarify') await port.notify(ticket, `已注入项目术语表 ${g} 条（PRD 用语以此为准）`);
     }
     appendEvent({ ticket, type: 'stage.start', stage, summary: `阶段 ${stage} 开始${extraArgs ? `（${extraArgs}）` : ''}` });
     await port.notify(ticket, `运行阶段 ${stage}${extraArgs ? `（${extraArgs}）` : ''}…`);
@@ -514,6 +566,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         await reviewSuggestions(repo, ticket, port);
         const kb = await deliverAndCompound(repo, ticket, port, project);
         await reviewKnowledge(repo, ticket, port, kb.createdKnowledge, kb.updatedKnowledge);
+        await reviewTerms(repo, ticket, port);
         const total = state.runs.reduce((s, r) => s + r.costUsd, 0);
         appendEvent({ ticket, type: 'done', summary: `闭环：${state.runs.length} 次会话，$${total.toFixed(2)}` });
         await port.notify(ticket, `流水线闭环。共 ${state.runs.length} 次会话，合计 $${total.toFixed(2)}`);
