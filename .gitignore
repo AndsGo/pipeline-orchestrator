@@ -1,6 +1,7 @@
-# 凭据与运行时数据永不入库（.env 是明文密钥；data/ 含工单状态与 /run 落盘记录）
+# 凭据与运行时数据永不入库（.env 是明文密钥；data/ 含工单状态与 /run 落盘记录；backups/ 是 data/ 的 zip）
 .env
 data/
 logs/
+backups/
 node_modules/
 *.log

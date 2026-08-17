@@ -28,6 +28,33 @@ function RestartDaemon([string]$reason) {
   & (Join-Path $PSScriptRoot 'start-daemon.ps1') | Out-Null
 }
 
+# ⓪ 家务：watchdog 自身日志防膨胀（>4000 行截到最后 1000）；data/ 每日备份，保留 14 天
+if ((Test-Path $wdLog) -and ((Get-Content $wdLog | Measure-Object -Line).Lines -gt 4000)) {
+  $keep = Get-Content $wdLog -Tail 1000 -Encoding UTF8
+  Set-Content -Path $wdLog -Value $keep -Encoding utf8
+}
+$bakDir = Join-Path $root 'backups'
+$bak = Join-Path $bakDir "data-$((Get-Date).ToString('yyyyMMdd')).zip"
+if (-not (Test-Path $bak)) {
+  try {
+    New-Item -ItemType Directory -Force $bakDir | Out-Null
+    Compress-Archive -Path (Join-Path $root 'data\*') -DestinationPath $bak -ErrorAction Stop
+    Get-ChildItem $bakDir -Filter 'data-*.zip' | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
+      Remove-Item -Force -Confirm:$false
+    WdLog "data/ 已备份 → $(Split-Path $bak -Leaf)"
+  } catch { WdLog "备份失败：$($_.Exception.Message)" }
+}
+
+# ①b webhook 守护（仅当用 start-webhook.ps1 启动过、存在 pid 文件时）：进程死了就拉起
+$whPidFile = Join-Path $root 'data\webhook.pid'
+if (Test-Path $whPidFile) {
+  $whPid = Get-Content $whPidFile
+  if (-not (Get-Process -Id $whPid -ErrorAction SilentlyContinue)) {
+    WdLog 'RESTART-WEBHOOK (dead)'
+    & (Join-Path $PSScriptRoot 'start-webhook.ps1') | Out-Null
+  }
+}
+
 # ① 进程存活
 $daemonPid = if (Test-Path $pidFile) { Get-Content $pidFile } else { $null }
 $alive = $daemonPid -and (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue)
