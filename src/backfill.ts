@@ -19,7 +19,11 @@ export function appendAnswers(
   answers: Answer[],
 ): string {
   const file = path.join(ticketDir(repo, ticket), target);
-  if (!fs.existsSync(file)) throw new Error(`回填目标不存在：${file}`);
+  if (!fs.existsSync(file)) {
+    // feedback.md 是 append-only 反馈文件，可能尚未被建过——自动创建；其他目标缺失属编排错误，保持大声失败
+    if (target !== 'feedback.md') throw new Error(`回填目标不存在：${file}`);
+    fs.writeFileSync(file, `# ${ticket} 人工反馈\n`, 'utf-8');
+  }
   const existing = fs.readFileSync(file, 'utf-8');
   const round = (existing.match(new RegExp(`^## ${header}`, 'gm'))?.length ?? 0) + 1;
   const date = new Date().toISOString().slice(0, 10);

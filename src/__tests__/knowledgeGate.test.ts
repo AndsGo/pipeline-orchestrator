@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Answer } from '../backfill.js';
+import { appendAnswers, type Answer } from '../backfill.js';
 import { activeOnly, type KnowledgeEntry } from '../knowledge.js';
 import type { InteractionPort } from '../ports.js';
-import { ensureRejectionEvidence } from '../ticketRunner.js';
+import { ensureRejectionEvidence, latestReviewPath } from '../ticketRunner.js';
 import type { OpenQuestion } from '../types.js';
 
 const entry = (title: string, status?: string): KnowledgeEntry => ({
@@ -48,6 +51,33 @@ const QUESTIONS: OpenQuestion[] = [
   { id: 'AC-1', question: '打开首页应显示列表', options: ['通过', '不通过', '无法验证'], recommended: '通过', why: 'x' },
   { id: 'AC-2', question: '导出应含退款列', options: ['通过', '不通过', '无法验证'], recommended: '通过', why: 'x' },
 ];
+
+describe('implement 修复轮的恢复能力', () => {
+  const mkRepo = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'fixr-'));
+
+  it('latestReviewPath 取最大轮次；无评审文档返回 null', () => {
+    const repo = mkRepo();
+    const dir = path.join(repo, 'docs', 'pipeline', 'LS-1');
+    fs.mkdirSync(dir, { recursive: true });
+    expect(latestReviewPath(repo, 'LS-1')).toBeNull();
+    fs.writeFileSync(path.join(dir, '30-review-r1.md'), 'x');
+    fs.writeFileSync(path.join(dir, '30-review-r2.md'), 'x');
+    expect(latestReviewPath(repo, 'LS-1')).toBe('docs/pipeline/LS-1/30-review-r2.md');
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('appendAnswers 目标为 feedback.md 时自动创建（implement 回填通道），其他目标缺失仍大声失败', () => {
+    const repo = mkRepo();
+    fs.mkdirSync(path.join(repo, 'docs', 'pipeline', 'LS-1'), { recursive: true });
+    const answers: Answer[] = [{ id: 'Q1', question: '部署了吗', answer: '没有' }];
+    appendAnswers(repo, 'LS-1', 'feedback.md', '实现阶段问答', answers);
+    const content = fs.readFileSync(path.join(repo, 'docs', 'pipeline', 'LS-1', 'feedback.md'), 'utf-8');
+    expect(content).toContain('实现阶段问答');
+    expect(content).toContain('答：没有');
+    expect(() => appendAnswers(repo, 'LS-1', '00-intake.md', '澄清问答', answers)).toThrow('回填目标不存在');
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+});
 
 describe('ensureRejectionEvidence（验收驳回必须附失败现象）', () => {
   it('全通过时不追问', async () => {

@@ -38,6 +38,8 @@ export const FIX_ROUND_CAP = 2;
 /** NEEDS_CONTEXT 回答的回填目标与标题（相对 docs/pipeline/<ticket>/） */
 export const BACKFILL: Partial<Record<Stage, { target: string; header: string }>> = {
   clarify: { target: '00-intake.md', header: '澄清问答' },
+  // 实现（尤其修复轮）也会缺人工信息——如"验收环境部署的是哪个分支"。回填进 feedback.md（§8 约束性反馈通道）
+  implement: { target: 'feedback.md', header: '实现阶段问答' },
   acceptance: { target: '40-acceptance.md', header: '人工验收结果' },
 };
 

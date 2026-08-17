@@ -45,6 +45,20 @@ export interface RunTicketOpts {
   acquire?: () => Promise<() => void>;
 }
 
+/** 最新一轮评审文档的仓库相对路径（重建修复轮 fix= 参数用） */
+export function latestReviewPath(repo: string, ticket: string): string | null {
+  try {
+    const rounds = fs
+      .readdirSync(ticketDir(repo, ticket))
+      .map((f) => /^30-review-r(\d+)\.md$/.exec(f))
+      .filter((m): m is RegExpExecArray => !!m)
+      .map((m) => Number(m[1]));
+    return rounds.length ? `docs/pipeline/${ticket}/30-review-r${Math.max(...rounds)}.md` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function ensureIntake(repo: string, ticket: string, requirement?: string): void {
   const dir = ticketDir(repo, ticket);
   const intake = path.join(dir, '00-intake.md');
@@ -485,6 +499,12 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       saveTicket(state);
     }
     if (state.cursor === 'review' && !extraArgs && state.baseSha) extraArgs = `base=${state.baseSha}`;
+    // 修复轮的 fix= 参数在挂起/重启后已被消费——从 pendingReverify 重建，否则重进的 implement 不知道自己在修复模式
+    if (state.cursor === 'implement' && !extraArgs && state.pendingReverify) {
+      const src = state.pendingReverify === 'acceptance' ? `docs/pipeline/${ticket}/40-acceptance.md` : latestReviewPath(repo, ticket);
+      const fb = path.join(ticketDir(repo, ticket), FEEDBACK_FILE);
+      if (src) extraArgs = `fix=${src}${fs.existsSync(fb) ? ` feedback=${feedbackRelPath(ticket)}` : ''}`;
+    }
 
     const stage = state.cursor;
     // 开工前预取历史知识提示（ci 是编排器原生阶段，没有会话读它）。曾经只有澄清/计划读——

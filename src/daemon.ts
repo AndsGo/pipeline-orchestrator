@@ -215,6 +215,9 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       return;
     case 'resume': {
       clearPaused(c.ticket);
+      // 挂起工单的「继续」= 人已处理挂起原因。不清标记的话重进即再挂，人陷入死循环
+      const halted = readSnapshot(c.ticket);
+      if (halted?.haltedReason) saveTicket({ ...halted, haltedReason: undefined });
       appendEvent({ ticket: c.ticket, type: 'resume', summary: `收到继续指令（by ${sender}）` });
       const repo = peekTicketRepo(c.ticket);
       await port.notify(c.ticket, await startTicket(c.ticket, repo ?? undefined));
