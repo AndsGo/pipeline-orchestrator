@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { ticketDir } from './config.js';
 
@@ -116,4 +118,94 @@ export function applyClaudeMdSuggestions(
 
   if (applied.length) fs.writeFileSync(file, content, 'utf-8');
   return { applied, skipped };
+}
+
+function git(cwd: string, args: string[]): { ok: boolean; out: string } {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+}
+
+export interface AdoptResult {
+  ok: boolean;
+  applied: string[];
+  skipped: string[];
+  /** GitLab push options 建出的 MR 链接（解析自 push 输出） */
+  mrUrl?: string;
+  /** 分支已推送但远端不支持 push options（需手动建 MR）时给出分支名 */
+  pushedBranch?: string;
+  error?: string;
+}
+
+/**
+ * 采纳走「专用分支 + MR」：从 origin 默认分支拉临时 worktree，合入建议、提交、推送并用
+ * push options 自动建 MR——保证项目常识永远有一条进主干的路。此前采纳提交落在"恰好检出的分支"上，
+ * LS-006~008 的三条采纳曾困在本地旧分支，内容靠分支谱系碰巧才传播到 master。
+ * 主工作区全程不被触碰（可能正被别的会话使用）。
+ */
+export function adoptViaMr(repo: string, ticket: string, items: ClaudeMdSuggestion[]): AdoptResult {
+  const branch = `pipeline/claude-md-${ticket}`;
+  const wt = path.join(os.tmpdir(), `claude-md-${ticket}`);
+  const cleanup = (): void => {
+    git(repo, ['worktree', 'remove', '--force', wt]);
+    try {
+      fs.rmSync(wt, { recursive: true, force: true });
+    } catch {
+      /* 残留目录清不掉也不阻塞 */
+    }
+    git(repo, ['branch', '-D', branch]);
+  };
+  try {
+    if (!git(repo, ['fetch', 'origin', '--prune']).ok) {
+      return { ok: false, applied: [], skipped: [], error: '无法 fetch origin（远端不可达或未配置）' };
+    }
+    const head = git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+    let base = head.ok ? head.out.trim().replace(/^origin\//, '') : '';
+    if (!base) {
+      base = git(repo, ['rev-parse', '--verify', 'origin/master']).ok
+        ? 'master'
+        : git(repo, ['rev-parse', '--verify', 'origin/main']).ok
+          ? 'main'
+          : '';
+    }
+    if (!base) return { ok: false, applied: [], skipped: [], error: '无法确定 origin 默认分支' };
+
+    cleanup(); // 上次运行的残留
+    const add = git(repo, ['worktree', 'add', wt, '-b', branch, `origin/${base}`]);
+    if (!add.ok) return { ok: false, applied: [], skipped: [], error: `临时 worktree 创建失败：${add.out.slice(0, 200)}` };
+
+    const r = applyClaudeMdSuggestions(wt, items);
+    if (!r.applied.length) {
+      cleanup();
+      return { ok: true, applied: [], skipped: r.skipped }; // 主干已全有，无事可做
+    }
+    git(wt, ['add', 'CLAUDE.md']);
+    const commit = git(wt, ['commit', '-m', `chore(${ticket}): adopt CLAUDE.md learnings`]);
+    if (!commit.ok) {
+      cleanup();
+      return { ok: false, applied: [], skipped: [], error: `提交失败：${commit.out.slice(0, 200)}` };
+    }
+
+    let push = git(wt, [
+      'push',
+      '-o', 'merge_request.create',
+      '-o', `merge_request.target=${base}`,
+      '-o', `merge_request.title=chore(${ticket}): CLAUDE.md learnings`,
+      'origin', branch,
+    ]);
+    let pushedBranch: string | undefined;
+    if (!push.ok && /push.?option/i.test(push.out)) {
+      push = git(wt, ['push', 'origin', branch]); // 远端不支持 push options：分支照推，MR 手动建
+      if (push.ok) pushedBranch = branch;
+    }
+    if (!push.ok) {
+      cleanup();
+      return { ok: false, applied: r.applied, skipped: r.skipped, error: `推送失败：${push.out.slice(0, 200)}` };
+    }
+    const mrUrl = /https?:\/\/\S+\/merge_requests\/\d+/.exec(push.out)?.[0];
+    cleanup();
+    return { ok: true, applied: r.applied, skipped: r.skipped, mrUrl, pushedBranch };
+  } catch (e) {
+    cleanup();
+    return { ok: false, applied: [], skipped: [], error: (e as Error).message.slice(0, 200) };
+  }
 }

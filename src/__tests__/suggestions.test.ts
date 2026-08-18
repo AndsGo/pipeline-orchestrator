@@ -1,8 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  adoptViaMr,
   applyClaudeMdSuggestions,
   readSuggestions,
   renderSuggestionsDetail,
@@ -134,6 +136,66 @@ describe('applyClaudeMdSuggestions', () => {
     fs.writeFileSync(file, '## 环境\n\n- 唯一一条\n', 'utf-8');
     applyClaudeMdSuggestions(repo, [{ section: '## 环境', line: '- 唯一一条' }]);
     expect(fs.readFileSync(file, 'utf-8')).toBe('## 环境\n\n- 唯一一条\n');
+  });
+});
+
+describe('adoptViaMr（专用分支 + MR 机制，真实 git）', () => {
+  function run(cwd: string, args: string[]): string {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} 失败：${r.stderr}`);
+    return r.stdout ?? '';
+  }
+
+  /** bare origin + 克隆，主工作区检出在别的分支（复现 LS-005 场景） */
+  function setup(ticketBranch: string): { root: string; origin: string; clone: string } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'adopt-'));
+    const origin = path.join(root, 'origin.git');
+    const clone = path.join(root, 'clone');
+    fs.mkdirSync(origin);
+    run(origin, ['init', '--bare', '--initial-branch=master']);
+    run(origin, ['config', 'receive.advertisePushOptions', 'true']);
+    fs.mkdirSync(clone);
+    run(clone, ['init', '--initial-branch=master']);
+    run(clone, ['config', 'user.email', 't@t.t']);
+    run(clone, ['config', 'user.name', 't']);
+    fs.writeFileSync(path.join(clone, 'CLAUDE.md'), '## 环境\n\n- 已有常识\n', 'utf-8');
+    run(clone, ['add', '.']);
+    run(clone, ['commit', '-m', 'init']);
+    run(clone, ['remote', 'add', 'origin', origin]);
+    run(clone, ['push', '-u', 'origin', 'master']);
+    run(clone, ['remote', 'set-head', 'origin', 'master']);
+    run(clone, ['checkout', '-b', ticketBranch]);
+    return { root, origin, clone };
+  }
+
+  it('从 origin 默认分支建临时分支合入推送；主工作区分支与文件不被触碰；临时资源清理干净', () => {
+    const { root, origin, clone } = setup('feat/other');
+    const r = adoptViaMr(clone, 'LS-9', [
+      { section: '## 环境', line: '- 新常识' },
+      { section: '## 环境', line: '- 已有常识' },
+    ]);
+    expect(r.ok).toBe(true);
+    expect(r.applied).toEqual(['- 新常识']);
+    expect(r.skipped).toEqual(['- 已有常识']);
+    expect(run(origin, ['show', 'pipeline/claude-md-LS-9:CLAUDE.md'])).toContain('- 新常识');
+    expect(run(clone, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/other');
+    expect(fs.readFileSync(path.join(clone, 'CLAUDE.md'), 'utf-8')).not.toContain('- 新常识');
+    expect(run(clone, ['worktree', 'list'])).not.toContain('claude-md-LS-9');
+    expect(run(clone, ['branch', '--list', 'pipeline/*']).trim()).toBe('');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('建议内容主干全有 → ok、applied 空、不产生远端分支', () => {
+    const { root, origin, clone } = setup('feat/other2');
+    const r = adoptViaMr(clone, 'LS-10', [{ section: '## 环境', line: '- 已有常识' }]);
+    expect(r.ok).toBe(true);
+    expect(r.applied).toEqual([]);
+    const check = spawnSync('git', ['rev-parse', '--verify', 'refs/heads/pipeline/claude-md-LS-10'], {
+      cwd: origin,
+      encoding: 'utf-8',
+    });
+    expect(check.status).not.toBe(0);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });
 

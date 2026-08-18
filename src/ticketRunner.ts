@@ -27,7 +27,7 @@ import type { InteractionPort } from './ports.js';
 import type { Project } from './projects.js';
 import { runStage } from './runner.js';
 import { validateResult } from './schema.js';
-import { applyClaudeMdSuggestions, readSuggestions, renderSuggestionsDetail } from './suggestions.js';
+import { adoptViaMr, applyClaudeMdSuggestions, readSuggestions, renderSuggestionsDetail } from './suggestions.js';
 import { loadTicket, readSnapshot, saveTicket } from './ticket.js';
 import type { Envelope, OpenQuestion, Stage, StageResult, TicketState } from './types.js';
 
@@ -372,17 +372,39 @@ async function reviewSuggestions(repo: string, ticket: string, port: Interaction
     return;
   }
 
-  const r = applyClaudeMdSuggestions(repo, suggestions.claudeMd);
-  if (r.applied.length) {
+  // 专用分支 + MR：常识变更必须有一条进主干的路，不能落在恰好检出的分支上
+  const r = adoptViaMr(repo, ticket, suggestions.claudeMd);
+  if (r.ok) {
+    if (!r.applied.length) {
+      await port.notify(ticket, 'CLAUDE.md 建议内容均已在主干，无需合入');
+      return;
+    }
+    const via = r.mrUrl
+      ? `MR 已创建：${r.mrUrl}（合并后生效）`
+      : r.pushedBranch
+        ? `分支 ${r.pushedBranch} 已推送（远端不支持自动建 MR，请手动创建）`
+        : '已推送到专用分支';
+    await port.notify(
+      ticket,
+      `已把 ${r.applied.length} 条建议提交到专用分支，${via}${r.skipped.length ? `（${r.skipped.length} 条主干已有，跳过）` : ''}`,
+    );
+    return;
+  }
+  // 远端路径失败（无远端/网络断/试跑环境）：回退为合入当前工作区分支——留痕比丢失强，但要明示风险
+  const local = applyClaudeMdSuggestions(repo, suggestions.claudeMd);
+  if (local.applied.length) {
     try {
       execSync('git add CLAUDE.md', { cwd: repo });
       execSync(`git commit -m "chore(${ticket}): 采纳沉淀建议，更新 CLAUDE.md"`, { cwd: repo });
-      await port.notify(ticket, `已合入 ${r.applied.length} 条建议到 CLAUDE.md 并提交${r.skipped.length ? `（${r.skipped.length} 条已存在，跳过）` : ''}`);
+      await port.notify(
+        ticket,
+        `MR 路径失败（${r.error}），已回退合入当前分支——这些常识要随本分支的 MR 合并才能进主干，请留意`,
+      );
     } catch (e) {
       await port.notify(ticket, `CLAUDE.md 已更新但提交失败，请手工提交：${(e as Error).message.slice(0, 200)}`);
     }
   } else {
-    await port.notify(ticket, 'CLAUDE.md 建议均已存在，无需合入');
+    await port.notify(ticket, `MR 路径失败（${r.error}），且建议内容当前分支已有，无需合入`);
   }
 }
 
