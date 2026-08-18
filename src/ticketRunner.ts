@@ -574,12 +574,17 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     // 但知识多由 review/acceptance 产出，不回流给产出它的阶段，同类问题就会反复出现；
     // compound 也要读：标题是知识去重的键，看得到既有条目才不会换个说法重复记。
     if (stage !== 'ci') {
-      const intakeFile = path.join(ticketDir(repo, ticket), '00-intake.md');
-      const requirement = fs.existsSync(intakeFile) ? fs.readFileSync(intakeFile, 'utf-8') : '';
-      const n = await prefetchKnowledgeHints(repo, ticket, requirement, project?.alias);
-      if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供本阶段参考`);
-      const g = await prefetchGlossary(repo, ticket, project?.alias);
-      if (g && stage === 'clarify') await port.notify(ticket, `已注入项目术语表 ${g} 条（PRD 用语以此为准）`);
+      if (process.env.PIPELINE_HINTS_OFF) {
+        // 对照期必须显式可见——静默关闭注入会让指标比较变成无人知晓的暗箱
+        if (stage === 'clarify') await port.notify(ticket, '⚠ 对照模式（PIPELINE_HINTS_OFF）：本单不注入历史知识与术语');
+      } else {
+        const intakeFile = path.join(ticketDir(repo, ticket), '00-intake.md');
+        const requirement = fs.existsSync(intakeFile) ? fs.readFileSync(intakeFile, 'utf-8') : '';
+        const n = await prefetchKnowledgeHints(repo, ticket, requirement, project?.alias);
+        if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供本阶段参考`);
+        const g = await prefetchGlossary(repo, ticket, project?.alias);
+        if (g && stage === 'clarify') await port.notify(ticket, `已注入项目术语表 ${g} 条（PRD 用语以此为准）`);
+      }
     }
     appendEvent({ ticket, type: 'stage.start', stage, summary: `阶段 ${stage} 开始${extraArgs ? `（${extraArgs}）` : ''}` });
     await port.notify(ticket, `运行阶段 ${stage}${extraArgs ? `（${extraArgs}）` : ''}…`);

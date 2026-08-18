@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { onEvent, readEvents, type PipelineEvent } from '../events.js';
 import { activeTermsOnly, filterTermsByProject, matchTerms, readTermsFile, renderTermsBrief, writeGlossaryFile } from '../glossary.js';
+import { recordHits } from '../hits.js';
 import { activeOnly, filterByProject, keywords, readKnowledgeFile, scoreEntry, selectHints, writeHints } from '../knowledge.js';
 import { readSnapshot } from '../ticket.js';
 import { BitableBoard } from './client.js';
@@ -100,11 +101,12 @@ export async function prefetchKnowledgeHints(
   project?: string,
 ): Promise<number> {
   const board = BitableBoard.fromEnv();
-  if (!board) return 0;
+  if (!board || process.env.PIPELINE_HINTS_OFF) return 0; // 对照模式：跑一段不注入的时期，指标才有比较基准
   try {
     const all = await board.listKnowledge();
     const picked = selectHints(activeOnly(all), requirement, 12, project);
     writeHints(repo, ticket, picked);
+    recordHits(`ticket:${ticket}`, 'knowledge', picked.map((e) => e.title));
     return picked.length;
   } catch {
     return 0;
@@ -118,7 +120,7 @@ export async function prefetchKnowledgeHints(
  */
 export async function fetchKnowledgeBrief(query: string, project?: string, limit = 6): Promise<string> {
   const board = BitableBoard.fromEnv();
-  if (!board) return '';
+  if (!board || process.env.PIPELINE_HINTS_OFF) return '';
   try {
     const all = await board.listKnowledge();
     const words = keywords(query);
@@ -129,6 +131,7 @@ export async function fetchKnowledgeBrief(query: string, project?: string, limit
       .slice(0, limit)
       .map((x) => x.e);
     if (!hits.length) return '';
+    recordHits('run', 'knowledge', hits.map((e) => e.title));
     return [
       '（以下是本项目历史沉淀的相关经验，供参考，不是本次任务的要求）',
       ...hits.map((e) => `- **${e.title}**：${e.practice}`),
@@ -182,9 +185,10 @@ export async function prefetchGlossary(repo: string, ticket: string, project?: s
 /** /run 注入用：只带命中查询文本的词条（规范词或禁用同义词出现即命中） */
 export async function fetchGlossaryBrief(query: string, project?: string): Promise<string> {
   const board = BitableBoard.fromEnv();
-  if (!board) return '';
+  if (!board || process.env.PIPELINE_HINTS_OFF) return '';
   try {
     const hits = matchTerms(query, filterTermsByProject(activeTermsOnly(await board.listGlossary()), project));
+    recordHits('run', 'term', hits.map((t) => t.term));
     return renderTermsBrief(hits);
   } catch {
     return '';

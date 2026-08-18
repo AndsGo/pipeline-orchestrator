@@ -15,6 +15,7 @@ import {
 } from './commands.js';
 import { fetchGlossaryBrief, fetchKnowledgeBrief, initBitableSync } from './bitable/sync.js';
 import { buildDashboard, renderDashboard, type TicketRow } from './dashboard.js';
+import { computeMetrics, metricsDashItems, readAllSnapshots } from './metrics.js';
 import { appendEvent, listTickets, readEvents, timeline, totalCost } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { appendFeedback, appendRequirementAmendment } from './feedback.js';
@@ -168,7 +169,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         pendingCards: port.pendingLabels().length,
         boardEnabled: boardOn,
         adhoc: { count: adhoc.length, cost: adhoc.reduce((a, x) => a + x.costUsd, 0) },
-      }, rows);
+      }, rows, metricsDashItems(computeMetrics(readAllSnapshots())));
       const r = renderDashboard(d);
       await port.sendDashboard(r.config, r.runtime, r.tickets);
       return;

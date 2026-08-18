@@ -53,7 +53,7 @@ function parseJson<T>(raw: string | undefined, fallback: T): T {
   }
 }
 
-export function buildDashboard(env: NodeJS.ProcessEnv, rt: RuntimeInfo, tickets: TicketRow[]): DashboardData {
+export function buildDashboard(env: NodeJS.ProcessEnv, rt: RuntimeInfo, tickets: TicketRow[], extraRuntime: DashItem[] = []): DashboardData {
   const config: DashItem[] = [];
 
   // 每个项目一行：仓库链接 + 工单号前缀 + CI 任务，多项目时一眼看清各自接到哪
@@ -94,6 +94,8 @@ export function buildDashboard(env: NodeJS.ProcessEnv, rt: RuntimeInfo, tickets:
     { label: '看板投影', value: rt.boardEnabled ? '已启用' : '未配置' },
     ...(rt.adhoc?.count ? [{ label: '临时执行', value: `${rt.adhoc.count} 次 · $${rt.adhoc.cost.toFixed(2)}` }] : []),
     { label: '双评审', value: env.PIPELINE_DOUBLE_REVIEW === '1' ? '开启（取严）' : '关闭' },
+    ...(env.PIPELINE_HINTS_OFF ? [{ label: '⚠ 对照模式', value: '知识/术语注入已关闭（PIPELINE_HINTS_OFF）' }] : []),
+    ...extraRuntime,
   ];
 
   return { config, runtime, tickets };
