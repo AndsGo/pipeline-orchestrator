@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PLUGIN_DIR, STAGES } from './config.js';
+import { PLUGIN_DIR, RUNNER_SETTINGS, STAGES } from './config.js';
 import { wireSchema } from './schema.js';
 import type { Envelope, Stage } from './types.js';
 
@@ -37,6 +37,9 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     '-p',
     shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
+    // 禁用会抢流控的插件层（engineering-workflow 等）：消除双流控串线，每会话省下 13.6KB 元技能注入
+    '--settings',
+    shq(RUNNER_SETTINGS.replace(/\\/g, '/')),
     '--output-format',
     'json',
     '--allowedTools',
@@ -109,6 +112,9 @@ export function runClaudeText(
     '-p',
     shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
+    // 禁用会抢流控的插件层（engineering-workflow 等）：消除双流控串线，每会话省下 13.6KB 元技能注入
+    '--settings',
+    shq(RUNNER_SETTINGS.replace(/\\/g, '/')),
     '--output-format',
     'json',
     '--allowedTools',

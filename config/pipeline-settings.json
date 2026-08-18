@@ -1,0 +1,8 @@
+{
+  "_comment": "流水线 headless 会话的 --settings 覆盖：禁用会与阶段 skill 抢流控的插件层。实测（2026-08-18）：engineering-workflow 的 13.6KB 元技能注入每个阶段会话，其 Rule 0 triage / structured-review / pre-commit 钩子与 handoff 契约打架，且曾把其流程规则泄漏进 LS-008 的 PRD。superpowers 保留——implement 阶段依赖它。CLAUDE.md 与项目常识注入不受影响（这正是不用 --bare 的原因）。",
+  "enabledPlugins": {
+    "engineering-workflow@engineering-workflow-marketplace": false,
+    "codex@openai-codex": false,
+    "ralph-loop@claude-plugins-official": false
+  }
+}

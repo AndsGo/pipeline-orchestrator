@@ -10,6 +10,9 @@ export const PLUGIN_DIR =
 
 export const SCHEMA_PATH = path.join(PLUGIN_DIR, 'schemas', 'stage-result.schema.json');
 
+/** headless 会话的 --settings 覆盖：禁用与阶段 skill 抢流控的插件（保留 superpowers 与 CLAUDE.md 注入） */
+export const RUNNER_SETTINGS = path.resolve(here, '../config/pipeline-settings.json');
+
 export interface StageConfig {
   tools: string;
   model: string;

@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
@@ -586,7 +587,18 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         if (g && stage === 'clarify') await port.notify(ticket, `已注入项目术语表 ${g} 条（PRD 用语以此为准）`);
       }
     }
-    appendEvent({ ticket, type: 'stage.start', stage, summary: `阶段 ${stage} 开始${extraArgs ? `（${extraArgs}）` : ''}` });
+    // CLAUDE.md 是各阶段的隐式输入（frontmatter inputs 里看不到）——记录其内容哈希，行为差异才可审计（外部评审建议）
+    const claudeMdFile = path.join(repo, 'CLAUDE.md');
+    const claudeMdSha = fs.existsSync(claudeMdFile)
+      ? createHash('sha1').update(fs.readFileSync(claudeMdFile)).digest('hex').slice(0, 12)
+      : 'absent';
+    appendEvent({
+      ticket,
+      type: 'stage.start',
+      stage,
+      summary: `阶段 ${stage} 开始${extraArgs ? `（${extraArgs}）` : ''}`,
+      payload: { claudeMdSha },
+    });
     await port.notify(ticket, `运行阶段 ${stage}${extraArgs ? `（${extraArgs}）` : ''}…`);
 
     if (state.pendingExtraArgs) {

@@ -1,6 +1,7 @@
 import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { RUNNER_SETTINGS } from '../config.js';
 import { buildReviewPrompt, formatComment, MR_REVIEW_SCHEMA, type GitlabConfig, type MrNoteEvent, type MrReviewResult } from './core.js';
 
 const REVIEW_MODEL = 'opus';
@@ -82,6 +83,8 @@ function runClaudeReview(cwd: string, prompt: string): Promise<MrReviewResult> {
     'claude',
     '-p',
     shq(prompt),
+    '--settings',
+    shq(RUNNER_SETTINGS.replace(/\\/g, '/')),
     '--output-format',
     'json',
     '--allowedTools',
