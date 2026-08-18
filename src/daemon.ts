@@ -333,7 +333,8 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       const brief = [glBrief, kbBrief].filter(Boolean).join('\n');
       const release = await sem.acquire();
       const t0 = Date.now();
-      const prompt = brief ? `${brief}\n---\n${c.text}` : c.text;
+      // 输出语言必须钉死：实测出现过整段韩语回复直接进业务群
+      const prompt = `${brief ? `${brief}\n---\n` : ''}${c.text}\n\n（结果会原样发到中文业务群，请全程用中文回复）`;
       try {
         const r = await runClaudeText({
           cwd: project.repo,
