@@ -16,6 +16,7 @@ const CASES: Case[] = [
   { text: '跑一下前端测试', kind: 'run', sideEffect: false, why: '本地测试，无对外影响' },
   { text: '看下 docker-push 这个命令都干了什么', kind: 'run', sideEffect: false, why: '只是读命令文件' },
   { text: '帮我把前端镜像推到仓库', kind: 'run', sideEffect: true, why: '推远端仓库' },
+  { text: '将LS-008对应的worktree 合并到master后删除', kind: 'run', sideEffect: true, why: '合并主干+删worktree（2026-08-18 实测漏判）' },
   { text: '把这个项目部署一下', kind: 'run', sideEffect: true, why: '部署' },
   { text: '发个版本上去', kind: 'run', sideEffect: true, why: '发布' },
   { text: '给 /mcp 端点加限流', kind: 'new', why: '要改代码 → 建工单' },
