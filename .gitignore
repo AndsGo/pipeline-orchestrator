@@ -3,5 +3,6 @@
 data/
 logs/
 backups/
+.eval-tmp/
 node_modules/
 *.log

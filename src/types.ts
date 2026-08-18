@@ -22,6 +22,11 @@ export interface StageResult {
   concerns?: string[];
   blocked_reason?: string | null;
   verdict?: Verdict;
+  /** review 定稿的双轴清点（Spec 轴 + 质量轴，两轴永不合并排序） */
+  axes?: {
+    spec: { total: number; failed: number; worst: string | null };
+    quality: { critical: number; important: number; minor: number; worst: string | null };
+  } | null;
 }
 
 /** claude -p --output-format json 的信封（只声明编排需要的字段） */

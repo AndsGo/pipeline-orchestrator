@@ -649,7 +649,10 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     const action = route(state, res);
     state = applyResult(state, res, action, envelope.total_cost_usd, envelope.num_turns, envelope.session_id);
     saveTicket(state);
-    const endLine = `${res.stage} → ${res.status}${res.verdict ? ` / ${res.verdict}` : ''}（$${envelope.total_cost_usd.toFixed(2)}，${envelope.num_turns} 轮）`;
+    const axesLine = res.axes
+      ? `｜AC ${res.axes.spec.total - res.axes.spec.failed}/${res.axes.spec.total} · 质量 C${res.axes.quality.critical}/I${res.axes.quality.important}/M${res.axes.quality.minor}`
+      : '';
+    const endLine = `${res.stage} → ${res.status}${res.verdict ? ` / ${res.verdict}` : ''}${axesLine}（$${envelope.total_cost_usd.toFixed(2)}，${envelope.num_turns} 轮）`;
     appendEvent({
       ticket,
       type: 'stage.end',
