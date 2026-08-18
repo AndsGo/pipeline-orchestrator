@@ -45,6 +45,16 @@ export interface RunTicketOpts {
   acquire?: () => Promise<() => void>;
 }
 
+/** 提取 40-acceptance.md 的「本阶段结论」（含 AC 结果总表），发给业务方逐条确认——替代一句「PASS」 */
+export function extractAcReport(repo: string, ticket: string): string | null {
+  const f = path.join(ticketDir(repo, ticket), '40-acceptance.md');
+  if (!fs.existsSync(f)) return null;
+  const m = /## 本阶段结论\s*([\s\S]*?)(?=\n## |$)/.exec(fs.readFileSync(f, 'utf-8'));
+  const body = m?.[1]?.trim();
+  if (!body) return null;
+  return body.length > 2500 ? `${body.slice(0, 2500)}\n…（全文见 40-acceptance.md）` : body;
+}
+
 /** 最新一轮评审文档的仓库相对路径（重建修复轮 fix= 参数用） */
 export function latestReviewPath(repo: string, ticket: string): string | null {
   try {
@@ -391,6 +401,9 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
   // 续跑时恢复上次未用掉的阶段参数（暂停/重启不能丢掉修复轮的 findings 指针）
   let extraArgs = state.pendingExtraArgs ?? '';
 
+  // 挂起重试卡每次 runner 生命周期只发一次：确定性失败不该变成无限重试循环（AutoPort 会自动放行）
+  let offeredRetry = false;
+
   const withGate = async <T>(fn: () => Promise<T>): Promise<T> => {
     const release = opts.acquire ? await opts.acquire() : null;
     try {
@@ -484,7 +497,35 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
     if (state.haltedReason) {
       appendEvent({ ticket, type: 'halt', stage: state.cursor, summary: state.haltedReason });
-      await port.notify(ticket, `已挂起：${state.haltedReason}。处理后续跑，或在群里 @我 说明如何调整`);
+      // 错误翻译层：不把人丢给一句技术挂起原因，直接给「重试」按钮（本 runner 只发一次，防确定性失败空转）
+      if (!offeredRetry) {
+        offeredRetry = true;
+        appendEvent({ ticket, type: 'gate.asked', stage: state.cursor, summary: '挂起处理卡：是否立即重试' });
+        const d = await port.confirmGate(
+          ticket,
+          '挂起处理',
+          `工单在 ${state.cursor} 阶段挂起：${state.haltedReason.slice(0, 300)}\n\n通过 → 让 AI 立即重试该阶段（备注会作为约束带入）；驳回 → 保持挂起，处理好后在群里说「继续 ${ticket}」`,
+          [],
+        );
+        appendEvent({
+          ticket,
+          type: 'gate.answered',
+          stage: state.cursor,
+          summary: `挂起处理 → ${d.approved ? '重试' : '保持挂起'}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
+        });
+        if (d.approved) {
+          if (d.note?.trim()) {
+            const fb = appendFeedback(repo, ticket, '挂起重试说明', d.note);
+            extraArgs = `feedback=${fb}`;
+          }
+          state = { ...state, haltedReason: undefined };
+          saveTicket(state);
+          await port.notify(ticket, `重试 ${state.cursor} 阶段…`);
+          continue;
+        }
+        if (d.note?.trim()) appendFeedback(repo, ticket, '挂起备注', d.note);
+      }
+      await port.notify(ticket, `已挂起：${state.haltedReason}。处理后续跑，或在群里说「继续 ${ticket}」`);
       return;
     }
     if (isPaused(ticket)) {
@@ -578,6 +619,15 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
     });
     await port.notify(ticket, endLine);
+
+    // 验收定稿轮（带 verdict）：AC 结果表原文回飞书——业务方要看到逐条结果与证据，不是一句 PASS
+    if (stage === 'acceptance' && res.verdict) {
+      const rep = extractAcReport(repo, ticket);
+      if (rep) {
+        if (port.sendReport) await port.sendReport(ticket, `验收结果 ${res.verdict}`, rep);
+        else await port.notify(ticket, `验收结果（${res.verdict}）：\n${rep.slice(0, 600)}`);
+      }
+    }
 
     switch (action.kind) {
       case 'done': {

@@ -329,6 +329,11 @@ export class FeishuPort implements InteractionPort {
     });
   }
 
+  /** 结构化报告（验收 AC 结果表等）：复用结果卡的长文渲染 */
+  async sendReport(ticket: string, title: string, markdown: string): Promise<void> {
+    await this.sendResult(`${title} · ${ticket}`, markdown);
+  }
+
   /** 发送单次执行结果：短的走消息，长的走卡片（消息读长文很难受） */
   async sendResult(title: string, body: string, footer?: string): Promise<void> {
     if (body.length <= 600) {

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { appendAnswers, type Answer } from '../backfill.js';
 import { activeOnly, type KnowledgeEntry } from '../knowledge.js';
 import type { InteractionPort } from '../ports.js';
-import { ensureRejectionEvidence, latestReviewPath } from '../ticketRunner.js';
+import { ensureRejectionEvidence, extractAcReport, latestReviewPath } from '../ticketRunner.js';
 import type { OpenQuestion } from '../types.js';
 
 const entry = (title: string, status?: string): KnowledgeEntry => ({
@@ -63,6 +63,22 @@ describe('implement 修复轮的恢复能力', () => {
     fs.writeFileSync(path.join(dir, '30-review-r1.md'), 'x');
     fs.writeFileSync(path.join(dir, '30-review-r2.md'), 'x');
     expect(latestReviewPath(repo, 'LS-1')).toBe('docs/pipeline/LS-1/30-review-r2.md');
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('extractAcReport 取「本阶段结论」节，超长截断，缺失返回 null', () => {
+    const repo = mkRepo();
+    const dir = path.join(repo, 'docs', 'pipeline', 'LS-1');
+    fs.mkdirSync(dir, { recursive: true });
+    expect(extractAcReport(repo, 'LS-1')).toBeNull();
+    fs.writeFileSync(
+      path.join(dir, '40-acceptance.md'),
+      '---\nstage: acceptance\n---\n\n## 本阶段结论\n\n| AC | 结果 |\n|---|---|\n| AC-1 | PASS |\n\n## 关键决策及理由\n无\n',
+      'utf-8',
+    );
+    const rep = extractAcReport(repo, 'LS-1');
+    expect(rep).toContain('| AC-1 | PASS |');
+    expect(rep).not.toContain('关键决策');
     fs.rmSync(repo, { recursive: true, force: true });
   });
 

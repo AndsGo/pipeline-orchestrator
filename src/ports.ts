@@ -19,6 +19,8 @@ export interface InteractionPort {
   confirmGate(ticket: string, gate: string, summary: string, concerns: string[], detail?: string): Promise<GateDecision>;
   /** 单向通知 */
   notify(ticket: string, message: string): Promise<void>;
+  /** 结构化报告（如验收 AC 结果表）：比 notify 长、要排版。可选——未实现的端口由调用方降级为 notify */
+  sendReport?(ticket: string, title: string, markdown: string): Promise<void>;
   close(): void;
 }
 
@@ -56,6 +58,10 @@ export class CliPort implements InteractionPort {
 
   async notify(ticket: string, message: string): Promise<void> {
     console.log(`\n[${ticket}] ${message}`);
+  }
+
+  async sendReport(ticket: string, title: string, markdown: string): Promise<void> {
+    console.log(`\n[${ticket}] ${title}\n${markdown}`);
   }
 
   close(): void {
