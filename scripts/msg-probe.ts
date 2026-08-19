@@ -64,7 +64,7 @@ if (!mf?.message_id) {
   console.log('（最近 20 条里没有 merge_forward 消息，跳过子消息探测）');
   process.exit(0);
 }
-let detail: { data?: { items?: Array<{ msg_type?: string; body?: { content?: string } }> } };
+let detail: { data?: { items?: Array<{ message_id?: string; msg_type?: string; body?: { content?: string } }> } };
 try {
   detail = (await client.im.message.get({ path: { message_id: mf.message_id } })) as typeof detail;
 } catch (e) {
@@ -73,4 +73,24 @@ try {
 }
 const subs = detail.data?.items ?? [];
 console.log(`✅ merge_forward 可展开，共 ${subs.length} 条（含父消息）：`);
-for (const s of subs) console.log(`  - [${s.msg_type}] ${clip(s.body?.content, 100)}`);
+for (const s of subs) console.log(`  - [${s.msg_type}] id=${s.message_id} ${clip(s.body?.content, 100)}`);
+
+// ③ 试下载子消息里的图片（文档说合并转发子消息资源 234043 不开放——用真机验证一次）
+const imgSub = subs
+  .map((s) => ({ id: s.message_id, key: /"image_key"\s*:\s*"([^"]+)"/.exec(s.body?.content ?? '')?.[1] }))
+  .find((s) => s.id && s.key);
+if (!imgSub) {
+  console.log('（子消息里没有图片，跳过资源下载探测）');
+  process.exit(0);
+}
+try {
+  const resp = await client.im.messageResource.get({
+    params: { type: 'image' },
+    path: { message_id: imgSub.id!, file_key: imgSub.key! },
+  });
+  const out = 'data/probe-image.bin';
+  await resp.writeFile(out);
+  console.log(`✅ 子消息图片竟然能下载 → ${out}（Content-Type: ${(resp.headers as Record<string, string>)?.['content-type']}）`);
+} catch (e) {
+  console.log(`❌ 子消息图片下载失败（预期 234043）：${feishuErr(e)}`);
+}

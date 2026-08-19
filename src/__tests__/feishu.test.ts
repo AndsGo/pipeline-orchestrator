@@ -231,55 +231,66 @@ describe('群消息文本解析', () => {
 describe('引用/合并转发展开（renderQuotedItems）', () => {
   const text = (t: string): QuotedItem => ({ msg_type: 'text', body: { content: JSON.stringify({ text: t }) } });
 
-  it('合并转发：跳过父项占位标题，按序拼接文本子消息，图片打占位符', () => {
+  it('合并转发：跳过父项占位标题，按序拼接文本子消息；子消息图片只占位不登记（飞书 234043 不开放下载，真机实测）', () => {
     // 夹具形状取自真机 im.message.get 的返回（2026-08-19 msg-probe 实测）
     const items: QuotedItem[] = [
       { msg_type: 'merge_forward', body: { content: 'Merged and Forwarded Message' } },
       {
         msg_type: 'post',
+        message_id: 'om_sub1',
         body: { content: JSON.stringify({ title: '', content: [[{ tag: 'img', image_key: 'img_x' }]] }) },
       },
       text('我想区分下 谁调用最多'),
       text('然后把那个异常调用的给揪出来'),
     ];
-    const out = renderQuotedItems(items);
+    const { text: out, images } = renderQuotedItems(items);
     expect(out).not.toContain('Merged and Forwarded');
-    expect(out).toContain('[图片，未解析]');
+    expect(out).toContain('[图片，未解析');
+    expect(images).toEqual([]);
     expect(out).toContain('我想区分下 谁调用最多');
     expect(out.indexOf('区分下')).toBeLessThan(out.indexOf('揪出来'));
   });
 
-  it('引用普通文本消息：单条展开', () => {
-    expect(renderQuotedItems([text('原始需求在这')])).toBe('原始需求在这');
+  it('引用普通文本消息：单条展开，无图片登记', () => {
+    expect(renderQuotedItems([text('原始需求在这')])).toEqual({ text: '原始需求在这', images: [] });
   });
 
-  it('富文本标题与文字段落拍平；未知类型标注不吞', () => {
-    const items: QuotedItem[] = [
+  it('引用图片消息（非合并转发）：登记下载引用，文本占 marker 位', () => {
+    const { text: out, images } = renderQuotedItems([
+      { msg_type: 'image', message_id: 'om_1', body: { content: JSON.stringify({ image_key: 'img_k1' }) } },
+    ]);
+    expect(images).toEqual([{ messageId: 'om_1', fileKey: 'img_k1', marker: '[图片#1]' }]);
+    expect(out).toBe('[图片#1]');
+  });
+
+  it('群内富文本带图（非合并转发）：图用所属消息的 message_id 登记，文字照常拍平', () => {
+    const { text: out, images } = renderQuotedItems([
       {
         msg_type: 'post',
+        message_id: 'om_post',
         body: {
           content: JSON.stringify({
             title: '需求截图',
-            content: [[{ tag: 'text', text: '第一段' }, { tag: 'a', text: '链接文字' }]],
+            content: [[{ tag: 'text', text: '第一段' }, { tag: 'img', image_key: 'img_p' }, { tag: 'a', text: '链接文字' }]],
           }),
         },
       },
       { msg_type: 'audio' },
-    ];
-    const out = renderQuotedItems(items);
+    ]);
     expect(out).toContain('需求截图');
-    expect(out).toContain('第一段链接文字');
+    expect(out).toContain('第一段[图片#1]链接文字');
     expect(out).toContain('[audio消息，未解析]');
+    expect(images).toEqual([{ messageId: 'om_post', fileKey: 'img_p', marker: '[图片#1]' }]);
   });
 
   it('超长引用截断并注明', () => {
-    const out = renderQuotedItems([text('长'.repeat(5000))]);
+    const { text: out } = renderQuotedItems([text('长'.repeat(5000))]);
     expect(out.length).toBeLessThan(3100);
     expect(out).toContain('已截断');
   });
 
   it('坏 JSON 与空列表：安静降级为空串', () => {
-    expect(renderQuotedItems([{ msg_type: 'text', body: { content: '{oops' } }])).toBe('');
-    expect(renderQuotedItems([])).toBe('');
+    expect(renderQuotedItems([{ msg_type: 'text', body: { content: '{oops' } }]).text).toBe('');
+    expect(renderQuotedItems([]).text).toBe('');
   });
 });

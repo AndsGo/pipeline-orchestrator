@@ -1,4 +1,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Answer } from '../backfill.js';
 import type { GateDecision, InteractionPort } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
@@ -353,6 +356,7 @@ export class FeishuPort implements InteractionPort {
 
   /**
    * 拉取被引用消息的内容并展开成文本；父消息是合并转发时含全部子消息。
+   * 可下载的图片落到 data/quoted/，文本里替换成文件路径（执行会话用 Read 工具就能看图）。
    * 失败返回 null（缺 im:message.group_msg 权限 / 消息过久），由调用方决定怎么向人交代。
    */
   async fetchQuoted(messageId: string): Promise<string | null> {
@@ -360,7 +364,36 @@ export class FeishuPort implements InteractionPort {
       const res = (await this.client.im.message.get({ path: { message_id: messageId } })) as {
         data?: { items?: QuotedItem[] };
       };
-      return renderQuotedItems(res?.data?.items ?? []) || null;
+      const { text, images } = renderQuotedItems(res?.data?.items ?? []);
+      let out = text;
+      for (const ref of images) {
+        const saved = await this.downloadQuotedImage(ref);
+        out = out.replace(ref.marker, saved ? `[图片已保存：${saved}——请用 Read 工具查看]` : '[图片，下载失败未解析]');
+      }
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 下载引用图片到 data/quoted/（按 Content-Type 定扩展名）；顺手清理 7 天前的旧图。失败返回 null */
+  private async downloadQuotedImage(ref: QuotedImageRef): Promise<string | null> {
+    try {
+      const resp = await this.client.im.messageResource.get({
+        params: { type: 'image' },
+        path: { message_id: ref.messageId, file_key: ref.fileKey },
+      });
+      fs.mkdirSync(QUOTED_DIR, { recursive: true });
+      for (const f of fs.readdirSync(QUOTED_DIR)) {
+        const fp = path.join(QUOTED_DIR, f);
+        if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 24 * 3600_000) fs.rmSync(fp, { force: true });
+      }
+      const ct = String((resp.headers as Record<string, unknown>)?.['content-type'] ?? '');
+      const ext = ct.includes('jpeg') ? '.jpg' : ct.includes('webp') ? '.webp' : ct.includes('gif') ? '.gif' : '.png';
+      // file_key 可作文件名（字母数字下划线连字符），复用它天然去重同图多次引用
+      const file = path.join(QUOTED_DIR, `${ref.fileKey.replace(/[^\w-]/g, '_')}${ext}`);
+      await resp.writeFile(file);
+      return file;
     } catch {
       return null;
     }
@@ -410,19 +443,43 @@ export class FeishuPort implements InteractionPort {
 
 /** 引用/合并转发展开用的消息项（im.message.get 返回的 items 形状子集） */
 export interface QuotedItem {
+  message_id?: string;
   msg_type?: string;
   body?: { content?: string };
+}
+
+/** 待下载的图片引用：marker 是先占进文本的位置，下载后原地替换成文件路径 */
+export interface QuotedImageRef {
+  messageId: string;
+  fileKey: string;
+  marker: string;
 }
 
 /** 引用内容注入指令文本的上限：够业务对话用，防止超长转发把分类与执行提示词撑爆 */
 const QUOTE_CAP = 3000;
 
+/** 引用图片的落盘目录（data/ 已 gitignore；下载时顺手清 7 天前的旧图） */
+const QUOTED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/quoted');
+
+/** 合并转发子消息里的图片：飞书资源接口明确不开放（错误码 234043），只能占位说明 */
+const MF_IMG_PLACEHOLDER = '[图片，未解析——合并转发内的图片飞书不开放下载，如需分析请单独发图]';
+
 /**
  * 展开引用/合并转发的消息项为可读文本（纯逻辑，可单测）。
- * 合并转发的父项只有占位标题（"Merged and Forwarded Message"），跳过；
- * 图片等非文本子消息以占位符标注——诚实说明"这部分我没看到"，不能静默吞掉。
+ * 合并转发的父项只有占位标题（"Merged and Forwarded Message"），跳过。
+ * 可下载的图片（引用的图片消息/群内富文本的图）登记进 images，由调用方下载后替换 marker；
+ * 拿不到的一律占位标注——诚实说明"这部分我没看到"，不能静默吞掉。
  */
-export function renderQuotedItems(items: QuotedItem[]): string {
+export function renderQuotedItems(items: QuotedItem[]): { text: string; images: QuotedImageRef[] } {
+  // 合并转发的子消息资源不可下载（234043）；其余场景（引用图片消息、群内富文本）可下载
+  const inMergeForward = items[0]?.msg_type === 'merge_forward';
+  const images: QuotedImageRef[] = [];
+  const imgMark = (messageId: string | undefined, fileKey: string | undefined): string => {
+    if (inMergeForward || !messageId || !fileKey) return MF_IMG_PLACEHOLDER;
+    const marker = `[图片#${images.length + 1}]`;
+    images.push({ messageId, fileKey, marker });
+    return marker;
+  };
   const lines: string[] = [];
   for (const it of items) {
     const c = it.body?.content;
@@ -434,9 +491,14 @@ export function renderQuotedItems(items: QuotedItem[]): string {
         /* 坏行跳过 */
       }
     } else if (it.msg_type === 'post') {
-      lines.push(renderPost(c));
+      lines.push(renderPost(c, (key) => imgMark(it.message_id, key)));
     } else if (it.msg_type === 'image') {
-      lines.push('[图片，未解析]');
+      try {
+        const key = (JSON.parse(c ?? '') as { image_key?: string }).image_key;
+        lines.push(imgMark(it.message_id, key));
+      } catch {
+        lines.push(MF_IMG_PLACEHOLDER);
+      }
     } else if (it.msg_type === 'merge_forward') {
       /* 父项占位标题，子消息随后逐条出现 */
     } else {
@@ -444,21 +506,23 @@ export function renderQuotedItems(items: QuotedItem[]): string {
     }
   }
   const joined = lines.filter(Boolean).join('\n');
-  return joined.length > QUOTE_CAP ? `${joined.slice(0, QUOTE_CAP)}\n…（引用内容过长已截断）` : joined;
+  // 截断只砍文本尾巴：marker 若被截掉，对应 images 项替换不到也无害（replace 落空）
+  const text = joined.length > QUOTE_CAP ? `${joined.slice(0, QUOTE_CAP)}\n…（引用内容过长已截断）` : joined;
+  return { text, images };
 }
 
-/** 富文本消息（post）拍平成纯文本；内嵌图片同样打占位符 */
-function renderPost(content?: string): string {
+/** 富文本消息（post）拍平成纯文本；内嵌图片经 imgMark 决定是登记下载还是占位 */
+function renderPost(content: string | undefined, imgMark: (key?: string) => string): string {
   try {
     const p = JSON.parse(content ?? '') as {
       title?: string;
-      content?: Array<Array<{ tag?: string; text?: string }>>;
+      content?: Array<Array<{ tag?: string; text?: string; image_key?: string }>>;
     };
     const runs: string[] = [];
     if (p.title?.trim()) runs.push(p.title.trim());
     for (const para of p.content ?? []) {
       const line = para
-        .map((r) => (r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : r.tag === 'img' ? '[图片，未解析]' : ''))
+        .map((r) => (r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : r.tag === 'img' ? imgMark(r.image_key) : ''))
         .join('');
       if (line.trim()) runs.push(line.trim());
     }
