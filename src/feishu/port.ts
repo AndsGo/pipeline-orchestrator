@@ -44,6 +44,11 @@ interface Pending {
   group?: QuestionGroup;
   /** 所属工单，供按工单过滤待答项 */
   ticket?: string;
+  /**
+   * 只接受选项匹配，自由文本不落位。控制流卡（chooseOption）必开：
+   * 真机事故——「它的回答我不会了」被当自由文本答案落进低置信确认卡，意外确认建了工单。
+   */
+  strictOptions?: boolean;
 }
 
 const APPROVE = /^(通过|同意|批准|可以|没问题|ok|approve|yes|y)/i;
@@ -189,7 +194,14 @@ export class FeishuPort implements InteractionPort {
     key: string,
     resolvedTitle: string,
     contextBody: string,
-    meta: { kind: 'answer' | 'gate'; label: string; options?: string[]; group?: QuestionGroup; ticket?: string },
+    meta: {
+      kind: 'answer' | 'gate';
+      label: string;
+      options?: string[];
+      group?: QuestionGroup;
+      ticket?: string;
+      strictOptions?: boolean;
+    },
   ): Promise<{ value: string; note?: string }> {
     return new Promise((resolve) => this.pending.set(key, { resolve, resolvedTitle, contextBody, ...meta }));
   }
@@ -287,7 +299,7 @@ export class FeishuPort implements InteractionPort {
       if (opt) {
         answer = opt;
         note = body.slice(opt.length).trim() || undefined;
-      } else if (allowFreeText) {
+      } else if (allowFreeText && !p.strictOptions) {
         answer = body;
       } else return null;
     }
@@ -364,11 +376,17 @@ export class FeishuPort implements InteractionPort {
       const res = (await this.client.im.message.get({ path: { message_id: messageId } })) as {
         data?: { items?: QuotedItem[] };
       };
-      const { text, images } = renderQuotedItems(res?.data?.items ?? []);
+      const { text, resources } = renderQuotedItems(res?.data?.items ?? []);
       let out = text;
-      for (const ref of images) {
-        const saved = await this.downloadQuotedImage(ref);
-        out = out.replace(ref.marker, saved ? `[图片已保存：${saved}——请用 Read 工具查看]` : '[图片，下载失败未解析]');
+      for (const ref of resources) {
+        const saved = await this.downloadQuotedResource(ref);
+        const what = ref.kind === 'image' ? '图片' : '文件';
+        out = out.replace(
+          ref.marker,
+          saved
+            ? `[${what}已保存：${saved}——文本/图片/PDF 可用 Read 工具查看，其他格式可用 Bash 处理]`
+            : `[${what}，下载失败未解析]`,
+        );
       }
       return out || null;
     } catch {
@@ -376,11 +394,14 @@ export class FeishuPort implements InteractionPort {
     }
   }
 
-  /** 下载引用图片到 data/quoted/（按 Content-Type 定扩展名）；顺手清理 7 天前的旧图。失败返回 null */
-  private async downloadQuotedImage(ref: QuotedImageRef): Promise<string | null> {
+  /**
+   * 下载引用的图片/文件到 data/quoted/（图片按 Content-Type 定扩展名，文件保留原名）；
+   * 顺手清理 7 天前的旧资源。失败返回 null
+   */
+  private async downloadQuotedResource(ref: QuotedResourceRef): Promise<string | null> {
     try {
       const resp = await this.client.im.messageResource.get({
-        params: { type: 'image' },
+        params: { type: ref.kind },
         path: { message_id: ref.messageId, file_key: ref.fileKey },
       });
       fs.mkdirSync(QUOTED_DIR, { recursive: true });
@@ -388,10 +409,19 @@ export class FeishuPort implements InteractionPort {
         const fp = path.join(QUOTED_DIR, f);
         if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 24 * 3600_000) fs.rmSync(fp, { force: true });
       }
-      const ct = String((resp.headers as Record<string, unknown>)?.['content-type'] ?? '');
-      const ext = ct.includes('jpeg') ? '.jpg' : ct.includes('webp') ? '.webp' : ct.includes('gif') ? '.gif' : '.png';
-      // file_key 可作文件名（字母数字下划线连字符），复用它天然去重同图多次引用
-      const file = path.join(QUOTED_DIR, `${ref.fileKey.replace(/[^\w-]/g, '_')}${ext}`);
+      // file_key 可作文件名（字母数字下划线连字符），复用它天然去重同资源多次引用；
+      // 文件消息再拼上原始文件名，扩展名跟着原名走（Read/Bash 都认得出格式）
+      const keyPart = ref.fileKey.replace(/[^\w-]/g, '_');
+      let name: string;
+      if (ref.kind === 'image') {
+        const ct = String((resp.headers as Record<string, unknown>)?.['content-type'] ?? '');
+        const ext = ct.includes('jpeg') ? '.jpg' : ct.includes('webp') ? '.webp' : ct.includes('gif') ? '.gif' : '.png';
+        name = `${keyPart}${ext}`;
+      } else {
+        const safe = (ref.name ?? 'file').replace(/[\\/:*?"<>|]/g, '_').slice(-80);
+        name = `${keyPart.slice(0, 16)}_${safe}`;
+      }
+      const file = path.join(QUOTED_DIR, name);
       await resp.writeFile(file);
       return file;
     } catch {
@@ -422,7 +452,13 @@ export class FeishuPort implements InteractionPort {
   /** 让人从候选里选一个（识别不确定时用，比"没听懂"友好） */
   async chooseOption(ticket: string, question: string, options: string[]): Promise<string> {
     const key = this.nextKey(`choose:${ticket}`);
-    const wait = this.waitFor(key, `${ticket} 已选择`, question, { kind: 'answer', label: '选择', options, ticket });
+    const wait = this.waitFor(key, `${ticket} 已选择`, question, {
+      kind: 'answer',
+      label: '选择',
+      options,
+      ticket,
+      strictOptions: true,
+    });
     await this.postCard(chooseCard(ticket, question, options, key));
     return (await wait).value;
   }
@@ -448,11 +484,15 @@ export interface QuotedItem {
   body?: { content?: string };
 }
 
-/** 待下载的图片引用：marker 是先占进文本的位置，下载后原地替换成文件路径 */
-export interface QuotedImageRef {
+/** 待下载的资源引用（图片/文件）：marker 是先占进文本的位置，下载后原地替换成文件路径 */
+export interface QuotedResourceRef {
   messageId: string;
   fileKey: string;
   marker: string;
+  /** 资源接口的 type 参数：图片 image，文件/音视频 file */
+  kind: 'image' | 'file';
+  /** 文件消息自带的原始文件名（含扩展名），落盘时保留 */
+  name?: string;
 }
 
 /** 引用内容注入指令文本的上限：够业务对话用，防止超长转发把分类与执行提示词撑爆 */
@@ -461,23 +501,30 @@ const QUOTE_CAP = 3000;
 /** 引用图片的落盘目录（data/ 已 gitignore；下载时顺手清 7 天前的旧图） */
 const QUOTED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/quoted');
 
-/** 合并转发子消息里的图片：飞书资源接口明确不开放（错误码 234043），只能占位说明 */
-const MF_IMG_PLACEHOLDER = '[图片，未解析——合并转发内的图片飞书不开放下载，如需分析请单独发图]';
+/** 合并转发子消息里的资源：飞书资源接口明确不开放（错误码 234043），只能占位说明 */
+const MF_RES_PLACEHOLDER = (what: string): string =>
+  `[${what}，未解析——合并转发内的${what}飞书不开放下载，如需分析请单独发]`;
 
 /**
  * 展开引用/合并转发的消息项为可读文本（纯逻辑，可单测）。
  * 合并转发的父项只有占位标题（"Merged and Forwarded Message"），跳过。
- * 可下载的图片（引用的图片消息/群内富文本的图）登记进 images，由调用方下载后替换 marker；
+ * 可下载的资源（引用的图片/文件消息、群内富文本的图）登记进 resources，由调用方下载后替换 marker；
  * 拿不到的一律占位标注——诚实说明"这部分我没看到"，不能静默吞掉。
  */
-export function renderQuotedItems(items: QuotedItem[]): { text: string; images: QuotedImageRef[] } {
-  // 合并转发的子消息资源不可下载（234043）；其余场景（引用图片消息、群内富文本）可下载
+export function renderQuotedItems(items: QuotedItem[]): { text: string; resources: QuotedResourceRef[] } {
+  // 合并转发的子消息资源不可下载（234043）；其余场景（引用图片/文件消息、群内富文本）可下载
   const inMergeForward = items[0]?.msg_type === 'merge_forward';
-  const images: QuotedImageRef[] = [];
-  const imgMark = (messageId: string | undefined, fileKey: string | undefined): string => {
-    if (inMergeForward || !messageId || !fileKey) return MF_IMG_PLACEHOLDER;
-    const marker = `[图片#${images.length + 1}]`;
-    images.push({ messageId, fileKey, marker });
+  const resources: QuotedResourceRef[] = [];
+  const mark = (
+    kind: 'image' | 'file',
+    what: string,
+    messageId: string | undefined,
+    fileKey: string | undefined,
+    name?: string,
+  ): string => {
+    if (inMergeForward || !messageId || !fileKey) return MF_RES_PLACEHOLDER(what);
+    const marker = `[${what}#${resources.length + 1}]`;
+    resources.push({ messageId, fileKey, marker, kind, name });
     return marker;
   };
   const lines: string[] = [];
@@ -491,13 +538,20 @@ export function renderQuotedItems(items: QuotedItem[]): { text: string; images: 
         /* 坏行跳过 */
       }
     } else if (it.msg_type === 'post') {
-      lines.push(renderPost(c, (key) => imgMark(it.message_id, key)));
+      lines.push(renderPost(c, (key) => mark('image', '图片', it.message_id, key)));
     } else if (it.msg_type === 'image') {
       try {
         const key = (JSON.parse(c ?? '') as { image_key?: string }).image_key;
-        lines.push(imgMark(it.message_id, key));
+        lines.push(mark('image', '图片', it.message_id, key));
       } catch {
-        lines.push(MF_IMG_PLACEHOLDER);
+        lines.push(MF_RES_PLACEHOLDER('图片'));
+      }
+    } else if (it.msg_type === 'file') {
+      try {
+        const f = JSON.parse(c ?? '') as { file_key?: string; file_name?: string };
+        lines.push(mark('file', '文件', it.message_id, f.file_key, f.file_name));
+      } catch {
+        lines.push(MF_RES_PLACEHOLDER('文件'));
       }
     } else if (it.msg_type === 'merge_forward') {
       /* 父项占位标题，子消息随后逐条出现 */
@@ -506,9 +560,9 @@ export function renderQuotedItems(items: QuotedItem[]): { text: string; images: 
     }
   }
   const joined = lines.filter(Boolean).join('\n');
-  // 截断只砍文本尾巴：marker 若被截掉，对应 images 项替换不到也无害（replace 落空）
+  // 截断只砍文本尾巴：marker 若被截掉，对应 resources 项替换不到也无害（replace 落空）
   const text = joined.length > QUOTE_CAP ? `${joined.slice(0, QUOTE_CAP)}\n…（引用内容过长已截断）` : joined;
-  return { text, images };
+  return { text, resources };
 }
 
 /** 富文本消息（post）拍平成纯文本；内嵌图片经 imgMark 决定是登记下载还是占位 */

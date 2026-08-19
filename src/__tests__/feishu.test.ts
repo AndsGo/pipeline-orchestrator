@@ -242,29 +242,45 @@ describe('引用/合并转发展开（renderQuotedItems）', () => {
       },
       text('我想区分下 谁调用最多'),
       text('然后把那个异常调用的给揪出来'),
+      { msg_type: 'file', message_id: 'om_sub2', body: { content: JSON.stringify({ file_key: 'fk', file_name: 'a.docx' }) } },
     ];
-    const { text: out, images } = renderQuotedItems(items);
+    const { text: out, resources } = renderQuotedItems(items);
     expect(out).not.toContain('Merged and Forwarded');
     expect(out).toContain('[图片，未解析');
-    expect(images).toEqual([]);
+    expect(out).toContain('[文件，未解析');
+    expect(resources).toEqual([]);
     expect(out).toContain('我想区分下 谁调用最多');
     expect(out.indexOf('区分下')).toBeLessThan(out.indexOf('揪出来'));
   });
 
-  it('引用普通文本消息：单条展开，无图片登记', () => {
-    expect(renderQuotedItems([text('原始需求在这')])).toEqual({ text: '原始需求在这', images: [] });
+  it('引用普通文本消息：单条展开，无资源登记', () => {
+    expect(renderQuotedItems([text('原始需求在这')])).toEqual({ text: '原始需求在这', resources: [] });
   });
 
   it('引用图片消息（非合并转发）：登记下载引用，文本占 marker 位', () => {
-    const { text: out, images } = renderQuotedItems([
+    const { text: out, resources } = renderQuotedItems([
       { msg_type: 'image', message_id: 'om_1', body: { content: JSON.stringify({ image_key: 'img_k1' }) } },
     ]);
-    expect(images).toEqual([{ messageId: 'om_1', fileKey: 'img_k1', marker: '[图片#1]' }]);
+    expect(resources).toEqual([{ messageId: 'om_1', fileKey: 'img_k1', marker: '[图片#1]', kind: 'image' }]);
     expect(out).toBe('[图片#1]');
   });
 
+  it('引用文件消息（非合并转发）：登记 file 下载引用并保留原始文件名', () => {
+    const { text: out, resources } = renderQuotedItems([
+      {
+        msg_type: 'file',
+        message_id: 'om_f',
+        body: { content: JSON.stringify({ file_key: 'file_k9', file_name: '湖灵MCP想法.docx' }) },
+      },
+    ]);
+    expect(resources).toEqual([
+      { messageId: 'om_f', fileKey: 'file_k9', marker: '[文件#1]', kind: 'file', name: '湖灵MCP想法.docx' },
+    ]);
+    expect(out).toBe('[文件#1]');
+  });
+
   it('群内富文本带图（非合并转发）：图用所属消息的 message_id 登记，文字照常拍平', () => {
-    const { text: out, images } = renderQuotedItems([
+    const { text: out, resources } = renderQuotedItems([
       {
         msg_type: 'post',
         message_id: 'om_post',
@@ -280,7 +296,7 @@ describe('引用/合并转发展开（renderQuotedItems）', () => {
     expect(out).toContain('需求截图');
     expect(out).toContain('第一段[图片#1]链接文字');
     expect(out).toContain('[audio消息，未解析]');
-    expect(images).toEqual([{ messageId: 'om_post', fileKey: 'img_p', marker: '[图片#1]' }]);
+    expect(resources).toEqual([{ messageId: 'om_post', fileKey: 'img_p', marker: '[图片#1]', kind: 'image' }]);
   });
 
   it('超长引用截断并注明', () => {
@@ -292,5 +308,22 @@ describe('引用/合并转发展开（renderQuotedItems）', () => {
   it('坏 JSON 与空列表：安静降级为空串', () => {
     expect(renderQuotedItems([{ msg_type: 'text', body: { content: '{oops' } }]).text).toBe('');
     expect(renderQuotedItems([]).text).toBe('');
+  });
+});
+
+describe('chooseOption 只认选项（strictOptions）', () => {
+  it('自由文本不落位（真机事故回归：「它的回答我不会了」曾误确认建单）；选项前缀仍可解析', async () => {
+    const sent: Record<string, unknown>[] = [];
+    const fakeClient = {
+      im: { message: { create: async (req: Record<string, unknown>) => (sent.push(req), {}) } },
+    };
+    const port = new FeishuPort(fakeClient as never, null, { appId: 'a', appSecret: 's', chatId: 'c' });
+    const p = port.chooseOption('指令', '怎么处理？', ['按 new 执行', '记为说明（/note）', '取消']);
+    // 不匹配任何选项的自由文本：不落位，卡片继续等
+    expect(port.tryAnswerByText('它的回答我不会了，你来整下', true)).toMatchObject({ status: 'none' });
+    expect(port.pendingLabels()).toEqual(['选择']);
+    // 选项前缀 + 补充说明：正常解析
+    expect(port.tryAnswerByText('取消 我先问问同事', true)).toMatchObject({ status: 'resolved', answer: '取消' });
+    expect(await p).toBe('取消');
   });
 });
