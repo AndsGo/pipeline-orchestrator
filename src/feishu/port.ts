@@ -96,14 +96,31 @@ export class FeishuPort implements InteractionPort {
     };
     if (onMessage) {
       handlers['im.message.receive_v1'] = (async (data: {
-        message?: { chat_id?: string; content?: string; message_id?: string; message_type?: string };
+        message?: {
+          chat_id?: string;
+          content?: string;
+          message_id?: string;
+          message_type?: string;
+          /** 引用回复时带上被引用消息的 ID——内容要另调 API 拉（需 im:message.group_msg 权限） */
+          parent_id?: string;
+        };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
         const parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
         if (parsed) {
+          let text = parsed.text;
+          if (data.message?.parent_id) {
+            const quoted = await port.fetchQuoted(data.message.parent_id);
+            if (quoted) {
+              text = `${text}\n\n【用户引用的消息】\n${quoted}`;
+            } else {
+              // 明说而不是拿半句话硬跑：引用内容没拉到时，下游只会看到这一句话本身
+              void port.notify('引用', '你引用的那条消息我没能拉取到内容（可能过久或权限不足），下面只按你这句话本身处理。如需分析引用内容，请粘成文字重发。');
+            }
+          }
           onMessage({
             chatId: data.message?.chat_id ?? '',
-            text: parsed.text,
+            text,
             mentioned: parsed.mentioned,
             sender: data.sender?.sender_id?.open_id ?? 'unknown',
             messageId: data.message?.message_id ?? '',
@@ -334,6 +351,21 @@ export class FeishuPort implements InteractionPort {
     await this.sendResult(`${title} · ${ticket}`, markdown);
   }
 
+  /**
+   * 拉取被引用消息的内容并展开成文本；父消息是合并转发时含全部子消息。
+   * 失败返回 null（缺 im:message.group_msg 权限 / 消息过久），由调用方决定怎么向人交代。
+   */
+  async fetchQuoted(messageId: string): Promise<string | null> {
+    try {
+      const res = (await this.client.im.message.get({ path: { message_id: messageId } })) as {
+        data?: { items?: QuotedItem[] };
+      };
+      return renderQuotedItems(res?.data?.items ?? []) || null;
+    } catch {
+      return null;
+    }
+  }
+
   /** 发送单次执行结果：短的走消息，长的走卡片（消息读长文很难受） */
   async sendResult(title: string, body: string, footer?: string): Promise<void> {
     if (body.length <= 600) {
@@ -373,6 +405,66 @@ export class FeishuPort implements InteractionPort {
   close(): void {
     // node-sdk WSClient 暂无公开 stop API；进程退出即断开
     this.ws = null;
+  }
+}
+
+/** 引用/合并转发展开用的消息项（im.message.get 返回的 items 形状子集） */
+export interface QuotedItem {
+  msg_type?: string;
+  body?: { content?: string };
+}
+
+/** 引用内容注入指令文本的上限：够业务对话用，防止超长转发把分类与执行提示词撑爆 */
+const QUOTE_CAP = 3000;
+
+/**
+ * 展开引用/合并转发的消息项为可读文本（纯逻辑，可单测）。
+ * 合并转发的父项只有占位标题（"Merged and Forwarded Message"），跳过；
+ * 图片等非文本子消息以占位符标注——诚实说明"这部分我没看到"，不能静默吞掉。
+ */
+export function renderQuotedItems(items: QuotedItem[]): string {
+  const lines: string[] = [];
+  for (const it of items) {
+    const c = it.body?.content;
+    if (it.msg_type === 'text') {
+      try {
+        const t = (JSON.parse(c ?? '') as { text?: string }).text?.trim();
+        if (t) lines.push(t);
+      } catch {
+        /* 坏行跳过 */
+      }
+    } else if (it.msg_type === 'post') {
+      lines.push(renderPost(c));
+    } else if (it.msg_type === 'image') {
+      lines.push('[图片，未解析]');
+    } else if (it.msg_type === 'merge_forward') {
+      /* 父项占位标题，子消息随后逐条出现 */
+    } else {
+      lines.push(`[${it.msg_type ?? '未知类型'}消息，未解析]`);
+    }
+  }
+  const joined = lines.filter(Boolean).join('\n');
+  return joined.length > QUOTE_CAP ? `${joined.slice(0, QUOTE_CAP)}\n…（引用内容过长已截断）` : joined;
+}
+
+/** 富文本消息（post）拍平成纯文本；内嵌图片同样打占位符 */
+function renderPost(content?: string): string {
+  try {
+    const p = JSON.parse(content ?? '') as {
+      title?: string;
+      content?: Array<Array<{ tag?: string; text?: string }>>;
+    };
+    const runs: string[] = [];
+    if (p.title?.trim()) runs.push(p.title.trim());
+    for (const para of p.content ?? []) {
+      const line = para
+        .map((r) => (r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : r.tag === 'img' ? '[图片，未解析]' : ''))
+        .join('');
+      if (line.trim()) runs.push(line.trim());
+    }
+    return runs.join('\n');
+  } catch {
+    return '[富文本，解析失败]';
   }
 }
 
