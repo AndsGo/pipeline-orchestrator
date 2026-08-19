@@ -34,6 +34,7 @@ import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.j
 import { PLUGIN_DIR } from './config.js';
 import path from 'node:path';
 import { writeAdhocRecord } from './adhocLog.js';
+import { composeFollowupPrompt, describeLastRun, readLastRun, saveLastRun } from './followup.js';
 import { runClaudeText } from './runner.js';
 import { describeSlashTarget, resolveSlashTarget } from './slashTarget.js';
 import { runTicket, scheduleRewind } from './ticketRunner.js';
@@ -340,69 +341,12 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       if (kbBrief) log(`  注入知识提示 ${kbBrief.split('\n').filter((l) => l.startsWith('- **')).length} 条`);
       if (glBrief) log(`  注入术语 ${glBrief.split('\n').filter((l) => l.startsWith('- 「')).length} 条`);
       const brief = [glBrief, kbBrief].filter(Boolean).join('\n');
-      const release = await sem.acquire();
-      const t0 = Date.now();
-      // 输出语言必须钉死：实测出现过整段韩语回复直接进业务群
-      const prompt = `${brief ? `${brief}\n---\n` : ''}${c.text}\n\n（结果会原样发到中文业务群，请全程用中文回复）`;
-      try {
-        const r = await runClaudeText({
-          cwd: project.repo,
-          prompt,
-          tools: 'Read,Grep,Glob,Bash,Skill,WebFetch',
-          model: process.env.PIPELINE_RUN_MODEL ?? 'sonnet',
-          maxTurns: 40,
-          budgetUsd: Number(process.env.PIPELINE_RUN_BUDGET ?? 3),
-          pluginDir: PLUGIN_DIR,
-        });
-        const at = new Date().toISOString();
-        adhoc.push({ at, project: project.alias, text: c.text.slice(0, 200), costUsd: r.costUsd });
-        const seconds = Math.round((Date.now() - t0) / 1000);
-        // 输出必须落盘：只记字符数的话，事后想查"到底跑没跑成"只能去翻别人的聊天窗口
-        const file = writeAdhocRecord({
-          at,
-          project: project.alias,
-          command: c.text,
-          prompt,
-          output: r.text,
-          costUsd: r.costUsd,
-          turns: r.turns,
-          seconds,
-          isError: r.isError,
-        });
-        const tail = `$${r.costUsd.toFixed(2)} · ${r.turns} 轮 · ${seconds}s`;
-        log(
-          `/run ${r.isError ? '会话异常' : '完成'}：${tail}，输出 ${r.text.length} 字符${file ? ` → ${path.basename(file)}` : ''}`,
-        );
-        log(`  输出首行：${r.text.split('\n').find((l) => l.trim())?.slice(0, 160) ?? '(空)'}`);
-        if (r.isError) {
-          // 会话中途出错时 result 装的是报错文案。按"执行结果"发出去，等于把失败伪装成成功
-          await port.sendResult(
-            `执行未完成 · ${project.alias}`,
-            [
-              `⚠️ **这次执行没有正常跑完**，下面是会话返回的错误：`,
-              '',
-              r.text,
-              ...(slashRisks.length
-                ? ['', `**这条指令有对外副作用（${slashRisks.join('、')}），中断位置未知——远端状态请自行确认后再重试。**`]
-                : []),
-            ].join('\n'),
-            `${tail} · 失败，未产出结果`,
-          );
-        } else {
-          await port.sendResult(
-            `执行结果 · ${project.alias}`,
-            r.text,
-            `${tail} · 单次执行，不建工单不入看板（要改代码走 /new）`,
-          );
-        }
-      } catch (e) {
-        log(`/run 失败：${(e as Error).message.slice(0, 200)}`);
-        await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`);
-      } finally {
-        release();
-      }
+      await execAdhoc(project, c.text, `${brief ? `${brief}\n---\n` : ''}${c.text}`, slashRisks, 0);
       return;
     }
+    case 'followup':
+      await runFollowup(c.text);
+      return;
     case 'new': {
       // 项目来源优先级：显式指定 > 工单号前缀 > 唯一项目 > 问人（绝不猜）
       let project =
@@ -424,10 +368,122 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement));
       return;
     }
-    case 'unknown':
+    case 'unknown': {
+      // 落空兜底：这句可能是在回复上一次 /run 的收尾问题（实测被判成 answer 后因无待答卡石沉大海）。
+      // 以斜杠开头的不算——那是命令格式打错了，不是在回话
+      const last = c.text.trim().startsWith('/') ? null : readLastRun();
+      if (last) {
+        const CONT = '是，接着办';
+        const pick = await port.chooseOption(
+          '执行',
+          `现在没有待回答的卡片，这句我也没听懂：\n> ${c.text.slice(0, 120)}\n\n你是不是在回复刚才的执行结果 ${describeLastRun(last)}？`,
+          [CONT, '不是，忽略这句'],
+        );
+        if (pick === CONT) {
+          await runFollowup(c.text);
+          return;
+        }
+        await port.notify('指令', '好，这句已忽略。要下指令可用斜杠命令（/help 看用法）。');
+        return;
+      }
       await port.notify('指令', `没听懂「${c.text.slice(0, 60)}」。\n${helpText()}`);
       return;
+    }
   }
+}
+
+/**
+ * 单次执行的公共执行体（/run 与续聊共用）：跑会话 → 落盘留痕 → 发结果 → 更新续聊指针。
+ * commandText 是这一轮的用户原话（留痕与记账用），corePrompt 是发给模型的正文（可能带知识摘要或续聊上下文）。
+ */
+async function execAdhoc(
+  project: Project,
+  commandText: string,
+  corePrompt: string,
+  slashRisks: string[],
+  chain: number,
+): Promise<void> {
+  const release = await sem.acquire();
+  const t0 = Date.now();
+  // 输出语言必须钉死：实测出现过整段韩语回复直接进业务群。
+  // 收尾问题必须编号带选项：这是续聊协议的另一半——答复要能对得上号
+  const prompt = `${corePrompt}\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项）`;
+  try {
+    const r = await runClaudeText({
+      cwd: project.repo,
+      prompt,
+      tools: 'Read,Grep,Glob,Bash,Skill,WebFetch',
+      model: process.env.PIPELINE_RUN_MODEL ?? 'sonnet',
+      maxTurns: 40,
+      budgetUsd: Number(process.env.PIPELINE_RUN_BUDGET ?? 3),
+      pluginDir: PLUGIN_DIR,
+    });
+    const at = new Date().toISOString();
+    adhoc.push({ at, project: project.alias, text: commandText.slice(0, 200), costUsd: r.costUsd });
+    const seconds = Math.round((Date.now() - t0) / 1000);
+    // 输出必须落盘：只记字符数的话，事后想查"到底跑没跑成"只能去翻别人的聊天窗口
+    const file = writeAdhocRecord({
+      at,
+      project: project.alias,
+      command: commandText,
+      prompt,
+      output: r.text,
+      costUsd: r.costUsd,
+      turns: r.turns,
+      seconds,
+      isError: r.isError,
+    });
+    const tail = `$${r.costUsd.toFixed(2)} · ${r.turns} 轮 · ${seconds}s`;
+    log(
+      `/run ${r.isError ? '会话异常' : '完成'}：${tail}，输出 ${r.text.length} 字符${file ? ` → ${path.basename(file)}` : ''}`,
+    );
+    log(`  输出首行：${r.text.split('\n').find((l) => l.trim())?.slice(0, 160) ?? '(空)'}`);
+    if (r.isError) {
+      // 会话中途出错时 result 装的是报错文案。按"执行结果"发出去，等于把失败伪装成成功。
+      // 续聊指针也不更新：从一段报错文案"接着办"没有意义
+      await port.sendResult(
+        `执行未完成 · ${project.alias}`,
+        [
+          `⚠️ **这次执行没有正常跑完**，下面是会话返回的错误：`,
+          '',
+          r.text,
+          ...(slashRisks.length
+            ? ['', `**这条指令有对外副作用（${slashRisks.join('、')}），中断位置未知——远端状态请自行确认后再重试。**`]
+            : []),
+        ].join('\n'),
+        `${tail} · 失败，未产出结果`,
+      );
+    } else {
+      saveLastRun({ at, project: project.alias, command: commandText, output: r.text, chain });
+      await port.sendResult(
+        `执行结果 · ${project.alias}`,
+        r.text,
+        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，直接回复或 \`/re 答复\` 可继续这次任务）`,
+      );
+    }
+  } catch (e) {
+    log(`/run 失败：${(e as Error).message.slice(0, 200)}`);
+    await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`);
+  } finally {
+    release();
+  }
+}
+
+/** 续聊：把答复接回上一次单次执行——新会话拼上次输出，不保活旧会话（见 followup.ts 头注） */
+async function runFollowup(reply: string): Promise<void> {
+  const last = readLastRun();
+  if (!last) {
+    await port.notify('执行', '最近 24 小时内没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。');
+    return;
+  }
+  const project = resolveProject(projects, last.project) ?? resolveProject(projects, cfg.defaultProject);
+  if (!project) {
+    await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`);
+    return;
+  }
+  log(`续聊（第 ${last.chain + 1} 轮）on ${project.alias}: ${reply.slice(0, 80)}`);
+  await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`);
+  await execAdhoc(project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1);
 }
 
 async function onMessage(m: IncomingMessage): Promise<void> {

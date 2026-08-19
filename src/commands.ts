@@ -26,6 +26,8 @@ export type Command =
    * 闸门不能只认斜杠语法——"帮我把镜像推一下"同样能拿着 Bash 把 latest 推上去。
    */
   | { kind: 'run'; project?: string; text: string; sideEffect?: boolean }
+  /** 续聊：回复上一次 /run 的收尾问题，新会话拼上次输出接着办（见 followup.ts） */
+  | { kind: 'followup'; text: string }
   | { kind: 'help' }
   | { kind: 'unknown'; text: string };
 
@@ -126,6 +128,7 @@ export function helpText(): string {
     '`/note LS-004 补充一句说明` 追加说明，下个阶段会读到（不回退）',
     '`/run 这个仓库的鉴权中间件在哪` 单次执行：问一句 / 跑测试（不建工单、不入看板）',
     '`/run /docker-push` 跑项目/个人的斜杠指令或 skill——**斜杠要写在最前面**，会先弹确认卡（写清会跑什么命令、有什么对外副作用）',
+    '`/re 1 要 push；未跟踪目录删掉` 回复上一次 /run 结尾的问题，接着办完（直接说也行，我会先确认）',
     '_直接写内容，不要照抄尖括号。_',
   ].join('\n');
 }
@@ -210,6 +213,9 @@ export function parseSlash(text: string): Command | null {
     case 'ask':
     case 'skill':
       return arg ? { kind: 'run', text: arg } : { kind: 'unknown', text: t };
+    case 're':
+    case 'reply':
+      return arg ? { kind: 'followup', text: arg } : { kind: 'unknown', text: t };
     default:
       return { kind: 'unknown', text: t };
   }
