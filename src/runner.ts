@@ -97,6 +97,12 @@ export interface TextRunOpts {
   maxTurns: number;
   budgetUsd: number;
   pluginDir?: string;
+  /**
+   * 续接既有会话（claude -p --resume）：完整对话历史从盘上恢复，跨进程、跨 daemon 重启有效。
+   * 实测（2026-08-19）：续完 session_id 不变；id 无效时 CLI 输出纯文本报错 + exit 1，
+   * 走不到 JSON 解析即 reject——调用方以此降级回拼接模式。
+   */
+  resumeSessionId?: string;
 }
 
 /**
@@ -105,11 +111,12 @@ export interface TextRunOpts {
  */
 export function runClaudeText(
   opts: TextRunOpts,
-): Promise<{ text: string; costUsd: number; turns: number; isError: boolean }> {
+): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; sessionId?: string }> {
   const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
   const cmd = [
     'claude',
     '-p',
+    ...(opts.resumeSessionId ? ['--resume', shq(opts.resumeSessionId)] : []),
     shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
     // 禁用会抢流控的插件层（engineering-workflow 等）：消除双流控串线，每会话省下 13.6KB 元技能注入
@@ -153,6 +160,7 @@ export function runClaudeText(
           costUsd: env.total_cost_usd ?? 0,
           turns: env.num_turns ?? 0,
           isError: env.is_error === true,
+          sessionId: env.session_id,
         });
       } catch (e) {
         reject(new Error(`结果解析失败：${(e as Error).message}`));

@@ -34,10 +34,18 @@ function mkRun(over: Partial<LastRun> = {}): LastRun {
 }
 
 describe('saveLastRun / readLastRun', () => {
-  it('落盘后能原样读回', () => {
-    const r = mkRun();
+  it('落盘后能原样读回（含 sessionId 与 origin）', () => {
+    const r = mkRun({ sessionId: '7b3a7900-16b4-44e9-817f-2f471f56d73d', origin: '评估文档' });
     saveLastRun(r, file);
     expect(readLastRun(Date.now(), file)).toEqual(r);
+  });
+
+  it('旧格式指针（无 sessionId/origin）仍可读——升级后不作废已有续聊链', () => {
+    const legacy = mkRun();
+    saveLastRun(legacy, file);
+    const r = readLastRun(Date.now(), file);
+    expect(r?.command).toBe(legacy.command);
+    expect(r?.sessionId).toBeUndefined();
   });
 
   it('无记录返回 null，不抛', () => {
@@ -58,11 +66,24 @@ describe('saveLastRun / readLastRun', () => {
 });
 
 describe('composeFollowupPrompt', () => {
-  it('拼入上次任务、上次输出与本次答复', () => {
+  it('拼入原始任务、上次输出与本次答复', () => {
     const p = composeFollowupPrompt(mkRun(), '1 要 push；2 目录删掉');
     expect(p).toContain('合并 LS-009 到 master');
     expect(p).toContain('是否 push 到远程');
     expect(p).toContain('1 要 push；2 目录删掉');
+  });
+
+  it('续轮降级时原始任务不丢失（信息损失回归：第 2 轮起原任务曾从提示词里消失）', () => {
+    const p = composeFollowupPrompt(mkRun({ command: '1.C 2.A 3.C 4.B', origin: '评估一下这份文档里的想法' }), '落盘吧');
+    expect(p).toContain('评估一下这份文档里的想法'); // 原始任务
+    expect(p).toContain('## 上一轮的用户答复');
+    expect(p).toContain('1.C 2.A 3.C 4.B');
+    expect(p).toContain('落盘吧');
+  });
+
+  it('首轮续聊（origin 与 command 相同）不重复渲染上一轮答复段', () => {
+    const p = composeFollowupPrompt(mkRun({ origin: '合并 LS-009 到 master' }), '要 push');
+    expect(p).not.toContain('## 上一轮的用户答复');
   });
 
   it('超长输出截头保尾——收尾问题在末尾', () => {

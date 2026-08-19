@@ -9,9 +9,10 @@ import { fileURLToPath } from 'node:url';
  * 问题只存在于结果卡的文字里：没有待答卡、没有可续的会话，用户的回复会被分类器
  * 判成 answer 后因无处投递而石沉大海（实测事故）。
  *
- * 修法不是保活会话（占并发闸门、人几小时不回就资源悬挂），而是：
- * 记住最近一次执行 → 收到答复时开一个新会话，把上次任务 + 上次完整输出 + 答复
- * 拼进提示词。对模型来说就是带记忆的第二轮，成本只多一次上下文注入。
+ * 修法不是保活会话（占并发闸门、人几小时不回就资源悬挂），而是记住最近一次执行的
+ * sessionId → 收到答复时 `claude -p --resume` 真续会话：完整历史从盘上恢复，零信息损失，
+ * 续轮成本约为拼接模式的十分之一（2026-08-19 实测 $0.006 vs $0.23+）。
+ * resume 失败（会话文件被清等）降级为拼接模式：原始任务 + 上次完整输出 + 答复拼进新会话。
  */
 
 const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/last-run.json');
@@ -25,7 +26,7 @@ const OUTPUT_CAP = 20_000;
 export interface LastRun {
   /** ISO 时间（该轮执行完成时刻） */
   at: string;
-  /** 项目别名（续聊要回到同一个仓库） */
+  /** 项目别名（续聊要回到同一个仓库——resume 的会话文件也按 cwd 存） */
   project: string;
   /** 该轮的用户原话：首轮 = /run 指令，续轮 = 答复 */
   command: string;
@@ -33,6 +34,10 @@ export interface LastRun {
   output: string;
   /** 续聊轮次：首轮 0，每续一次 +1 */
   chain: number;
+  /** claude 会话 ID：优先 --resume 真续（续完不变）；缺失或失效时走拼接降级 */
+  sessionId?: string;
+  /** 本链条第一轮的用户原话：拼接降级时防止原始任务在第 2 轮后丢失 */
+  origin?: string;
 }
 
 /** 落盘最近一次执行指针（写失败不抛——指针丢了只是续不上聊，不能反过来影响结果送达） */
@@ -64,18 +69,20 @@ export function describeLastRun(r: LastRun, now = Date.now()): string {
   return `《${r.command.slice(0, 60)}》（${r.chain > 0 ? `续聊第 ${r.chain} 轮，` : ''}${ago}）`;
 }
 
-/** 把"上次任务 + 上次输出 + 这次答复"拼成续聊会话的正文 */
+/** 拼接降级模式的正文：原始任务 + 上一轮答复（若已是续轮）+ 上次输出 + 这次答复 */
 export function composeFollowupPrompt(last: LastRun, reply: string): string {
   const clipped =
     last.output.length > OUTPUT_CAP
       ? `…（前文过长已截断，以下是输出的末尾部分）\n${last.output.slice(-OUTPUT_CAP)}`
       : last.output;
+  const origin = last.origin ?? last.command;
   return [
     '你之前在本仓库执行过一次任务，结尾向用户提出了待决问题；现在用户回复了。',
     '请基于下面的记录接着办完，已完成的部分不要重做。',
     '',
-    '## 上次任务（用户原话）',
-    last.command,
+    '## 原始任务（本链条第一轮的用户原话）',
+    origin,
+    ...(last.command !== origin ? ['', '## 上一轮的用户答复', last.command] : []),
     '',
     '## 上次执行的完整输出',
     clipped,

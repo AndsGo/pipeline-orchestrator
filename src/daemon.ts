@@ -395,6 +395,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
 /**
  * 单次执行的公共执行体（/run 与续聊共用）：跑会话 → 落盘留痕 → 发结果 → 更新续聊指针。
  * commandText 是这一轮的用户原话（留痕与记账用），corePrompt 是发给模型的正文（可能带知识摘要或续聊上下文）。
+ * 返回是否已向群里交付结果：resume 尝试在会话启动阶段就失败时返回 false 且不打扰群（由调用方降级重试）。
  */
 async function execAdhoc(
   project: Project,
@@ -402,12 +403,14 @@ async function execAdhoc(
   corePrompt: string,
   slashRisks: string[],
   chain: number,
-): Promise<void> {
+  opts?: { resumeSessionId?: string; origin?: string },
+): Promise<boolean> {
   const release = await sem.acquire();
   const t0 = Date.now();
   // 输出语言必须钉死：实测出现过整段韩语回复直接进业务群。
-  // 收尾问题必须编号带选项：这是续聊协议的另一半——答复要能对得上号
-  const prompt = `${corePrompt}\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项）`;
+  // 收尾问题必须编号带选项：这是续聊协议的另一半——答复要能对得上号。
+  // 无人值守声明：实测会话被工具白名单拦下后，向群里喊「请在权限提示中点击允许」——那个提示不存在
+  const prompt = `${corePrompt}\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径）`;
   try {
     const r = await runClaudeText({
       cwd: project.repo,
@@ -417,6 +420,7 @@ async function execAdhoc(
       maxTurns: 40,
       budgetUsd: Number(process.env.PIPELINE_RUN_BUDGET ?? 3),
       pluginDir: PLUGIN_DIR,
+      resumeSessionId: opts?.resumeSessionId,
     });
     const at = new Date().toISOString();
     adhoc.push({ at, project: project.alias, text: commandText.slice(0, 200), costUsd: r.costUsd });
@@ -454,22 +458,38 @@ async function execAdhoc(
         `${tail} · 失败，未产出结果`,
       );
     } else {
-      saveLastRun({ at, project: project.alias, command: commandText, output: r.text, chain });
+      saveLastRun({
+        at,
+        project: project.alias,
+        command: commandText,
+        output: r.text,
+        chain,
+        sessionId: r.sessionId,
+        origin: opts?.origin ?? commandText,
+      });
       await port.sendResult(
         `执行结果 · ${project.alias}`,
         r.text,
         `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，直接回复或 \`/re 答复\` 可继续这次任务）`,
       );
     }
+    return true;
   } catch (e) {
+    // resume 的启动期失败（id 失效 → CLI 纯文本报错，走不到 JSON 解析）：不打扰群，交给调用方降级。
+    // 已经跑起来再失败的（isError）不在此列——那时可能已产生副作用，绝不能静默重跑
+    if (opts?.resumeSessionId) {
+      log(`续聊 resume 失败（将降级为拼接模式）：${(e as Error).message.slice(0, 160)}`);
+      return false;
+    }
     log(`/run 失败：${(e as Error).message.slice(0, 200)}`);
     await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`);
+    return false;
   } finally {
     release();
   }
 }
 
-/** 续聊：把答复接回上一次单次执行——新会话拼上次输出，不保活旧会话（见 followup.ts 头注） */
+/** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
 async function runFollowup(reply: string): Promise<void> {
   const last = readLastRun();
   if (!last) {
@@ -481,9 +501,15 @@ async function runFollowup(reply: string): Promise<void> {
     await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`);
     return;
   }
-  log(`续聊（第 ${last.chain + 1} 轮）on ${project.alias}: ${reply.slice(0, 80)}`);
+  const origin = last.origin ?? last.command;
+  log(`续聊（第 ${last.chain + 1} 轮${last.sessionId ? '，resume' : '，拼接'}）on ${project.alias}: ${reply.slice(0, 80)}`);
   await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`);
-  await execAdhoc(project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1);
+  if (last.sessionId) {
+    // 真续会话：完整历史在会话里，正文只需要答复本身
+    if (await execAdhoc(project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin })) return;
+    log('  resume 未成功，改用拼接模式重试');
+  }
+  await execAdhoc(project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin });
 }
 
 async function onMessage(m: IncomingMessage): Promise<void> {
