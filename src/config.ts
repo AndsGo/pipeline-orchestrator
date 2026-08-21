@@ -38,6 +38,12 @@ export const STAGES: Record<Exclude<Stage, 'ci'>, StageConfig> = {
 /** 同一 finding 来源打回 implement 的轮数上限，超限转人工 */
 export const FIX_ROUND_CAP = 2;
 
+/**
+ * implement 因执行余量用尽挂起时，编排器自动续跑下一批的次数上限（每个 runner 生命周期内计数）。
+ * 5 批的来源：LS-012 的 9 任务计划，会话自己给的分批建议正好是五批。
+ */
+export const IMPLEMENT_AUTO_CONTINUE_CAP = 5;
+
 /** NEEDS_CONTEXT 回答的回填目标与标题（相对 docs/pipeline/<ticket>/） */
 export const BACKFILL: Partial<Record<Stage, { target: string; header: string }>> = {
   clarify: { target: '00-intake.md', header: '澄清问答' },

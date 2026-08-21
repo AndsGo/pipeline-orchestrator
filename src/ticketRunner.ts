@@ -14,9 +14,10 @@ import {
   publishTerms,
   setDeliveryDocLink,
 } from './bitable/sync.js';
-import { ticketDir } from './config.js';
+import { IMPLEMENT_AUTO_CONTINUE_CAP, ticketDir } from './config.js';
 import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
+import { decideAutoContinue, type ImplementProgress, readImplementProgress } from './implementProgress.js';
 import { moveDocToWiki, publishMarkdownDoc } from './feishu/docs.js';
 import { readTermsFile } from './glossary.js';
 import { DELIVERY_FILE, readKnowledgeFile } from './knowledge.js';
@@ -427,6 +428,10 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
   // 挂起重试卡每次 runner 生命周期只发一次：确定性失败不该变成无限重试循环（AutoPort 会自动放行）
   let offeredRetry = false;
 
+  // implement 分批续做：上一批开工前的进展基线 + 本进程已自动续跑的批次数（判据见 implementProgress.ts）
+  let implementBefore: ImplementProgress | undefined;
+  let autoContinued = 0;
+
   const withGate = async <T>(fn: () => Promise<T>): Promise<T> => {
     const release = opts.acquire ? await opts.acquire() : null;
     try {
@@ -520,6 +525,25 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
     if (state.haltedReason) {
       appendEvent({ ticket, type: 'halt', stage: state.cursor, summary: state.haltedReason });
+      // 大计划的 implement 装不进一次会话：只要台账显示上一批真有进展、任务还没做完，就自己续下一批，
+      // 不必每批都等人在群里说一次「继续」（LS-012 一天里已经手工点了两次，按其分批建议还要再点三次）。
+      if (state.cursor === 'implement') {
+        const d = decideAutoContinue({
+          before: implementBefore,
+          now: readImplementProgress(repo, ticket),
+          used: autoContinued,
+          cap: IMPLEMENT_AUTO_CONTINUE_CAP,
+        });
+        if (d.ok) {
+          autoContinued += 1;
+          state = { ...state, haltedReason: undefined };
+          saveTicket(state);
+          appendEvent({ ticket, type: 'resume', stage: 'implement', summary: `自动续跑：${d.reason}` });
+          await port.notify(ticket, `implement 未做完但有进展——${d.reason}。继续下一批，不用管`);
+          continue;
+        }
+        await port.notify(ticket, `未自动续跑：${d.reason}`);
+      }
       // 错误翻译层：不把人丢给一句技术挂起原因，直接给「重试」按钮（本 runner 只发一次，防确定性失败空转）
       if (!offeredRetry) {
         offeredRetry = true;
@@ -605,6 +629,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       state = { ...state, pendingExtraArgs: undefined }; // 已取用，避免下一阶段重复带上
       saveTicket(state);
     }
+    // 开工前的进展基线：下一轮挂起时用它判断「上一批到底推进了没有」
+    if (stage === 'implement') implementBefore = readImplementProgress(repo, ticket);
     const ledgerWatch = stage === 'implement' ? watchLedger(repo, ticket, port) : null;
     let envelope: Envelope;
     try {
