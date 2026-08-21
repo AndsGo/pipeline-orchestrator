@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ticketDir } from './config.js';
@@ -36,8 +37,32 @@ export interface ImplementProgress {
   ledgerLines: number;
 }
 
-export function readImplementProgress(repo: string, ticket: string): ImplementProgress {
-  const dir = ticketDir(repo, ticket);
+/**
+ * 本工单的工件目录候选：主工作区 + 名字或分支带工单号的 git worktree。
+ *
+ * implement 会自己 `git worktree add` 另开工作区干活（LS-012 的开工前 ruling 正是如此，
+ * 理由是主工作区有别人的未提交内容），台账与计划随之落在 worktree 里，主工作区那份是旧的。
+ * 实测代价（2026-08-21 12:39）：判据只看主工作区 → 台账 137 行 / 1 个任务完成，
+ * 而 worktree 里已是 538 行 / 8 个任务完成，于是被判成「零增长」不续跑，人又去点了一次重试卡。
+ */
+export function ticketArtifactDirs(repo: string, ticket: string): string[] {
+  const dirs = [ticketDir(repo, ticket)];
+  try {
+    const out = execSync('git worktree list --porcelain', { cwd: repo, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    for (const block of out.split(/\n\s*\n/)) {
+      const wt = /^worktree (.+)$/m.exec(block)?.[1]?.trim();
+      const branch = /^branch (.+)$/m.exec(block)?.[1]?.trim() ?? '';
+      if (!wt) continue;
+      const same = path.resolve(wt) === path.resolve(repo);
+      if (!same && (wt.includes(ticket) || branch.includes(ticket))) dirs.push(ticketDir(wt, ticket));
+    }
+  } catch {
+    /* 非 git 仓库 / git 不可用：只看主工作区 */
+  }
+  return dirs;
+}
+
+function readOne(dir: string): ImplementProgress {
   const read = (f: string): string => {
     try {
       return fs.readFileSync(path.join(dir, f), 'utf-8');
@@ -51,6 +76,36 @@ export function readImplementProgress(repo: string, ticket: string): ImplementPr
     total: countPlanTasks(read('20-plan.md')),
     ledgerLines: ledger ? ledger.split('\n').length : 0,
   };
+}
+
+/** 取进展最靠前的那份工件（主工作区与 worktree 各有一份台账时，干活的那份才是真相） */
+export function readImplementProgress(repo: string, ticket: string): ImplementProgress {
+  return ticketArtifactDirs(repo, ticket)
+    .map(readOne)
+    .reduce((best, cur) => {
+      if (cur.done !== best.done) return cur.done > best.done ? cur : best;
+      if (cur.ledgerLines !== best.ledgerLines) return cur.ledgerLines > best.ledgerLines ? cur : best;
+      return cur.total > best.total ? cur : best;
+    });
+}
+
+/** implement 期间要盯的台账文件：worktree 里那份优先（行多者为准），拿不到就退回主工作区 */
+export function resolveLedgerFile(repo: string, ticket: string): string {
+  const files = ticketArtifactDirs(repo, ticket).map((d) => path.join(d, 'ledger.md'));
+  let best = files[0];
+  let bestLines = -1;
+  for (const f of files) {
+    try {
+      const n = fs.readFileSync(f, 'utf-8').split('\n').length;
+      if (n > bestLines) {
+        best = f;
+        bestLines = n;
+      }
+    } catch {
+      /* 该候选没有台账 */
+    }
+  }
+  return best;
 }
 
 export interface AutoContinueDecision {

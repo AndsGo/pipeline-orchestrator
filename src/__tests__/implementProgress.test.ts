@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,7 @@ import {
   decideAutoContinue,
   type ImplementProgress,
   readImplementProgress,
+  resolveLedgerFile,
 } from '../implementProgress.js';
 
 /** 夹具取自 LS-012 真实台账与计划的行格式 */
@@ -69,6 +71,41 @@ describe('计划任务数与台账完成数', () => {
     const p = readImplementProgress(repo, 'LS-012');
     expect(p).toMatchObject({ done: 1, total: 3 });
     expect(p.ledgerLines).toBeGreaterThan(5);
+  });
+});
+
+describe('worktree 里的台账（2026-08-21 实战回归）', () => {
+  it('主工作区台账停在 1 个任务、worktree 已 3 个 → 取 worktree 那份', () => {
+    const repo = repoWith({ '20-plan.md': PLAN, 'ledger.md': LEDGER_TWO_ROUNDS });
+    const git = (cwd: string, cmd: string): string => execSync(`git ${cmd}`, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    git(repo, 'init -q');
+    git(repo, 'config user.email eval@local');
+    git(repo, 'config user.name eval');
+    git(repo, 'add -A');
+    git(repo, 'commit -qm base');
+
+    const wt = `${repo}-LS-012`;
+    tmpdirs.push(wt);
+    git(repo, `worktree add -q -b feat/LS-012-x "${wt}"`);
+    const wtLedger = path.join(wt, 'docs', 'pipeline', 'LS-012', 'ledger.md');
+    fs.writeFileSync(
+      wtLedger,
+      `${LEDGER_TWO_ROUNDS}- Task 2: complete (review clean)\n- Task 3: complete (review clean)\n`,
+      'utf-8',
+    );
+
+    // 事故当天判据只读主工作区：1 个完成 vs 实际 3 个 → 误判「零增长」不续跑
+    expect(readImplementProgress(repo, 'LS-012')).toMatchObject({ done: 3, total: 3 });
+    // realpath.native 归一：os.tmpdir() 给的是 8.3 短路径（ADMINI~1），git 回的是长路径
+    expect(fs.realpathSync.native(resolveLedgerFile(repo, 'LS-012'))).toBe(fs.realpathSync.native(wtLedger));
+
+    git(repo, `worktree remove --force "${wt}"`);
+  });
+
+  it('没有 worktree（或不是 git 仓库）时照旧读主工作区', () => {
+    const repo = repoWith({ '20-plan.md': PLAN, 'ledger.md': LEDGER_TWO_ROUNDS });
+    expect(readImplementProgress(repo, 'LS-012')).toMatchObject({ done: 1, total: 3 });
+    expect(resolveLedgerFile(repo, 'LS-012')).toBe(path.join(repo, 'docs', 'pipeline', 'LS-012', 'ledger.md'));
   });
 });
 

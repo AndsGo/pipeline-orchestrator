@@ -17,7 +17,12 @@ import {
 import { IMPLEMENT_AUTO_CONTINUE_CAP, ticketDir } from './config.js';
 import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
-import { decideAutoContinue, type ImplementProgress, readImplementProgress } from './implementProgress.js';
+import {
+  decideAutoContinue,
+  type ImplementProgress,
+  readImplementProgress,
+  resolveLedgerFile,
+} from './implementProgress.js';
 import { moveDocToWiki, publishMarkdownDoc } from './feishu/docs.js';
 import { readTermsFile } from './glossary.js';
 import { DELIVERY_FILE, readKnowledgeFile } from './knowledge.js';
@@ -87,9 +92,13 @@ export function ensureIntake(repo: string, ticket: string, requirement?: string)
   appendEvent({ ticket, type: 'ticket.created', summary: `工单建立：${requirement.slice(0, 80)}` });
 }
 
-/** implement 期间轮询 ledger，新出现的完成/回环/挂起行实时推送（20 秒粒度） */
+/**
+ * implement 期间轮询 ledger，新出现的完成/回环/挂起行实时推送（20 秒粒度）。
+ * 台账可能在 worktree 里（见 implementProgress.ts），开工时解析一次；
+ * 本批次自己新建 worktree 的那次仍会漏推，下一批就跟上了。
+ */
 function watchLedger(repo: string, ticket: string, port: InteractionPort): { stop: () => void } {
-  const file = path.join(ticketDir(repo, ticket), 'ledger.md');
+  const file = resolveLedgerFile(repo, ticket);
   let seen = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8').split('\n').length : 0;
   const timer = setInterval(() => {
     try {
