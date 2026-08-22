@@ -33,7 +33,44 @@ Get-Content (Join-Path $root '.env') -Encoding UTF8 | Where-Object { $_ -match '
 }
 New-Item -ItemType Directory -Force (Join-Path $root 'logs') | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $root 'data') | Out-Null
-$p = Start-Process -FilePath 'cmd' -ArgumentList "/c npm run daemon > `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+
+# 日志轮转：超过 1MB 才挪走（实测量级 ~1KB/半小时，正常几周都到不了），保留 14 天——
+# 与 data/ 备份同一保留期。以前用 > 覆盖：每次重启把上一份清空，daemon 崩溃现场跟着没了
+# （2026-08-21 13:59 那次崩溃就这么丢的，事后完全查不到原因），改成 >> 追加。
+if ((Test-Path $log) -and ((Get-Item $log).Length -gt 1MB)) {
+  $rotated = Join-Path $root "logs\daemon-$((Get-Date).ToString('yyyyMMdd-HHmmss')).log"
+  try { Move-Item $log $rotated -ErrorAction Stop } catch { }
+}
+Get-ChildItem (Join-Path $root 'logs') -Filter 'daemon-*.log' -ErrorAction SilentlyContinue |
+  Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } | Remove-Item -Force -Confirm:$false
+
+# 日志占用探测：cmd 的 >> 重定向要以写方式打开日志，被别的进程独占时 cmd 秒退、什么都不写。
+# 2026-08-21 实测代价：会话里一个 tail -f 占着日志，连续 4 次启动全在这一步死掉，
+# 而脚本照样打印「已启动」——半小时后才发现跑着的是提权拉起的孤儿 daemon。
+try {
+  [IO.File]::Open($log, 'Append', 'Write', 'Read').Dispose()
+} catch {
+  Write-Host "日志 $log 被其他进程占用，未启动。" -ForegroundColor Red
+  Write-Host '通常意味着还有 daemon 在跑（含提权拉起的孤儿）或有 tail -f 盯着它；' -ForegroundColor Yellow
+  Write-Host '先停掉占用方（提权拉起的需要同等权限），再启动。' -ForegroundColor Yellow
+  return
+}
+
+$p = Start-Process -FilePath 'cmd' -ArgumentList "/c npm run daemon >> `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Set-Content -Path $pidFile -Value $p.Id -Encoding utf8
+
+# 启动核实：Start-Process 拿到 pid 就返回，子进程秒死也一样返回——不核实就会报假成功
+Start-Sleep -Seconds 5
+$live = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'src[/\\]daemon\.ts' }
+if (-not $live -and -not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)) {
+  Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+  Write-Host 'daemon 启动失败（进程已退出）。日志尾部：' -ForegroundColor Red
+  if (Test-Path $log) { Get-Content $log -Tail 20 -Encoding UTF8 | ForEach-Object { Write-Host "  $_" } }
+  # 无人值守时（看门狗调起）标准输出没人看，留一行到运维时间线里
+  Add-Content -Path (Join-Path $root 'logs\watchdog.log') `
+    -Value "$((Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')) START-FAILED（进程秒退，详见 daemon.log 尾部）" -Encoding utf8
+  return
+}
 Write-Host "daemon 已启动（pid $($p.Id)），日志：$log"
 Write-Host '之后所有操作都在飞书群里：@bot /help 查看指令'
