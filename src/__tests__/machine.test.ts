@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyResult, route } from '../machine.js';
-import type { StageResult, TicketState } from '../types.js';
+import { applyResult, route, unconsumedReviewBlocks } from '../machine.js';
+import type { RunRecord, StageResult, TicketState } from '../types.js';
 
 function state(over: Partial<TicketState> = {}): TicketState {
   return {
@@ -98,6 +98,55 @@ describe('route：试跑验证过的全部路径', () => {
 
   it('阶段错位（返回 stage ≠ 游标）→ halt', () => {
     expect(route(state({ cursor: 'plan' }), res({ stage: 'review', verdict: 'PASS' }))).toMatchObject({ kind: 'halt' });
+  });
+});
+
+function run(stage: RunRecord['stage'], verdict?: RunRecord['verdict']): RunRecord {
+  return { stage, extraArgs: '', startedAt: '', costUsd: 0, turns: 0, status: 'DONE', verdict, sessionId: 's' };
+}
+
+describe('未消化的 BLOCK 评审轮（LS-012 回归：r3/r4 的 Critical 未修，r5 漏检 PASS 走完验收）', () => {
+  it('BLOCK 后跑过修复轮 → 已消化，不报', () => {
+    expect(unconsumedReviewBlocks([run('review', 'BLOCK'), run('implement'), run('review', 'PASS')])).toEqual([]);
+    expect(unconsumedReviewBlocks([])).toEqual([]);
+  });
+
+  it('LS-012 时序：r1/r2 有修复轮、r3/r4 没有 → 报第 3、4 轮', () => {
+    const runs = [
+      run('implement'),
+      run('review', 'BLOCK'), // r1
+      run('implement'),
+      run('review', 'BLOCK'), // r2
+      run('implement'),
+      run('review', 'BLOCK'), // r3 —— 达上限挂起，此后再无 implement
+      run('review', 'BLOCK'), // r4 —— 人工重试重跑 review
+    ];
+    expect(unconsumedReviewBlocks(runs)).toEqual([3, 4]);
+  });
+
+  it('review 通过但存在未消化 BLOCK → 放行卡 concerns 带警示', () => {
+    const s = state({
+      cursor: 'review',
+      ciEnabled: true,
+      runs: [run('review', 'BLOCK'), run('review', 'BLOCK')],
+    });
+    const a = route(s, res({ stage: 'review', verdict: 'PASS_WITH_SUGGESTIONS', concerns: ['既有 concern'] }));
+    expect(a).toMatchObject({ kind: 'gate', gate: 'deploy-approval' });
+    if (a.kind !== 'gate') throw new Error('unreachable');
+    expect(a.concerns[0]).toBe('既有 concern');
+    expect(a.concerns[1]).toContain('第 1、2 轮');
+    expect(a.concerns[1]).toContain('未经修复轮');
+  });
+
+  it('BLOCK 均已消化 → 放行卡不加警示', () => {
+    const s = state({
+      cursor: 'review',
+      ciEnabled: true,
+      runs: [run('review', 'BLOCK'), run('implement')],
+    });
+    const a = route(s, res({ stage: 'review', verdict: 'PASS' }));
+    if (a.kind !== 'gate') throw new Error('unreachable');
+    expect(a.concerns).toEqual([]);
   });
 });
 

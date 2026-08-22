@@ -1,11 +1,29 @@
 import { BACKFILL, FIX_ROUND_CAP } from './config.js';
-import type { Action, Stage, StageResult, TicketState } from './types.js';
+import type { Action, RunRecord, Stage, StageResult, TicketState } from './types.js';
 
 const NEXT: Partial<Record<Stage, Stage>> = {
   implement: 'review',
   ci: 'acceptance',
   acceptance: 'compound',
 };
+
+/**
+ * 未消化的 BLOCK 评审轮：verdict=BLOCK 且其后再没有跑过任何 implement（修复轮）的 review，
+ * 返回轮次序号（第 N 轮 review，1 起）。这些轮的阻断项从未被修复过——后续 review 即使通过，
+ * 也可能只是那一轮的分析路径恰好没再踩到（LS-012：r3/r4 两轮独立确认的 Critical 未修，
+ * 人工重试后的 r5 漏检并 PASS，缺陷带着"通过"走完了验收）。
+ */
+export function unconsumedReviewBlocks(runs: readonly RunRecord[]): number[] {
+  const rounds: number[] = [];
+  let round = 0;
+  runs.forEach((r, i) => {
+    if (r.stage !== 'review') return;
+    round += 1;
+    if (r.verdict !== 'BLOCK') return;
+    if (!runs.slice(i + 1).some((later) => later.stage === 'implement')) rounds.push(round);
+  });
+  return rounds;
+}
 
 /**
  * 流水线路由核心：给定工单状态与刚返回的阶段结果，决定下一步动作。
@@ -35,7 +53,7 @@ export function route(state: TicketState, res: StageResult): Action {
   }
 
   // DONE / DONE_WITH_CONCERNS
-  const concerns = res.concerns ?? [];
+  const concerns = [...(res.concerns ?? [])];
   switch (res.stage) {
     case 'clarify':
       return { kind: 'gate', gate: 'prd-confirm', summary: res.summary_for_card, concerns, then: 'plan' };
@@ -56,6 +74,13 @@ export function route(state: TicketState, res: StageResult): Action {
           return { kind: 'halt', reason: `review 打回已达 ${FIX_ROUND_CAP} 轮上限，转人工仲裁` };
         }
         return { kind: 'fix', findingsPath: res.handoff_path, reverify: 'review' };
+      }
+      // 既往 BLOCK 未经修复轮就通过的，警示必须跟着放行卡走——否则放行人不知道自己在仲裁什么
+      const stale = unconsumedReviewBlocks(state.runs);
+      if (stale.length) {
+        concerns.push(
+          `⚠ 第 ${stale.join('、')} 轮 review 的 BLOCK 阻断项未经修复轮处理，本轮通过可能是漏检——放行前先对照该轮报告核实阻断项确已消失`,
+        );
       }
       // 配了 Jenkins：上线审批 gate → ci；未配：直达 acceptance
       if (state.ciEnabled) {

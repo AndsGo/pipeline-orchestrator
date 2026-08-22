@@ -14,7 +14,7 @@ import {
   publishTerms,
   setDeliveryDocLink,
 } from './bitable/sync.js';
-import { IMPLEMENT_AUTO_CONTINUE_CAP, ticketDir } from './config.js';
+import { FIX_ROUND_CAP, IMPLEMENT_AUTO_CONTINUE_CAP, ticketDir } from './config.js';
 import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
 import {
@@ -28,7 +28,7 @@ import { readTermsFile } from './glossary.js';
 import { DELIVERY_FILE, readKnowledgeFile } from './knowledge.js';
 import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import { runFastlane, runTriage, type Lane } from './lanes.js';
-import { applyResult, GATE_SOURCE, mergeReviewResults, route } from './machine.js';
+import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
 import type { InteractionPort } from './ports.js';
 import type { Project } from './projects.js';
@@ -436,6 +436,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
 
   // 挂起重试卡每次 runner 生命周期只发一次：确定性失败不该变成无限重试循环（AutoPort 会自动放行）
   let offeredRetry = false;
+  // 评审仲裁卡同样只发一次：AutoPort 自动放行时最多追加一轮修复，不能变成 BLOCK→修复的无限循环
+  let offeredArbitration = false;
 
   // implement 分批续做：上一批开工前的进展基线 + 本进程已自动续跑的批次数（判据见 implementProgress.ts）
   let implementBefore: ImplementProgress | undefined;
@@ -552,6 +554,48 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
           continue;
         }
         await port.notify(ticket, `未自动续跑：${d.reason}`);
+      }
+      // review 达轮上限的挂起：默认动作是「追加一轮修复」而不是「重跑 review」。
+      // 重跑属于重摇骰子——哪一轮评审恰好漏检，工单就带着未修复的阻断项通过（LS-012：
+      // r3/r4 两轮独立确认的 Critical，在人工点重试后的 r5 被漏检并 PASS，一路走完验收）。
+      const lastRun = state.runs[state.runs.length - 1];
+      if (state.cursor === 'review' && lastRun?.stage === 'review' && lastRun.verdict === 'BLOCK' && !offeredArbitration) {
+        offeredArbitration = true;
+        const stale = unconsumedReviewBlocks(state.runs);
+        appendEvent({ ticket, type: 'gate.asked', stage: 'review', summary: `评审仲裁卡：第 ${stale.join('、')} 轮阻断项未消化` });
+        const d = await port.confirmGate(
+          ticket,
+          'review-arbitration',
+          `review 已打回到 ${FIX_ROUND_CAP} 轮上限，且第 ${stale.join('、')} 轮的 BLOCK 阻断项之后没有跑过修复轮。` +
+            `直接重跑 review 等于重摇骰子——评审哪轮恰好漏检，工单就会带着未修复的阻断项通过。\n\n` +
+            `通过 → 追加一轮 implement 修复（自动带上最新评审报告，备注会作为约束带入）\n` +
+            `驳回 → 保持挂起；确要重跑 review 的话在群里说「继续 ${ticket}」`,
+          [],
+        );
+        appendEvent({
+          ticket,
+          type: 'gate.answered',
+          stage: 'review',
+          summary: `评审仲裁 → ${d.approved ? '追加修复轮' : '保持挂起'}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
+        });
+        if (d.approved) {
+          if (d.note?.trim()) appendFeedback(repo, ticket, '评审仲裁：追加修复轮说明', d.note);
+          // fix= 指针不在这里拼：循环顶部的 pendingReverify 重建逻辑会生成（与挂起重启后的修复轮同一条路）
+          state = {
+            ...state,
+            cursor: 'implement',
+            pendingReverify: 'review',
+            reviewFixRounds: state.reviewFixRounds + 1,
+            haltedReason: undefined,
+          };
+          saveTicket(state);
+          appendEvent({ ticket, type: 'resume', stage: 'implement', summary: '仲裁追加修复轮' });
+          await port.notify(ticket, '追加修复轮：打回 implement 修复未消化的阻断项…');
+          continue;
+        }
+        if (d.note?.trim()) appendFeedback(repo, ticket, '评审仲裁备注', d.note);
+        await port.notify(ticket, `已挂起：${state.haltedReason}。处理后在群里说「继续 ${ticket}」（会重跑 review）`);
+        return;
       }
       // 错误翻译层：不把人丢给一句技术挂起原因，直接给「重试」按钮（本 runner 只发一次，防确定性失败空转）
       if (!offeredRetry) {
@@ -696,6 +740,18 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
     });
     await port.notify(ticket, endLine);
+
+    // 评审通过但既往 BLOCK 未经修复轮：单独在群里喊一声，不能只藏在放行卡的 concerns 里
+    // （未配 CI 时根本没有放行卡，这条就是唯一的警示通道）
+    if (stage === 'review' && res.verdict && res.verdict !== 'BLOCK') {
+      const stale = unconsumedReviewBlocks(state.runs);
+      if (stale.length) {
+        await port.notify(
+          ticket,
+          `⚠ 本轮 review 通过，但第 ${stale.join('、')} 轮 BLOCK 的阻断项之后未跑过修复轮——通过可能是漏检。放行前请对照 30-review-r${stale[stale.length - 1]}.md 核实阻断项确已消失`,
+        );
+      }
+    }
 
     // 验收定稿轮（带 verdict）：AC 结果表原文回飞书——业务方要看到逐条结果与证据，不是一句 PASS
     if (stage === 'acceptance' && res.verdict) {
