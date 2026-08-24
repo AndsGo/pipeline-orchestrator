@@ -1,7 +1,7 @@
 import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { RUNNER_SETTINGS } from '../config.js';
+import { RUNNER_SETTINGS, STAGE_EFFORT } from '../config.js';
 import { buildReviewPrompt, formatComment, MR_REVIEW_SCHEMA, type GitlabConfig, type MrNoteEvent, type MrReviewResult } from './core.js';
 
 const REVIEW_MODEL = 'opus';
@@ -91,6 +91,8 @@ function runClaudeReview(cwd: string, prompt: string): Promise<MrReviewResult> {
     shq('Read,Grep,Glob,Bash'),
     '--model',
     REVIEW_MODEL,
+    '--effort',
+    STAGE_EFFORT,
     '--max-turns',
     '80',
     '--max-budget-usd',

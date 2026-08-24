@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PLUGIN_DIR, RUNNER_SETTINGS, STAGES } from './config.js';
+import { PLUGIN_DIR, RUNNER_SETTINGS, STAGE_EFFORT, STAGES } from './config.js';
 import { wireSchema } from './schema.js';
 import type { Envelope, Stage } from './types.js';
 
@@ -46,6 +46,9 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     shq(opts.tools),
     '--model',
     opts.model,
+    // 推理档位显式钉住，不继承交互用的全局 effortLevel（理由见 config.STAGE_EFFORT）
+    '--effort',
+    STAGE_EFFORT,
     '--max-turns',
     String(opts.maxTurns),
     '--max-budget-usd',
@@ -128,6 +131,8 @@ export function runClaudeText(
     shq(opts.tools),
     '--model',
     opts.model,
+    '--effort',
+    STAGE_EFFORT,
     '--max-turns',
     String(opts.maxTurns),
     '--max-budget-usd',

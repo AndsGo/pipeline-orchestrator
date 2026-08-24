@@ -20,10 +20,33 @@ export interface StageConfig {
   budgetUsd: number;
 }
 
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * 所有 headless 会话显式钉住的推理档位（三个启动点共用：runClaudeJson / runClaudeText / MR 评审）。
+ *
+ * 不钉的话各阶段隐式继承 ~/.claude/settings.json 的 effortLevel——那是给交互使用调的旋钮，
+ * 人在 /config 里改一次，流水线行为跟着变而无人知晓，历次实测校准（下表的轮数与预算）随之失去可比性。
+ * 取 high 是因为迄今全部校准数据都是在全局 high 下采集的：钉住 = 冻结现状，不是调参。
+ *
+ * 为什么走 CLI 的 --effort 而不是写进 config/pipeline-settings.json：`-p` 模式下**校验失败的
+ * settings 文件会被静默忽略**（claude --help 原文），一旦这个键不被 schema 接受，同一文件里
+ * 禁插件的 enabledPlugins 会一起失效，2026-08-18 修掉的双流控 bug 会无声回归。
+ * 用带类型的联合而非裸字符串：拼错的档位只会换来一行 stderr 警告 + 静默回落默认档（实测），tsc 挡得住。
+ */
+export const STAGE_EFFORT: EffortLevel = 'high';
+
 /** claude 执行阶段的运行配置（ci 为编排器原生阶段，不在此表）——数值来自 LS-001 试跑的实测校准 */
 export const STAGES: Record<Exclude<Stage, 'ci'>, StageConfig> = {
   clarify: { tools: 'Read,Grep,Glob,Write,Edit', model: 'sonnet', maxTurns: 60, budgetUsd: 8 },
-  plan: { tools: 'Read,Grep,Glob,Write,Edit', model: 'opus', maxTurns: 80, budgetUsd: 10 },
+  // 轮数是本阶段的实际约束：LS-004 的计划跑到 82 轮（旧上限 80，零余量）、成本只用掉 $7.76/10。
+  // 120 轮按该次实测的 $0.095/轮换算约 $11.4，会顶穿旧的 $10——两个数必须一起抬，
+  // 否则约束只是从轮数搬到预算，会话照样在半途死掉。
+  plan: { tools: 'Read,Grep,Glob,Write,Edit', model: 'opus', maxTurns: 120, budgetUsd: 14 },
+  // implement 的真实天花板是预算不是轮数：实测轮数最多 99（上限 300 从未接近），
+  // 而 LS-008/009/012 三次分别花到 $21.24/$22.60/$22.31，都贴着 $25。
+  // 预算不上调是刻意的：装不下的大计划由编排器自动续跑分批承接（IMPLEMENT_AUTO_CONTINUE_CAP，
+  // 每批有台账 commit 和评审留痕），比放宽单会话额度更可控。要调请先看那条路径。
   implement: {
     tools: 'Read,Grep,Glob,Write,Edit,Bash,Task,Agent,TodoWrite,Skill',
     model: 'opus',
