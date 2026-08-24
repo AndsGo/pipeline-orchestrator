@@ -38,7 +38,12 @@ export const STAGE_EFFORT: EffortLevel = 'high';
 
 /** claude 执行阶段的运行配置（ci 为编排器原生阶段，不在此表）——数值来自 LS-001 试跑的实测校准 */
 export const STAGES: Record<Exclude<Stage, 'ci'>, StageConfig> = {
-  clarify: { tools: 'Read,Grep,Glob,Write,Edit', model: 'sonnet', maxTurns: 60, budgetUsd: 8 },
+  // 换 opus 的理由是这一阶段的产物（PRD 与 AC 清单）是下游全部阶段的地基，问错问题的代价
+  // 一路放大到验收；轮数留 60 不动（实测最多 43 轮，opus 通常更少轮而非更多）。
+  // 预算必须跟着模型走：sonnet 下最贵一次 $2.52（LS-012，24 轮），opus 单价 5 倍 ≈ $12.6，
+  // 会顶穿旧的 $8；16 = 该值 + 余量（effort=high 的 opus 思考量更大）。
+  // 只换模型不抬预算，约束就从「模型能力」搬到「钱不够」——与 plan 抬轮数那次同一个坑。
+  clarify: { tools: 'Read,Grep,Glob,Write,Edit', model: 'opus', maxTurns: 60, budgetUsd: 16 },
   // 轮数是本阶段的实际约束：LS-004 的计划跑到 82 轮（旧上限 80，零余量）、成本只用掉 $7.76/10。
   // 120 轮按该次实测的 $0.095/轮换算约 $11.4，会顶穿旧的 $10——两个数必须一起抬，
   // 否则约束只是从轮数搬到预算，会话照样在半途死掉。
