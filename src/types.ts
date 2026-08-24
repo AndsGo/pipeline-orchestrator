@@ -49,6 +49,12 @@ export interface RunRecord {
   status: Status;
   verdict?: Verdict;
   sessionId: string;
+  /**
+   * 本次会话实际使用的模型。没有它，任何「换了模型之后是好了还是坏了」的问题都只能靠
+   * 「运行时间 × config.ts 的 git 历史」去反推——2026-08-24 排 implement 对照实验时
+   * 才发现这条链是断的。缺失 = 该记录早于本字段（不是「用了默认模型」，别替历史数据下结论）。
+   */
+  model?: string;
 }
 
 export interface TicketState {
@@ -77,6 +83,12 @@ export interface TicketState {
   pendingRewind?: { to: Stage; reason: string; feedbackPath?: string };
   /** 下一次阶段调用要带的参数（如 fix=/base=）。必须持久化——否则暂停或重启会把修复轮的 findings 指针丢掉 */
   pendingExtraArgs?: string;
+  /**
+   * implement 主会话的模型，首次进入 implement 时冻结（对照实验的分组键）。
+   * 冻结而不是每次读环境变量：一个工单的 implement 会分多批 + 修复轮跑好几次会话，
+   * 中途换臂（改环境变量、重启 daemon）会让这一单变成混合臂，数据废掉。
+   */
+  implementModel?: string;
   runs: RunRecord[];
   haltedReason?: string;
 }

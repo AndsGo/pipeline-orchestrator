@@ -66,6 +66,36 @@ export const STAGES: Record<Exclude<Stage, 'ci'>, StageConfig> = {
 /** 同一 finding 来源打回 implement 的轮数上限，超限转人工 */
 export const FIX_ROUND_CAP = 2;
 
+/** implement 主会话模型的对照实验臂 */
+export const IMPLEMENT_MODEL_ARMS = ['opus', 'sonnet'] as const;
+
+/**
+ * implement 主会话该用哪个模型。
+ *
+ * 为什么要做对照：implement 现在是「主会话 opus + 子代理 haiku/sonnet 分层」，主会话干的是
+ * 派活、读评审、仲裁，未必需要最强模型；但 LS-012 那种九任务计划的分批与仲裁质量如果掉下去，
+ * 代价是评审回环变多——省下的钱会从修复轮里加倍还回来。所以只能实测，不能凭感觉钉。
+ *
+ * @param frozen 工单已冻结的实验臂（state.implementModel）。有就照用，保证同一单不混臂。
+ * @returns note 非空表示这一单偏离了默认配置——必须发到群里，
+ *   与 PIPELINE_HINTS_OFF 同一条纪律：静默的对照期会让指标比较变成无人知晓的暗箱。
+ */
+export function resolveImplementModel(frozen?: string): { model: string; note?: string } {
+  if (frozen) return { model: frozen };
+  const env = process.env.PIPELINE_IMPLEMENT_MODEL?.trim();
+  if (!env) return { model: STAGES.implement.model };
+  if (!(IMPLEMENT_MODEL_ARMS as readonly string[]).includes(env)) {
+    return {
+      model: STAGES.implement.model,
+      note: `⚠ PIPELINE_IMPLEMENT_MODEL="${env}" 不是有效实验臂（${IMPLEMENT_MODEL_ARMS.join(' / ')}），本单按默认 ${STAGES.implement.model} 跑`,
+    };
+  }
+  return {
+    model: env,
+    note: `对照实验：本单 implement 主会话用 ${env}（默认 ${STAGES.implement.model}），已随工单冻结，分批与修复轮都用它`,
+  };
+}
+
 /**
  * implement 因执行余量用尽挂起时，编排器自动续跑下一批的次数上限（每个 runner 生命周期内计数）。
  * 5 批的来源：LS-012 的 9 任务计划，会话自己给的分批建议正好是五批。

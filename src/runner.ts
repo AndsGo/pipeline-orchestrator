@@ -174,14 +174,21 @@ export function runClaudeText(
   });
 }
 
-export function runStage(repo: string, ticket: string, stage: Exclude<Stage, 'ci'>, extraArgs = ''): Promise<RunOutcome> {
+export function runStage(
+  repo: string,
+  ticket: string,
+  stage: Exclude<Stage, 'ci'>,
+  extraArgs = '',
+  /** 覆盖本阶段模型（implement 对照实验用；缺省走 STAGES 配置） */
+  modelOverride?: string,
+): Promise<RunOutcome> {
   const cfg = STAGES[stage];
   return runClaudeJson({
     cwd: repo,
     prompt: `/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`,
     pluginDir: PLUGIN_DIR,
     tools: cfg.tools,
-    model: cfg.model,
+    model: modelOverride ?? cfg.model,
     maxTurns: cfg.maxTurns,
     budgetUsd: cfg.budgetUsd,
     schema: JSON.parse(wireSchema()) as object,

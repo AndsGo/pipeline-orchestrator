@@ -14,7 +14,7 @@ import {
   publishTerms,
   setDeliveryDocLink,
 } from './bitable/sync.js';
-import { FIX_ROUND_CAP, IMPLEMENT_AUTO_CONTINUE_CAP, ticketDir } from './config.js';
+import { FIX_ROUND_CAP, IMPLEMENT_AUTO_CONTINUE_CAP, resolveImplementModel, STAGES, ticketDir } from './config.js';
 import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
 import {
@@ -27,7 +27,7 @@ import { moveDocToWiki, publishMarkdownDoc } from './feishu/docs.js';
 import { readTermsFile } from './glossary.js';
 import { DELIVERY_FILE, readKnowledgeFile } from './knowledge.js';
 import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
-import { runFastlane, runTriage, type Lane } from './lanes.js';
+import { FASTLANE_MODEL, runFastlane, runTriage, type Lane } from './lanes.js';
 import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
 import type { InteractionPort } from './ports.js';
@@ -494,6 +494,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
           turns,
           status: result.status === 'DONE' ? 'DONE' : 'BLOCKED',
           sessionId: 'fastlane',
+          model: FASTLANE_MODEL,
         },
       ],
     };
@@ -648,6 +649,14 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
 
     const stage = state.cursor;
+    // 对照实验臂在首次进入 implement 时冻结进工单，之后所有分批与修复轮都用同一个模型
+    if (stage === 'implement' && !state.implementModel) {
+      const arm = resolveImplementModel();
+      state = { ...state, implementModel: arm.model };
+      saveTicket(state);
+      if (arm.note) await port.notify(ticket, arm.note);
+    }
+    const stageModel = stage === 'ci' ? undefined : stage === 'implement' ? state.implementModel : STAGES[stage].model;
     // 开工前预取历史知识提示（ci 是编排器原生阶段，没有会话读它）。曾经只有澄清/计划读——
     // 但知识多由 review/acceptance 产出，不回流给产出它的阶段，同类问题就会反复出现；
     // compound 也要读：标题是知识去重的键，看得到既有条目才不会换个说法重复记。
@@ -674,7 +683,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       type: 'stage.start',
       stage,
       summary: `阶段 ${stage} 开始${extraArgs ? `（${extraArgs}）` : ''}`,
-      payload: { claudeMdSha },
+      payload: { claudeMdSha, ...(stageModel ? { model: stageModel } : {}) },
     });
     await port.notify(ticket, `运行阶段 ${stage}${extraArgs ? `（${extraArgs}）` : ''}…`);
 
@@ -688,7 +697,9 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     let envelope: Envelope;
     try {
       envelope = await withGate(() =>
-        stage === 'ci' ? runCiStage(repo, ticket, port, project) : runStage(repo, ticket, stage, extraArgs).then((r) => r.envelope),
+        stage === 'ci'
+          ? runCiStage(repo, ticket, port, project)
+          : runStage(repo, ticket, stage, extraArgs, stageModel).then((r) => r.envelope),
       );
     } finally {
       ledgerWatch?.stop();
@@ -726,7 +737,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
 
     const action = route(state, res);
-    state = applyResult(state, res, action, envelope.total_cost_usd, envelope.num_turns, envelope.session_id);
+    state = applyResult(state, res, action, envelope.total_cost_usd, envelope.num_turns, envelope.session_id, stageModel);
     saveTicket(state);
     const axesLine = res.axes
       ? `｜AC ${res.axes.spec.total - res.axes.spec.failed}/${res.axes.spec.total} · 质量 C${res.axes.quality.critical}/I${res.axes.quality.important}/M${res.axes.quality.minor}`

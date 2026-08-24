@@ -10,6 +10,9 @@ import { runClaudeJson } from './runner.js';
 
 export type Lane = 'fast' | 'full';
 
+/** 快车道会话模型（导出供工单落账记录用——每条运行记录都要能说清用了什么模型） */
+export const FASTLANE_MODEL = 'sonnet';
+
 export const TRIAGE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -86,7 +89,7 @@ export async function runFastlane(repo: string, ticket: string): Promise<{ resul
     cwd: repo,
     prompt: buildFastlanePrompt(ticket),
     tools: 'Read,Grep,Glob,Write,Edit,Bash',
-    model: 'sonnet',
+    model: FASTLANE_MODEL,
     maxTurns: 60,
     budgetUsd: 5,
     schema: FASTLANE_SCHEMA,

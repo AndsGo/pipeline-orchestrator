@@ -142,7 +142,16 @@ export function mergeReviewResults(a: StageResult, b: StageResult): StageResult 
 }
 
 /** 结果落账 + 按动作推进游标/计数器。返回新 state（不可变）。 */
-export function applyResult(state: TicketState, res: StageResult, action: Action, costUsd: number, turns: number, sessionId: string): TicketState {
+export function applyResult(
+  state: TicketState,
+  res: StageResult,
+  action: Action,
+  costUsd: number,
+  turns: number,
+  sessionId: string,
+  /** 本次会话实际用的模型（对照实验的分组键） */
+  model?: string,
+): TicketState {
   const next: TicketState = {
     ...state,
     runs: [
@@ -156,6 +165,7 @@ export function applyResult(state: TicketState, res: StageResult, action: Action
         status: res.status,
         verdict: res.verdict ?? undefined,
         sessionId,
+        model,
       },
     ],
   };
