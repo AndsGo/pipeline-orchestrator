@@ -62,6 +62,51 @@ export function ticketArtifactDirs(repo: string, ticket: string): string[] {
   return dirs;
 }
 
+/**
+ * 探测本工单的真实分支名。
+ *
+ * 分支名由实现会话按计划的 Global Constraints 自己取（`feat/<工单号>-<slug>`，
+ * 如 feat/LS-012-org-call-monitor），编排器事先猜不出来，只能事后认。
+ * 优先本地分支：远端的会随 MR 合并被删除（实测 LS-012 的远端分支合并后即消失）。
+ */
+export function detectTicketBranch(repo: string, ticket: string): string | undefined {
+  const list = (args: string): string[] => {
+    try {
+      return execSync(`git branch ${args} --format=%(refname:short)`, {
+        cwd: repo,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+  const local = list(`--list *${ticket}*`);
+  if (local.length) return local[0];
+  // 远端候选去掉 origin/ 前缀：看板要显示的是分支名，不是 remote-tracking 引用名
+  const remote = list(`-r --list *${ticket}*`).map((b) => b.replace(/^[^/]+\//, ''));
+  if (remote.length) return remote[0];
+  // 分支已随 MR 合并被删除时的恢复路径：合并提交的标题里留着原分支名。
+  // 正常流程用不到（implement 刚跑完时分支还在），它是为了让几个月后回看旧工单仍有答案。
+  try {
+    const subjects = execSync(`git log --merges --grep=${ticket} --format=%s -n 20`, {
+      cwd: repo,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    for (const line of subjects.split(/\r?\n/)) {
+      const m = /Merge branch '([^']+)'/.exec(line);
+      if (m?.[1]?.includes(ticket)) return m[1];
+    }
+  } catch {
+    /* 非 git 仓库 / 无合并历史 */
+  }
+  return undefined;
+}
+
 function readOne(dir: string): ImplementProgress {
   const read = (f: string): string => {
     try {

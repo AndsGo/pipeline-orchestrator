@@ -25,7 +25,7 @@ export function projectCfgFromEnv(): ProjectCfg {
   } catch {
     /* 没配就没有工件链接 */
   }
-  return { gitlabUrl: process.env.GITLAB_URL, repoToProject };
+  return { gitlabUrl: process.env.GITLAB_URL, repoToProject, defaultBranch: process.env.GITLAB_DEFAULT_BRANCH || 'master' };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

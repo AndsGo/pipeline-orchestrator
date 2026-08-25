@@ -19,6 +19,7 @@ import { appendEvent } from './events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from './feedback.js';
 import {
   decideAutoContinue,
+  detectTicketBranch,
   type ImplementProgress,
   readImplementProgress,
   resolveLedgerFile,
@@ -746,6 +747,11 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
 
     const action = route(state, res);
     state = applyResult(state, res, action, envelope.total_cost_usd, envelope.num_turns, envelope.session_id, stageModel);
+    // 分支名由实现会话自己取，只能事后认；认到就固化，供看板显示与人工 checkout
+    if (stage === 'implement' && !state.branch) {
+      const b = detectTicketBranch(repo, ticket);
+      if (b) state = { ...state, branch: b };
+    }
     saveTicket(state);
     const axesLine = res.axes
       ? `｜AC ${res.axes.spec.total - res.axes.spec.failed}/${res.axes.spec.total} · 质量 C${res.axes.quality.critical}/I${res.axes.quality.important}/M${res.axes.quality.minor}`

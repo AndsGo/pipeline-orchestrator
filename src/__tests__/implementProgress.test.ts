@@ -7,6 +7,7 @@ import {
   countLedgerDone,
   countPlanTasks,
   decideAutoContinue,
+  detectTicketBranch,
   type ImplementProgress,
   readImplementProgress,
   resolveLedgerFile,
@@ -106,6 +107,29 @@ describe('worktree 里的台账（2026-08-21 实战回归）', () => {
     const repo = repoWith({ '20-plan.md': PLAN, 'ledger.md': LEDGER_TWO_ROUNDS });
     expect(readImplementProgress(repo, 'LS-012')).toMatchObject({ done: 1, total: 3 });
     expect(resolveLedgerFile(repo, 'LS-012')).toBe(path.join(repo, 'docs', 'pipeline', 'LS-012', 'ledger.md'));
+  });
+});
+
+describe('真实分支探测（看板「分支」列与 checkout 都要能用）', () => {
+  it('认出带 slug 的分支名——正是编排器猜不出来的那种', () => {
+    const repo = repoWith({});
+    const git = (cmd: string): string => execSync(`git ${cmd}`, { cwd: repo, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    git('init -q');
+    git('config user.email eval@local');
+    git('config user.name eval');
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'x', 'utf-8');
+    git('add -A');
+    git('commit -qm base');
+    git('checkout -q -b feat/LS-012-org-call-monitor');
+    // 干扰项：另一个工单的分支不能被认走
+    git('branch feat/LS-099-other');
+    expect(detectTicketBranch(repo, 'LS-012')).toBe('feat/LS-012-org-call-monitor');
+    expect(detectTicketBranch(repo, 'LS-099')).toBe('feat/LS-099-other');
+  });
+
+  it('没有匹配分支 / 不是 git 仓库 → undefined，不猜也不抛', () => {
+    const repo = repoWith({});
+    expect(detectTicketBranch(repo, 'LS-404')).toBeUndefined();
   });
 });
 

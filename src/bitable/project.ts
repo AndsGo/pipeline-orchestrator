@@ -12,6 +12,8 @@ export interface ProjectCfg {
   gitlabUrl?: string;
   /** 本地仓库路径 → GitLab 项目路径（GITLAB_REPO_MAP 的反向） */
   repoToProject?: Record<string, string>;
+  /** 工件链接指向的分支，缺省 master（见 artifactUrl 的说明） */
+  defaultBranch?: string;
 }
 
 const ms = (iso: string): number => new Date(iso).getTime();
@@ -20,26 +22,45 @@ export function stageLabel(stage?: string): string {
   return stage ? (STAGE_CN[stage] ?? stage) : '—';
 }
 
-/** 工件相对路径 → GitLab blob 链接；无法解析时返回 null（宁可留空也不写死链接） */
-export function artifactUrl(cfg: ProjectCfg, state: TicketState | null, relPath?: string): string | null {
+/**
+ * 工件相对路径 → GitLab 链接；无法解析时返回 null（宁可留空也不写死链接）。
+ *
+ * 两个此前一直打不开的原因，都在这里修掉：
+ * 1. **ref 用默认分支而不是特性分支**。特性分支会随 MR 合并被删除（实测 2026-08-25：
+ *    `feat/LS-012-org-call-monitor` 已从远端消失），指向它的链接注定失效；而工件最终
+ *    都落在默认分支上（实测 LS-004/009/012 的工件文件在 origin/master 上分别有 12/14/19 个）。
+ *    代价是工单进行中、工件尚未合并时会 404——比"所有链接永远打不开"小得多。
+ *    真实分支另在工单表的「分支」列显示（见 ticketRow），两件事分开。
+ * 2. **目录必须用 /-/tree/**。GitLab 的 /-/blob/ 打开目录一定 404，此前工件目录列全是这个形态。
+ *    由调用方指明 kind——它自己知道给的是目录还是文件，不靠猜路径有没有扩展名。
+ */
+export function artifactUrl(
+  cfg: ProjectCfg,
+  state: TicketState | null,
+  relPath?: string,
+  kind: 'blob' | 'tree' = 'blob',
+): string | null {
   if (!relPath || !cfg.gitlabUrl || !state) return null;
   const key = Object.keys(cfg.repoToProject ?? {}).find(
     (k) => normalize(k) === normalize(state.mainRepo ?? state.repo) || normalize(k) === normalize(state.repo),
   );
   const proj = key ? cfg.repoToProject![key] : undefined;
   if (!proj) return null;
-  const branch = branchOf(state);
-  return `${cfg.gitlabUrl.replace(/\/$/, '')}/${proj}/-/blob/${branch}/${relPath}`;
+  return `${cfg.gitlabUrl.replace(/\/$/, '')}/${proj}/-/${kind}/${cfg.defaultBranch || 'master'}/${relPath}`;
 }
 
 function normalize(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
 }
 
+/**
+ * 工单的真实分支，只报事实：由编排器在 implement 跑完后从 git 探测并存进快照。
+ * 探测不到就留空——此前这里按 `feat/<工单号>` 拼名字，而实际约定是 `feat/<工单号>-<slug>`
+ * （feat/LS-012-org-call-monitor），拼出来的分支从未存在过：既让链接 404，也让人照着
+ * 「分支」列去 checkout 必然失败。显示一个不存在的名字比留空更有害。
+ */
 export function branchOf(state: TicketState | null): string {
-  if (!state) return 'HEAD';
-  const impl = state.runs.find((r) => r.stage === 'implement');
-  return impl ? `feat/${state.ticket}` : (state.lane === 'fast' ? `feat/${state.ticket}-fast` : `feat/${state.ticket}`);
+  return state?.branch ?? '';
 }
 
 /** 运行状态：快照里没有这个字段，由游标与挂起原因推导 */
@@ -98,7 +119,7 @@ export function ticketRow(
     最后更新: Date.now(),
   };
   if (first) row['开始时间'] = ms(first);
-  const dir = artifactUrl(cfg, state, `docs/pipeline/${state.ticket}`);
+  const dir = artifactUrl(cfg, state, `docs/pipeline/${state.ticket}`, 'tree');
   if (dir) row['工件目录'] = { text: `docs/pipeline/${state.ticket}`, link: dir };
   return row;
 }

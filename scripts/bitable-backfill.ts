@@ -14,6 +14,10 @@ if (!board) {
 const cfg = projectCfgFromEnv();
 const tickets = process.argv.slice(2).length ? process.argv.slice(2) : listTickets();
 
+// 先按表里已有的行建去重集合：幂等键只存在本地索引文件里，索引丢失时重放会造重复行
+// （实测 2026-08-25：索引为空跑一次回填，205 行翻成 408 行）
+console.log(`表内已有节点行 ${await board.primeNodeDedup()} 条，重复投影将跳过\n`);
+
 for (const ticket of tickets) {
   const state = readSnapshot(ticket);
   const events = readEvents(ticket);

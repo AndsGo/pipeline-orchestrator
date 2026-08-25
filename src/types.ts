@@ -70,6 +70,12 @@ export interface TicketState {
   pendingReverify: 'review' | 'acceptance' | null;
   /** 首次 implement 前的 HEAD（分支切出点），review 用作 diff 基点 */
   baseSha?: string;
+  /**
+   * 本工单的真实分支，implement 跑完后从 git 探测得到（如 feat/LS-012-org-call-monitor）。
+   * 分支名由实现会话按计划的 Global Constraints 自己取（`feat/<工单号>-<slug>`），
+   * 编排器事先猜不出来——此前看板按 `feat/<工单号>` 拼，拼出来的分支从未存在过。
+   */
+  branch?: string;
   /** 建单时是否配置了 Jenkins（决定 review 通过后走 ci 还是直达 acceptance），随工单固化 */
   ciEnabled?: boolean;
   /** 分诊结果：fast=快车道单会话；full=全流水线。快车道 ESCALATE 后改写为 full */

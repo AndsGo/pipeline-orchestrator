@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { nodeDedupKey } from '../bitable/client.js';
 import { artifactUrl, currentStage, nodeRow, runState, ticketRow, waitingOn } from '../bitable/project.js';
 import { NODE_FIELDS, RESULT_OPTIONS, STAGE_OPTIONS, TICKET_FIELDS, VERDICT_OPTIONS } from '../bitable/schema.js';
 import type { PipelineEvent } from '../events.js';
 import type { TicketState } from '../types.js';
 
-const cfg = { gitlabUrl: 'http://git.happotech.com', repoToProject: { 'D:/work/lake_spirit': 'songxulin/lakeghost' } };
+const cfg = {
+  gitlabUrl: 'http://git.happotech.com',
+  repoToProject: { 'D:/work/lake_spirit': 'songxulin/lakeghost' },
+  defaultBranch: 'master',
+};
 
 function state(over: Partial<TicketState> = {}): TicketState {
   return {
@@ -32,6 +37,26 @@ const ev = (over: Partial<PipelineEvent>): PipelineEvent => ({
   ...over,
 });
 
+describe('节点行表内去重键（2026-08-25 事故回归）', () => {
+  // 幂等键只存在 data/bitable-index.json 里，表里没有这一列。索引为空时跑一次回填，
+  // 205 行节点表被翻成 408 行、203 组重复——「记录+时间」是表内认出重复的依据。
+  it('主字段的两种返回形态（富文本数组 / 纯字符串）产出同一个键', () => {
+    expect(nodeDedupKey({ 记录: [{ text: 'LS-003 · 验收 · 第2轮' }], 时间: 1786610903652 })).toBe(
+      nodeDedupKey({ 记录: 'LS-003 · 验收 · 第2轮', 时间: 1786610903652 }),
+    );
+  });
+
+  it('同名不同时间、同时间不同名，都不算重复', () => {
+    const a = nodeDedupKey({ 记录: 'LS-003 · 验收', 时间: 1 });
+    expect(nodeDedupKey({ 记录: 'LS-003 · 验收', 时间: 2 })).not.toBe(a);
+    expect(nodeDedupKey({ 记录: 'LS-003 · 评审', 时间: 1 })).not.toBe(a);
+  });
+
+  it('字段缺失不抛，产出可比较的空键', () => {
+    expect(nodeDedupKey({})).toBe('|');
+  });
+});
+
 describe('表结构定义', () => {
   it('主字段是文本类型（多维表格要求）', () => {
     expect(TICKET_FIELDS[0]).toMatchObject({ field_name: '工单号', type: 1 });
@@ -55,8 +80,40 @@ describe('工单行投影', () => {
     expect(row['会话数']).toBe(2);
     expect(row['评审回环']).toBe(1);
     expect(row['通道']).toBe('全流水线');
-    expect(row['分支']).toBe('feat/LS-003');
-    expect(row['工件目录']).toMatchObject({ link: expect.stringContaining('songxulin/lakeghost/-/blob/feat/LS-003/docs/pipeline/LS-003') });
+    expect(row['分支']).toBe(''); // 快照里没有探测到的分支就留空，不编造
+  });
+
+  // 2026-08-25 实测：这两列的链接从来没有可能打开——分支名是拼的（真实是
+  // feat/LS-012-org-call-monitor 这种带 slug 的），目录又用了 /-/blob/。
+  describe('工件链接（历史缺陷回归）', () => {
+    it('工件目录用 tree + 默认分支，不用编造的特性分支', () => {
+      const row = ticketRow(state({ branch: 'feat/LS-003-mcp-nginx-rate-limit' }), [], cfg, false);
+      expect(row['工件目录']).toMatchObject({
+        link: 'http://git.happotech.com/songxulin/lakeghost/-/tree/master/docs/pipeline/LS-003',
+      });
+    });
+
+    it('产物是文件，用 blob + 默认分支', () => {
+      expect(artifactUrl(cfg, state(), 'docs/pipeline/LS-003/40-acceptance.md')).toBe(
+        'http://git.happotech.com/songxulin/lakeghost/-/blob/master/docs/pipeline/LS-003/40-acceptance.md',
+      );
+    });
+
+    it('链接不受特性分支存亡影响：合并后分支被删，链接照样有效', () => {
+      const merged = artifactUrl(cfg, state({ branch: 'feat/LS-003-已被删除' }), 'docs/pipeline/LS-003', 'tree');
+      expect(merged).toContain('/-/tree/master/');
+      expect(merged).not.toContain('feat/');
+    });
+
+    it('默认分支可配（不是所有仓库都叫 master）', () => {
+      expect(artifactUrl({ ...cfg, defaultBranch: 'main' }, state(), 'a.md')).toContain('/-/blob/main/a.md');
+    });
+
+    it('探测到的真实分支进「分支」列，与链接的 ref 分开', () => {
+      const row = ticketRow(state({ branch: 'feat/LS-012-org-call-monitor' }), [], cfg, false);
+      expect(row['分支']).toBe('feat/LS-012-org-call-monitor');
+      expect((row['工件目录'] as { link: string }).link).toContain('/-/tree/master/');
+    });
   });
 
   it('运行状态：挂起 / 在跑 / 等人工 / 闭环四态可区分', () => {

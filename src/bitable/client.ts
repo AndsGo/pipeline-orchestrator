@@ -72,8 +72,17 @@ function writeIndex(ix: IndexFile): void {
   fs.writeFileSync(INDEX_FILE, JSON.stringify(ix, null, 2), 'utf-8');
 }
 
+/** 节点行的表内去重键：主字段 + 时间。表里没有幂等键列，这两列合起来足以认出同一次事件的重复投影 */
+export function nodeDedupKey(fields: Record<string, unknown>): string {
+  const rec = fields['记录'];
+  const text = Array.isArray(rec) ? ((rec[0] as { text?: string })?.text ?? '') : String(rec ?? '');
+  return `${text}|${String(fields['时间'] ?? '')}`;
+}
+
 export class BitableBoard {
   private ix = readIndex();
+  /** 表内已有行的去重键集合（primeNodeDedup 填充；未 prime 时为 undefined = 不做表级去重） */
+  private primed?: Set<string>;
 
   constructor(
     private client: lark.Client,
@@ -109,9 +118,41 @@ export class BitableBoard {
     return recordId;
   }
 
+  /**
+   * 拉全表建「记录|时间」去重集合，供 appendNode 在本地索引失效时兜底。
+   *
+   * 幂等键（ticket|ts|type|摘要指纹）只存在 data/bitable-index.json 里，表里没有这一列，
+   * 所以索引一旦丢失/被重置，去重就完全失效。实测代价（2026-08-25）：索引为空时跑一次
+   * bitable-backfill，205 行节点表被翻成 408 行、203 组重复。
+   * 一次列表调用换掉这个隐患，比每次 append 都查一次便宜，也不拖慢 daemon 的常规路径。
+   * 返回已存在的行数。
+   */
+  async primeNodeDedup(): Promise<number> {
+    const seen = new Set<string>();
+    let pageToken: string | undefined;
+    for (let p = 0; p < 40; p++) {
+      const res = (await this.client.bitable.appTableRecord.list({
+        path: { app_token: this.cfg.appToken, table_id: this.cfg.nodeTableId },
+        params: { page_size: 500, ...(pageToken ? { page_token: pageToken } : {}) },
+      })) as { data?: { items?: Array<{ fields?: Record<string, unknown> }>; page_token?: string; has_more?: boolean } };
+      for (const it of res.data?.items ?? []) seen.add(nodeDedupKey(it.fields ?? {}));
+      if (!res.data?.has_more || !res.data.page_token) break;
+      pageToken = res.data.page_token;
+    }
+    this.primed = seen;
+    return seen.size;
+  }
+
   /** 节点行 append：按幂等键去重，重复投影不产生重复行 */
   async appendNode(key: string, fields: Record<string, unknown>, ticketRecordId?: string): Promise<void> {
     if (this.ix.nodes[key]) return;
+    // 本地索引没有它，但表里可能已经有了（索引丢失后的重放）——priming 过就以表为准
+    const dedupKey = nodeDedupKey(fields);
+    if (this.primed?.has(dedupKey)) {
+      this.ix.nodes[key] = 'existing';
+      writeIndex(this.ix);
+      return;
+    }
     const payload = { ...fields };
     if (ticketRecordId) payload['工单'] = [ticketRecordId];
     let res: { data?: { record?: { record_id?: string } } };
@@ -130,6 +171,7 @@ export class BitableBoard {
       })) as { data?: { record?: { record_id?: string } } };
     }
     this.ix.nodes[key] = res?.data?.record?.record_id ?? 'created';
+    this.primed?.add(dedupKey); // 同一次运行里重复的事件也不再重复写
     writeIndex(this.ix);
   }
 
