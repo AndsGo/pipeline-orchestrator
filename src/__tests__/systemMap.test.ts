@@ -62,27 +62,24 @@ describe('能力地图新鲜度', () => {
     expect(f.headline).toContain('还没有能力地图');
   });
 
-  it('基线之后无提交 → 报同步', () => {
-    const repo = repoWithMap();
-    // 地图那一笔提交本身让 HEAD 前进了 1；把基线对齐到当前 HEAD 才是"刚生成完"的状态
-    const dir = path.join(repo, SYSTEM_MAP_DIR);
-    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'map.json'), 'utf-8')) as { code_commit: string };
-    meta.code_commit = git(repo, 'rev-parse HEAD');
-    fs.writeFileSync(path.join(dir, 'map.json'), JSON.stringify(meta), 'utf-8');
-    const f = mapFreshness(repo);
+  it('刚生成完 → 报同步：地图自身那笔提交不算「系统变了」（真机首发回归）', () => {
+    // 2026-08-25 首次上线实测：地图提交推进 HEAD，新鲜度立刻报「落后 1 个提交」。
+    // 数字要回答的是系统本身变了多少，流水线工件不算——会自己长大的告警最后没人看。
+    const f = mapFreshness(repoWithMap());
     expect(f.commitsBehind).toBe(0);
     expect(f.headline).toContain('同步');
   });
 
   it('能力的核心路径被改过 → 点名该能力，让会话知道这块以代码为准', () => {
     const f = mapFreshness(repoWithMap({ commitAfter: ['backend/router.go'] }));
-    expect(f.commitsBehind).toBe(2); // 地图提交 + 改动提交
+    expect(f.commitsBehind).toBe(1); // 只数真正改代码的那一笔
     expect(f.touched).toEqual(['调用监控']);
     expect(f.headline).toContain('调用监控');
   });
 
   it('提交没碰到已登记路径 → 只报落后，不误伤某条能力', () => {
     const f = mapFreshness(repoWithMap({ commitAfter: ['backend/other.go'] }));
+    expect(f.commitsBehind).toBe(1);
     expect(f.touched).toEqual([]);
     expect(f.headline).toContain('未触及');
   });

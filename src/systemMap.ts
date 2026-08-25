@@ -77,7 +77,9 @@ export function mapFreshness(repo: string): MapFreshness {
       headline: '能力地图存在，但没记录生成时的代码基线——无法判断新鲜度，与代码冲突时以代码为准',
     };
   }
-  const count = git(repo, `rev-list --count ${base}..HEAD`);
+  // 排除 docs/pipeline：这个数字要回答的是「系统本身变了多少」。流水线工件（含地图自己那笔提交）
+  // 不改变系统能力，算进去会让数字被纯文档活动推高——一个会自己长大的告警最后没人看。
+  const count = git(repo, `rev-list --count ${base}..HEAD -- . ":(exclude)docs/pipeline"`);
   const commitsBehind = count !== null && /^\d+$/.test(count) ? Number(count) : null;
   if (commitsBehind === null) {
     return {
