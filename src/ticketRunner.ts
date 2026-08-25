@@ -30,6 +30,7 @@ import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import { FASTLANE_MODEL, runFastlane, runTriage, type Lane } from './lanes.js';
 import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
+import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
 import type { Project } from './projects.js';
 import { runStage } from './runner.js';
@@ -669,6 +670,13 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         const requirement = fs.existsSync(intakeFile) ? fs.readFileSync(intakeFile, 'utf-8') : '';
         const n = await prefetchKnowledgeHints(repo, ticket, requirement, project?.alias);
         if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供本阶段参考`);
+        // 能力地图的新鲜度：地图可以旧，但不许假装新——落后多少提交、哪些能力已变动，
+        // 都写进注入头交给会话自己判断，而不是让它默认相信一份不知多旧的地图
+        const fresh = mapFreshness(repo);
+        if (fresh.exists) {
+          fs.writeFileSync(path.join(ticketDir(repo, ticket), MAP_HINT_FILE), renderMapHint(fresh), 'utf-8');
+          if (stage === 'clarify') await port.notify(ticket, `能力地图：${fresh.headline}`);
+        }
         const g = await prefetchGlossary(repo, ticket, project?.alias);
         if (g && stage === 'clarify') await port.notify(ticket, `已注入项目术语表 ${g} 条（PRD 用语以此为准）`);
       }
