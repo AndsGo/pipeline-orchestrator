@@ -181,11 +181,41 @@ export async function moveDocToWiki(
       data: { obj_type: 'docx', obj_token: documentId, ...(parentNodeToken ? { parent_wiki_token: parentNodeToken } : {}) },
     })) as { data?: { wiki_token?: string; applied?: boolean; task_id?: string } };
     const token = res?.data?.wiki_token;
-    return token ? `https://feishu.cn/wiki/${token}` : null;
+    if (token) return `https://feishu.cn/wiki/${token}`;
+    // 搬迁是异步的：飞书这时只给 task_id，wiki_token 要等任务完成才有。
+    // 此前只认 wiki_token，拿不到就当失败——实测（2026-08-25）文档其实**已经**进了知识库，
+    // 而对外报的一直是 docx 链接（历次交付文档都是这样）。回查父节点认领真实结果。
+    if (res?.data?.task_id && parentNodeToken) {
+      const found = await findWikiNodeByObjToken(client, spaceId, parentNodeToken, documentId);
+      if (found) return found;
+      console.warn('已提交知识库搬迁但尚未完成，稍后可用 scripts/wiki-probe.ts 查实际去向');
+    }
+    return null;
   } catch (e) {
     console.warn(`归档进知识库失败（云文档仍可用）：${(e as Error).message}`);
     return null;
   }
+}
+
+/** 在父节点下按 obj_token 找回已搬迁文档的 wiki 链接（异步搬迁没有同步返回 token 时用；也供调用方事后认领） */
+export async function findWikiNodeByObjToken(
+  client: lark.Client,
+  spaceId: string,
+  parentNodeToken: string,
+  objToken: string,
+): Promise<string | null> {
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = (await client.wiki.spaceNode.list({
+      path: { space_id: spaceId },
+      params: { page_size: 50, parent_node_token: parentNodeToken, ...(pageToken ? { page_token: pageToken } : {}) },
+    })) as { data?: { items?: Array<{ node_token?: string; obj_token?: string }>; page_token?: string; has_more?: boolean } };
+    const hit = (res?.data?.items ?? []).find((n) => n.obj_token === objToken);
+    if (hit?.node_token) return `https://feishu.cn/wiki/${hit.node_token}`;
+    if (!res?.data?.has_more || !res.data.page_token) return null;
+    pageToken = res.data.page_token;
+  }
+  return null;
 }
 
 /**

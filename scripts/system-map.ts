@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { PLUGIN_DIR, STAGES } from '../src/config.js';
-import { publishMarkdownDoc, moveDocToWiki, updateMarkdownDoc } from '../src/feishu/docs.js';
+import { findWikiNodeByObjToken, publishMarkdownDoc, moveDocToWiki, updateMarkdownDoc } from '../src/feishu/docs.js';
 import { loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
 import { mapFreshness, systemMapIndex } from '../src/systemMap.js';
@@ -129,7 +129,12 @@ if (mode === 'publish') {
     console.log(`\n已发布：${wikiUrl ?? doc.url}`);
     process.exit(0);
   }
-  console.log(`\n链接不变：${doc.url}`);
+  // 对外给的是知识库链接：业务人员是在知识库里找文档的，docx 直链他们既搜不到也不知道归属
+  const archived =
+    WIKI_SPACE_ID && (project.wikiArchive ?? WIKI_ARCHIVE_NODE)
+      ? await findWikiNodeByObjToken(client, WIKI_SPACE_ID, (project.wikiArchive ?? WIKI_ARCHIVE_NODE)!, doc.documentId)
+      : null;
+  console.log(`\n链接不变：${archived ?? doc.url}`);
   process.exit(0);
 }
 
