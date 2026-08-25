@@ -197,6 +197,33 @@ export async function moveDocToWiki(
   }
 }
 
+export interface WikiChild {
+  title?: string;
+  node_token?: string;
+  obj_token?: string;
+  obj_type?: string;
+}
+
+/** 列出知识库某父节点下的全部子节点（翻页到底，上限 10 页兜底） */
+export async function listWikiChildren(
+  client: lark.Client,
+  spaceId: string,
+  parentNodeToken: string,
+): Promise<WikiChild[]> {
+  const out: WikiChild[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = (await client.wiki.spaceNode.list({
+      path: { space_id: spaceId },
+      params: { page_size: 50, parent_node_token: parentNodeToken, ...(pageToken ? { page_token: pageToken } : {}) },
+    })) as { data?: { items?: WikiChild[]; page_token?: string; has_more?: boolean } };
+    out.push(...(res?.data?.items ?? []));
+    if (!res?.data?.has_more || !res.data.page_token) break;
+    pageToken = res.data.page_token;
+  }
+  return out;
+}
+
 /** 在父节点下按 obj_token 找回已搬迁文档的 wiki 链接（异步搬迁没有同步返回 token 时用；也供调用方事后认领） */
 export async function findWikiNodeByObjToken(
   client: lark.Client,
@@ -204,18 +231,8 @@ export async function findWikiNodeByObjToken(
   parentNodeToken: string,
   objToken: string,
 ): Promise<string | null> {
-  let pageToken: string | undefined;
-  for (let page = 0; page < 10; page++) {
-    const res = (await client.wiki.spaceNode.list({
-      path: { space_id: spaceId },
-      params: { page_size: 50, parent_node_token: parentNodeToken, ...(pageToken ? { page_token: pageToken } : {}) },
-    })) as { data?: { items?: Array<{ node_token?: string; obj_token?: string }>; page_token?: string; has_more?: boolean } };
-    const hit = (res?.data?.items ?? []).find((n) => n.obj_token === objToken);
-    if (hit?.node_token) return `https://feishu.cn/wiki/${hit.node_token}`;
-    if (!res?.data?.has_more || !res.data.page_token) return null;
-    pageToken = res.data.page_token;
-  }
-  return null;
+  const hit = (await listWikiChildren(client, spaceId, parentNodeToken)).find((n) => n.obj_token === objToken);
+  return hit?.node_token ? `https://feishu.cn/wiki/${hit.node_token}` : null;
 }
 
 /**
