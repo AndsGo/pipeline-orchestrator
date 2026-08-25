@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { PLUGIN_DIR, STAGES } from '../src/config.js';
-import { publishMarkdownDoc, moveDocToWiki } from '../src/feishu/docs.js';
+import { publishMarkdownDoc, moveDocToWiki, updateMarkdownDoc } from '../src/feishu/docs.js';
 import { loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
 import { mapFreshness, systemMapIndex } from '../src/systemMap.js';
@@ -29,6 +29,19 @@ if (!process.env.PIPELINE_PROJECTS) {
 const args = process.argv.slice(2);
 const mode = args.find((a) => a.startsWith('--'))?.slice(2) ?? 'check';
 const alias = args.find((a) => !a.startsWith('--'));
+
+/** 已发布文档 id（按项目别名）：让每次发布覆盖同一篇而不是新建 */
+const DOC_IDS = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')), '../data/system-map-docs.json');
+function readDocIds(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(DOC_IDS, 'utf-8')) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+function writeDocIds(v: Record<string, string>): void {
+  fs.writeFileSync(DOC_IDS, `${JSON.stringify(v, null, 2)}\n`, 'utf-8');
+}
 
 const projects = loadProjects();
 const project = alias ? projects.find((p) => p.alias === alias) : projects[0];
@@ -88,15 +101,35 @@ if (mode === 'publish') {
     '',
     '---',
     '',
-    `> 本页由流水线自动生成于 ${new Date().toISOString()}，权威源是仓库 \`${path.posix.join('docs/pipeline/system-map')}\`。`,
+    `> 本页由流水线自动生成于 ${new Date().toISOString()}，权威源是仓库 \`docs/pipeline/system-map\`。`,
     '> 各能力的详情页留在仓库里，未随本页发布。',
   ].join('\n');
   const client = new lark.Client({ appId: FEISHU_APP_ID, appSecret: FEISHU_APP_SECRET });
-  const doc = await publishMarkdownDoc(client, `${project.alias} 能力地图`, body, FEISHU_OWNER_OPEN_ID);
-  const wikiUrl = WIKI_SPACE_ID
-    ? await moveDocToWiki(client, WIKI_SPACE_ID, doc.documentId, project.wikiArchive ?? WIKI_ARCHIVE_NODE)
-    : null;
-  console.log(`\n已发布：${wikiUrl ?? doc.url}`);
+
+  // 覆盖同一篇：业务人员只该有一个固定链接，每次新建会攒出一堆同名页。
+  // 文档 id 存在 data/（gitignored、随看门狗每日备份）；文档被人删掉时退回新建。
+  const known = readDocIds();
+  const prev = known[project.alias];
+  let doc: Awaited<ReturnType<typeof publishMarkdownDoc>> | null = null;
+  if (prev) {
+    try {
+      doc = await updateMarkdownDoc(client, prev, body);
+      console.log(`\n已更新原文档（${doc.blocks} 块）`);
+    } catch (e) {
+      console.warn(`原文档 ${prev} 更新失败（可能已被删除），改为新建：${(e as Error).message}`);
+    }
+  }
+  if (!doc) {
+    doc = await publishMarkdownDoc(client, `${project.alias} 能力地图`, body, FEISHU_OWNER_OPEN_ID);
+    const wikiUrl = WIKI_SPACE_ID
+      ? await moveDocToWiki(client, WIKI_SPACE_ID, doc.documentId, project.wikiArchive ?? WIKI_ARCHIVE_NODE)
+      : null;
+    known[project.alias] = doc.documentId;
+    writeDocIds(known);
+    console.log(`\n已发布：${wikiUrl ?? doc.url}`);
+    process.exit(0);
+  }
+  console.log(`\n链接不变：${doc.url}`);
   process.exit(0);
 }
 

@@ -74,6 +74,57 @@ export async function publishMarkdownDoc(
   const documentId = created?.data?.document?.document_id;
   if (!documentId) throw new Error('创建飞书文档失败：未返回 document_id');
 
+  const { blocks: inserted, truncated } = await insertMarkdown(client, documentId, markdown);
+
+  if (ownerOpenId) {
+    try {
+      await client.drive.permissionMember.create({
+        path: { token: documentId },
+        params: { type: 'docx' },
+        data: { member_type: 'openid', member_id: ownerOpenId, perm: 'full_access' },
+      });
+    } catch (e) {
+      console.warn(`文档授权失败（需手动分享）：${(e as Error).message}`);
+    }
+  }
+
+  return { documentId, url: `https://feishu.cn/docx/${documentId}`, blocks: inserted, truncated };
+}
+
+/**
+ * 覆盖已有文档的正文：清空根块下全部子块后重新写入。
+ *
+ * 用于会反复刷新的常驻文档（如能力地图）——每次新建会攒出一堆同名页，
+ * 而业务人员应当只有一个固定链接。文档本身（及其 wiki 归档位置、评论、权限）保持不变。
+ * 文档已被删除/无权访问时抛错，由调用方决定是否退回新建。
+ */
+export async function updateMarkdownDoc(
+  client: lark.Client,
+  documentId: string,
+  markdown: string,
+): Promise<PublishedDoc> {
+  const existing = (await client.docx.documentBlockChildren.get({
+    path: { document_id: documentId, block_id: documentId },
+    params: { page_size: 500, document_revision_id: -1 },
+  })) as { data?: { items?: unknown[] } };
+  const count = existing?.data?.items?.length ?? 0;
+  if (count) {
+    await client.docx.documentBlockChildren.batchDelete({
+      path: { document_id: documentId, block_id: documentId },
+      params: { document_revision_id: -1 },
+      data: { start_index: 0, end_index: count },
+    });
+  }
+  const { blocks, truncated } = await insertMarkdown(client, documentId, markdown);
+  return { documentId, url: `https://feishu.cn/docx/${documentId}`, blocks, truncated };
+}
+
+/** markdown → 块并写入指定文档根部（新建与覆盖共用；分批逻辑与截断策略只此一份） */
+async function insertMarkdown(
+  client: lark.Client,
+  documentId: string,
+  markdown: string,
+): Promise<{ blocks: number; truncated: boolean }> {
   const conv = (await client.docx.document.convert({
     data: { content_type: 'markdown', content: markdown },
   })) as { data?: { first_level_block_ids?: string[]; blocks?: ConvertedBlock[] } };
@@ -114,19 +165,7 @@ export async function publishMarkdownDoc(
   }
   await flush();
 
-  if (ownerOpenId) {
-    try {
-      await client.drive.permissionMember.create({
-        path: { token: documentId },
-        params: { type: 'docx' },
-        data: { member_type: 'openid', member_id: ownerOpenId, perm: 'full_access' },
-      });
-    } catch (e) {
-      console.warn(`文档授权失败（需手动分享）：${(e as Error).message}`);
-    }
-  }
-
-  return { documentId, url: `https://feishu.cn/docx/${documentId}`, blocks: inserted, truncated };
+  return { blocks: inserted, truncated };
 }
 
 /** 把已有云文档移进知识库指定父节点，返回 wiki 链接 */
