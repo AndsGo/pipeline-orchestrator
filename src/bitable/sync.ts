@@ -5,6 +5,7 @@ import { onEvent, readEvents, type PipelineEvent } from '../events.js';
 import { activeTermsOnly, filterTermsByProject, matchTerms, readTermsFile, renderTermsBrief, writeGlossaryFile } from '../glossary.js';
 import { recordHits } from '../hits.js';
 import { activeOnly, filterByProject, keywords, readKnowledgeFile, scoreEntry, selectHints, writeHints } from '../knowledge.js';
+import { loadProjects } from '../projects.js';
 import { readSnapshot } from '../ticket.js';
 import { BitableBoard } from './client.js';
 import { nodeRow, ticketRow, type ProjectCfg } from './project.js';
@@ -17,15 +18,19 @@ import { nodeRow, ticketRow, type ProjectCfg } from './project.js';
 const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data');
 const OUTBOX = path.join(DATA_DIR, 'bitable-outbox.jsonl');
 
-export function projectCfgFromEnv(): ProjectCfg {
+export function projectCfgFromEnv(env: NodeJS.ProcessEnv = process.env): ProjectCfg {
   const repoToProject: Record<string, string> = {};
+  // 旧配置来源（GITLAB_REPO_MAP，{gitlab项目: 本地路径}）在先——
   try {
-    const map = JSON.parse(process.env.GITLAB_REPO_MAP ?? '{}') as Record<string, string>;
-    for (const [proj, local] of Object.entries(map)) repoToProject[local] = proj;
+    const map = JSON.parse(env.GITLAB_REPO_MAP ?? '{}') as Record<string, string>;
+    for (const [proj, local] of Object.entries(map)) repoToProject[local.replace(/\\/g, '/')] = proj;
   } catch {
     /* 没配就没有工件链接 */
   }
-  return { gitlabUrl: process.env.GITLAB_URL, repoToProject, defaultBranch: process.env.GITLAB_DEFAULT_BRANCH || 'master' };
+  // ——PIPELINE_PROJECTS 的 gitlab 字段在后覆盖：映射收敛为一处（2026-08-26），
+  // 新项目只配 PIPELINE_PROJECTS 即可，GITLAB_REPO_MAP 仅为存量兼容保留
+  for (const p of loadProjects(env)) if (p.gitlab) repoToProject[p.repo] = p.gitlab;
+  return { gitlabUrl: env.GITLAB_URL, repoToProject, defaultBranch: env.GITLAB_DEFAULT_BRANCH || 'master' };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

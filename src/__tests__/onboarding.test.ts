@@ -1,0 +1,73 @@
+import { describe, expect, it } from 'vitest';
+import { projectCfgFromEnv } from '../bitable/sync.js';
+import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from '../onboarding.js';
+import type { Project } from '../projects.js';
+
+const existing: Project[] = [{ alias: 'lakeghost', repo: 'D:/work/lake_spirit', prefix: 'LS' }];
+
+describe('validateNewProject', () => {
+  it('合法候选通过', () => {
+    expect(validateNewProject(existing, { alias: 'foo', repo: 'D:/work/foo', prefix: 'FO' })).toEqual([]);
+  });
+  it('别名/前缀冲突都拦（前缀冲突会把工单派错仓库）', () => {
+    const errs = validateNewProject(existing, { alias: 'LAKEGHOST', repo: 'D:/x', prefix: 'ls' });
+    expect(errs.some((e) => e.includes('别名'))).toBe(true);
+    expect(errs.some((e) => e.includes('lakeghost'))).toBe(true);
+  });
+  it('格式校验：别名要字母开头，前缀 1-6 个纯字母', () => {
+    expect(validateNewProject(existing, { alias: '1foo', repo: 'D:/x', prefix: 'F0' })).toHaveLength(2);
+    expect(validateNewProject(existing, { alias: 'foo', repo: '', prefix: 'TOOLONGX' }).length).toBe(2);
+  });
+});
+
+describe('.env 文本编辑（凭据文件：只动目标行，其余字节原样保留）', () => {
+  const env = '# 注释\nFEISHU_APP_ID=cli_xxx\nPIPELINE_PROJECTS={"a":{"repo":"D:/a"}}\nGITLAB_URL=http://g\n';
+  it('readEnvVar 读值、跳过注释、不存在返回 null', () => {
+    expect(readEnvVar(env, 'GITLAB_URL')).toBe('http://g');
+    expect(readEnvVar('# GITLAB_URL=fake\n', 'GITLAB_URL')).toBeNull();
+    expect(readEnvVar(env, 'NOPE')).toBeNull();
+  });
+  it('upsertEnvVar 只改目标行，其余行（含注释与凭据）原样', () => {
+    const out = upsertEnvVar(env, 'PIPELINE_PROJECTS', '{"a":{},"b":{}}');
+    expect(out).toContain('PIPELINE_PROJECTS={"a":{},"b":{}}');
+    expect(out).toContain('# 注释');
+    expect(out).toContain('FEISHU_APP_ID=cli_xxx');
+    expect(out).toContain('GITLAB_URL=http://g');
+  });
+  it('不存在时追加；CRLF 文件保持 CRLF', () => {
+    const crlf = 'A=1\r\nB=2\r\n';
+    const out = upsertEnvVar(crlf, 'C', '3');
+    expect(out).toContain('\r\nC=3');
+    expect(out.includes('\nC=3\n') && !out.includes('\r\nC=3')).toBe(false);
+  });
+  it('projectsJsonWith 并入新项目：单行、可反解析、可选字段不写空值', () => {
+    const next = projectsJsonWith('{"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS"}}', {
+      alias: 'foo',
+      repo: 'D:\\work\\foo',
+      prefix: 'fo',
+      gitlab: 'g/foo',
+    });
+    expect(next).not.toContain('\n');
+    const parsed = JSON.parse(next) as Record<string, { repo: string; prefix: string; jenkins?: string }>;
+    expect(parsed.foo).toEqual({ repo: 'D:/work/foo', prefix: 'FO', gitlab: 'g/foo' });
+    expect(parsed.lakeghost.prefix).toBe('LS');
+  });
+});
+
+describe('GitLab 映射收敛为一处（2026-08-26）', () => {
+  it('PIPELINE_PROJECTS 的 gitlab 字段直供看板链接，不再必须配 GITLAB_REPO_MAP', () => {
+    const cfg = projectCfgFromEnv({
+      PIPELINE_PROJECTS: '{"foo":{"repo":"D:/work/foo","prefix":"FO","gitlab":"g/foo"}}',
+      GITLAB_URL: 'http://g',
+    } as NodeJS.ProcessEnv);
+    expect(cfg.repoToProject?.['D:/work/foo']).toBe('g/foo');
+  });
+  it('存量 GITLAB_REPO_MAP 仍可用，两处同配时 PIPELINE_PROJECTS 优先', () => {
+    const cfg = projectCfgFromEnv({
+      PIPELINE_PROJECTS: '{"foo":{"repo":"D:/work/foo","prefix":"FO","gitlab":"new/foo"}}',
+      GITLAB_REPO_MAP: '{"old/foo":"D:\\\\work\\\\foo","legacy/bar":"D:/work/bar"}',
+    } as NodeJS.ProcessEnv);
+    expect(cfg.repoToProject?.['D:/work/foo']).toBe('new/foo');
+    expect(cfg.repoToProject?.['D:/work/bar']).toBe('legacy/bar');
+  });
+});
