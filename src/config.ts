@@ -60,7 +60,11 @@ export const STAGES: Record<Exclude<Stage, 'ci'>, StageConfig> = {
   },
   review: { tools: 'Read,Grep,Glob,Write,Bash', model: 'opus', maxTurns: 100, budgetUsd: 10 },
   acceptance: { tools: 'Read,Grep,Glob,Write,Edit,Bash', model: 'sonnet', maxTurns: 80, budgetUsd: 8 },
-  compound: { tools: 'Read,Grep,Glob,Write,Bash', model: 'sonnet', maxTurns: 60, budgetUsd: 5 },
+  // Edit 必须给：compound 自带系统地图增量更新的职责（map.json/能力页/PROJECT-BRIEF 都是改现有文件）。
+  // 实测（LS-013，2026-08-26）：没有 Edit 时首个 Edit 调用被拒，会话在写任何产物前诚实中止，
+  // 白白烧掉 $1.25 + 一次人工重试。轮数同次实测打满 60/60 零余量（地图更新是新增常驻工作量），
+  // 抬到 100；预算按该次 $0.05/轮 ×100 ≈ $5 加余量到 8——两个数一起抬，别把约束从轮数搬到钱。
+  compound: { tools: 'Read,Grep,Glob,Write,Edit,Bash', model: 'sonnet', maxTurns: 100, budgetUsd: 8 },
 };
 
 /** 同一 finding 来源打回 implement 的轮数上限，超限转人工 */
