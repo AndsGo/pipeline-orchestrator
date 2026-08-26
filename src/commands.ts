@@ -279,7 +279,9 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[]): st
     '  也包括 git 结构性操作：**合并到 master/主干、删除分支或 worktree、改写历史、打 tag**（实测漏判过"合并到 master 后删除"）。',
     '  是就填 true（会先让人确认再执行），只是看代码/跑本地测试填 false。拿不准填 true。',
     'dashboard：运行面板（常用链接 + 整体运行情况）。"看下面板/总览/配置在哪/地址是多少/现在什么情况" → dashboard。',
-    'status（单个工单的进度时间线）/ list / pause / resume / new / help / unknown。',
+    // resume 曾只是兜底行里的裸词条：实测「继续 LS-013」被判成 unknown@30%，用户被迫退回斜杠命令
+    'resume：继续/恢复某个工单（「继续 LS-013」「LS-7 接着跑」「恢复 LS-2」）。ticket 必填——带工单号的「继续」是 resume；不带工单号的「继续」多半是在回应上一条执行结果，判 unknown 交给续聊。',
+    'status（单个工单的进度时间线）/ list / pause / new / help / unknown。',
     '',
     '## 判定规则（按优先级）',
     '1. 现场正在等回答，且这句话像是在回应那个问题 → answer。',

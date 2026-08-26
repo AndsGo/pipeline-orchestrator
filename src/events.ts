@@ -80,6 +80,22 @@ export function readEvents(ticket: string): PipelineEvent[] {
     });
 }
 
+/**
+ * 上次运行是否在阶段中途被打断：最后一个 stage.start 之后再无终结事件（stage.end/halt/done/error）。
+ * daemon 崩溃或重启会连带杀掉进行中的会话，且不会留下任何事件——工单从此静静停着没人知道
+ * （实测 LS-013，2026-08-25：重启杀掉刚起跑 3 分钟的 clarify，13 小时后人工翻日志才发现）。
+ * gate.asked / question.asked 都发生在 stage.end 之后，等人工不算中断。
+ * 调用方须自行确认该工单当前没有 runner 在跑（daemon 刚启动时天然成立）。
+ */
+export function interruptedStage(events: PipelineEvent[]): string | null {
+  let running: string | null = null;
+  for (const e of events) {
+    if (e.type === 'stage.start') running = e.stage ?? '?';
+    else if (e.type === 'stage.end' || e.type === 'halt' || e.type === 'done' || e.type === 'error') running = null;
+  }
+  return running;
+}
+
 const ICON: Record<EventType, string> = {
   'ticket.created': '🆕',
   triage: '🔀',

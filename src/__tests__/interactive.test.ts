@@ -313,6 +313,13 @@ describe('指令解析', () => {
     expect(p).toContain('要改代码就是 new');
   });
 
+  it('分类提示词写明带工单号的「继续」是 resume（实测「继续 LS-013」曾被判 unknown@30%，人被迫退回斜杠命令）', () => {
+    const p = buildClassifyPrompt('随便一句', []);
+    expect(p).toContain('resume：继续/恢复某个工单');
+    expect(p).toContain('「继续 LS-013」');
+    expect(p).toContain('不带工单号的「继续」');
+  });
+
   it('帮助文本覆盖全部指令', () => {
     const h = helpText();
     for (const k of ['/new', '/status', '/pause', '/resume', '/amend', '/rewind', '/note']) expect(h).toContain(k);

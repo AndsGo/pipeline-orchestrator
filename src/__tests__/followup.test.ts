@@ -6,6 +6,7 @@ import {
   composeFollowupPrompt,
   describeLastRun,
   FOLLOWUP_TTL_MS,
+  intakeContextFromLastRun,
   readLastRun,
   saveLastRun,
   type LastRun,
@@ -93,6 +94,26 @@ describe('composeFollowupPrompt', () => {
     expect(p).toContain('已截断');
     expect(p).toContain(tail);
     expect(p.length).toBeLessThan(25_000);
+  });
+});
+
+describe('intakeContextFromLastRun（LS-013 教训：排查结论留在续聊里，工单只带走一句话）', () => {
+  it('同项目、未过期 → 生成含指令与完整输出的附录，并声明相关性由澄清自行判断', () => {
+    const s = intakeContextFromLastRun(mkRun(), 'lakeghost')!;
+    expect(s).toContain('合并 LS-009 到 master');
+    expect(s).toContain('是否 push 到远程');
+    expect(s).toContain('无关请忽略');
+  });
+
+  it('无指针 / 项目不同 → null（别把 A 项目的排查贴进 B 项目的工单）', () => {
+    expect(intakeContextFromLastRun(null, 'lakeghost')).toBeNull();
+    expect(intakeContextFromLastRun(mkRun({ project: 'other' }), 'lakeghost')).toBeNull();
+  });
+
+  it('超长输出截断并注明留痕位置', () => {
+    const s = intakeContextFromLastRun(mkRun({ output: 'x'.repeat(30_000) }), 'lakeghost')!;
+    expect(s).toContain('已截断');
+    expect(s.length).toBeLessThan(25_000);
   });
 });
 

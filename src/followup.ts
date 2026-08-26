@@ -69,6 +69,27 @@ export function describeLastRun(r: LastRun, now = Date.now()): string {
   return `《${r.command.slice(0, 60)}》（${r.chain > 0 ? `续聊第 ${r.chain} 轮，` : ''}${ago}）`;
 }
 
+/**
+ * 建单自动附带：把最近一次 /run 的输出整理成 00-intake.md 的参考附录。
+ * 由来（LS-013，2026-08-25）：「将排查的结论创建一个工单进行修复」——结论躺在 /run 续聊里，
+ * 工单只带走了这一句话，分诊直接抱怨「歧义高」，14 文件清单靠人手动贴回去补救。
+ * 只附同项目、未过 TTL 的记录；相关性由澄清阶段自行判断（开头已声明「无关请忽略」）。
+ */
+export function intakeContextFromLastRun(last: LastRun | null, projectAlias: string): string | null {
+  if (!last || last.project !== projectAlias) return null;
+  const out =
+    last.output.length > OUTPUT_CAP
+      ? `${last.output.slice(0, OUTPUT_CAP)}\n…（后文过长已截断，全文在编排器 data/adhoc/ 留痕）`
+      : last.output;
+  return [
+    '以下是建单前最近一次单次执行（/run）的记录，自动附带供澄清参考；若与本需求无关请忽略。',
+    `- 指令：${last.command.slice(0, 200)}`,
+    `- 完成时间：${last.at}${last.chain > 0 ? `（续聊第 ${last.chain} 轮）` : ''}`,
+    '',
+    out,
+  ].join('\n');
+}
+
 /** 拼接降级模式的正文：原始任务 + 上一轮答复（若已是续轮）+ 上次输出 + 这次答复 */
 export function composeFollowupPrompt(last: LastRun, reply: string): string {
   const clipped =

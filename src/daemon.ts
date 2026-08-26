@@ -16,7 +16,7 @@ import {
 import { fetchGlossaryBrief, fetchKnowledgeBrief, initBitableSync } from './bitable/sync.js';
 import { buildDashboard, renderDashboard, type TicketRow } from './dashboard.js';
 import { computeMetrics, metricsDashItems, readAllSnapshots } from './metrics.js';
-import { appendEvent, listTickets, readEvents, timeline, totalCost } from './events.js';
+import { appendEvent, interruptedStage, listTickets, readEvents, timeline, totalCost } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { appendFeedback, appendRequirementAmendment } from './feedback.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
@@ -34,7 +34,7 @@ import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.j
 import { PLUGIN_DIR } from './config.js';
 import path from 'node:path';
 import { writeAdhocRecord } from './adhocLog.js';
-import { composeFollowupPrompt, describeLastRun, readLastRun, saveLastRun } from './followup.js';
+import { composeFollowupPrompt, describeLastRun, intakeContextFromLastRun, readLastRun, saveLastRun } from './followup.js';
 import { runClaudeText } from './runner.js';
 import { describeSlashTarget, resolveSlashTarget } from './slashTarget.js';
 import { runTicket, scheduleRewind } from './ticketRunner.js';
@@ -73,8 +73,8 @@ function projectOf(ticket: string): Project | null {
 
 let port: FeishuPort;
 
-/** 启动/恢复一个工单的 runner（非阻塞） */
-async function startTicket(ticket: string, projectHint: string | undefined, requirement?: string): Promise<string> {
+/** 启动/恢复一个工单的 runner（非阻塞）。intakeContext 只在首次建单时进 00-intake.md，续跑传了也没副作用 */
+async function startTicket(ticket: string, projectHint: string | undefined, requirement?: string, intakeContext?: string): Promise<string> {
   // 工单号要当文件名与分支名用：非法字符必须在建任何文件之前拦住
   if (!TICKET_RE.test(ticket)) {
     return `工单号「${ticket}」不合法（需字母开头，只含字母数字-_）。直接写内容即可，不要带尖括号，例：/new LS-004 需求原文…`;
@@ -120,7 +120,7 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
 
   void (async () => {
     try {
-      await runTicket({ repo: workdir, ticket, port, project, requirement, acquire: () => sem.acquire() });
+      await runTicket({ repo: workdir, ticket, port, project, requirement, intakeContext, acquire: () => sem.acquire() });
       // 记录工作区归属，便于后续续跑与人工定位
       const st = loadTicket(workdir, ticket, 'clarify');
       saveTicket({ ...st, mainRepo, isWorktree, project: project.alias });
@@ -365,7 +365,10 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         }
       }
       const ticket = c.ticket ?? nextTicketId(project, listTickets());
-      await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement));
+      // 建单自动附带最近一次 /run 的排查记录（LS-013 教训：结论留在续聊里，工单只带走一句话）
+      const context = intakeContextFromLastRun(readLastRun(), project.alias);
+      await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement, context ?? undefined));
+      if (context) await port.notify(ticket, `已自动附带建单前的 /run 排查记录进 00-intake.md（澄清阶段会参考）`);
       return;
     }
     case 'unknown': {
@@ -697,3 +700,12 @@ log(boardOn ? '看板投影已启用（多维表格）' : '看板投影未配置
 port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
 log(`daemon 就绪：并发上限 ${cfg.maxConcurrency}，项目 ${describeProjects(projects)}（默认 ${cfg.defaultProject}）`);
 await port.notify('流水线', `编排器已上线。并发上限 ${cfg.maxConcurrency}。\n${helpText()}`);
+
+// 中断巡检：上一个 daemon 死掉时正在跑的工单不会自我恢复，必须开机点名（LS-013 教训：静停 13 小时没人知道）。
+// 刚启动时 active 必空，events 判据即事实
+for (const t of listTickets()) {
+  const stage = interruptedStage(readEvents(t));
+  if (!stage) continue;
+  log(`${t} 上次运行在 ${stage} 阶段被打断，已在群里提示恢复`);
+  await port.notify(t, `⚠ 上次运行在 **${stage}** 阶段中途被打断（daemon 重启/崩溃），进度未丢失。发「继续 ${t}」或 /resume ${t} 恢复。`);
+}

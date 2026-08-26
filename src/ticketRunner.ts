@@ -49,6 +49,8 @@ export interface RunTicketOpts {
   project?: Project;
   startStage?: Stage;
   requirement?: string;
+  /** 建单前最近一次 /run 的排查记录，写进 00-intake.md 供澄清参考（见 followup.intakeContextFromLastRun） */
+  intakeContext?: string;
   lane?: Lane;
   /** claude 会话并发闸门（daemon 模式下限流），返回释放函数 */
   acquire?: () => Promise<() => void>;
@@ -78,7 +80,7 @@ export function latestReviewPath(repo: string, ticket: string): string | null {
   }
 }
 
-export function ensureIntake(repo: string, ticket: string, requirement?: string): void {
+export function ensureIntake(repo: string, ticket: string, requirement?: string, context?: string): void {
   const dir = ticketDir(repo, ticket);
   const intake = path.join(dir, '00-intake.md');
   if (fs.existsSync(intake)) return;
@@ -86,9 +88,13 @@ export function ensureIntake(repo: string, ticket: string, requirement?: string)
     throw new Error(`${intake} 不存在。首次运行请提供需求原文（--requirement / 指令附带）`);
   }
   fs.mkdirSync(dir, { recursive: true });
+  // context：建单前的 /run 排查记录（followup.intakeContextFromLastRun）。放 intake 而不是 note 事件：
+  // note 的 summary 截断在 80 字，且 intake 是澄清阶段的必读件——结论跟着需求走才不会二次失散
   fs.writeFileSync(
     intake,
-    `# ${ticket} 原始需求\n\n**来源**：编排器录入\n**录入时间**：${new Date().toISOString().slice(0, 10)}\n\n## 需求原文\n\n> ${requirement}\n`,
+    `# ${ticket} 原始需求\n\n**来源**：编排器录入\n**录入时间**：${new Date().toISOString().slice(0, 10)}\n\n## 需求原文\n\n> ${requirement}\n${
+      context ? `\n## 建单前的执行记录（自动附带，供参考）\n\n${context}\n` : ''
+    }`,
     'utf-8',
   );
   appendEvent({ ticket, type: 'ticket.created', summary: `工单建立：${requirement.slice(0, 80)}` });
@@ -427,7 +433,7 @@ async function reviewSuggestions(repo: string, ticket: string, port: Interaction
  */
 export async function runTicket(opts: RunTicketOpts): Promise<void> {
   const { repo, ticket, port, project } = opts;
-  ensureIntake(repo, ticket, opts.requirement);
+  ensureIntake(repo, ticket, opts.requirement, opts.intakeContext);
   let state = loadTicket(repo, ticket, opts.startStage ?? 'clarify');
   if (project && state.project !== project.alias) {
     state = { ...state, project: project.alias }; // 项目归属随工单固化，后续阶段与投影都读它

@@ -1,11 +1,40 @@
 import fs from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
+import { interruptedStage, type PipelineEvent } from '../events.js';
 import { formatComment, parseNoteEvent, resolveRepo, shouldTrigger, type MrReviewResult } from '../gitlab/core.js';
 import { acquireLock, releaseLock } from '../lock.js';
 import { validateResult } from '../schema.js';
 
 const T = 'LOCK-TEST';
 afterEach(() => releaseLock(T));
+
+const ev = (type: PipelineEvent['type'], stage?: string): PipelineEvent => ({ ts: 't', ticket: 'T', type, stage, summary: 's' });
+
+describe('中断巡检（LS-013 事故回归：重启杀掉进行中的 clarify，工单静停 13 小时没人知道）', () => {
+  it('stage.start 后无终结事件 → 判中断并报出阶段', () => {
+    expect(interruptedStage([ev('ticket.created'), ev('triage'), ev('stage.start', 'clarify')])).toBe('clarify');
+  });
+
+  it('等人工不算中断：stage.end 之后跟 gate.asked / question.asked', () => {
+    expect(interruptedStage([ev('stage.start', 'review'), ev('stage.end', 'review'), ev('gate.asked', 'review')])).toBeNull();
+    expect(interruptedStage([ev('stage.start', 'acceptance'), ev('stage.end', 'acceptance'), ev('question.asked', 'acceptance')])).toBeNull();
+  });
+
+  it('挂起（halt）、闭环（done）、runner 异常（error）都算已终结——它们各有自己的提示路径', () => {
+    expect(interruptedStage([ev('stage.start', 'implement'), ev('halt', 'implement')])).toBeNull();
+    expect(interruptedStage([ev('stage.start', 'compound'), ev('stage.end', 'compound'), ev('done')])).toBeNull();
+    expect(interruptedStage([ev('stage.start', 'plan'), ev('error')])).toBeNull();
+  });
+
+  it('implement 的进度事件复用 stage.start 类型，不影响判定', () => {
+    expect(interruptedStage([ev('stage.start', 'implement'), ev('stage.start', 'implement'), ev('stage.end', 'implement')])).toBeNull();
+    expect(interruptedStage([ev('stage.start', 'implement'), ev('stage.start', 'implement')])).toBe('implement');
+  });
+
+  it('空事件流（如 LS-002 的事件日志曾丢失）→ 不算中断', () => {
+    expect(interruptedStage([])).toBeNull();
+  });
+});
 
 describe('工单级 PID 锁', () => {
   it('获取 → 同工单再获取被拒 → 释放后可再获取', () => {
