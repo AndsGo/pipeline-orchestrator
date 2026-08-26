@@ -58,6 +58,16 @@ export function loadProjects(env: NodeJS.ProcessEnv = process.env): Project[] {
   }));
 }
 
+/**
+ * 项目的 CI 任务名：项目字段优先；全局 JENKINS_JOB 只在**单项目部署**时兜底。
+ * 多项目共用全局 job = A 项目的工单触发 B 项目的构建（nova 验收实测，2026-08-26）——
+ * 宁可让该项目不走 CI（直达验收），也不能跑错项目的构建。
+ */
+export function ciJobFor(project: Pick<Project, 'jenkins'> | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (project?.jenkins) return project.jenkins;
+  return loadProjects(env).length > 1 ? undefined : env.JENKINS_JOB;
+}
+
 const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
 
 /** 按别名 / 仓库路径 / 工单号前缀解析项目 */

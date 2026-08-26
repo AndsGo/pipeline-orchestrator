@@ -33,7 +33,7 @@ import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBl
 import { isPaused } from './pause.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
-import type { Project } from './projects.js';
+import { ciJobFor, type Project } from './projects.js';
 import { runStage } from './runner.js';
 import { validateResult } from './schema.js';
 import { adoptViaMr, applyClaudeMdSuggestions, readSuggestions, renderSuggestionsDetail } from './suggestions.js';
@@ -141,7 +141,7 @@ async function runCiStage(repo: string, ticket: string, port: InteractionPort, p
       permission_denials: [],
     }) as Envelope;
 
-  const cfg = jenkinsConfigFromEnv(project?.jenkins);
+  const cfg = jenkinsConfigFromEnv(ciJobFor(project));
   if (!cfg) {
     return synth({
       stage: 'ci',
@@ -434,7 +434,7 @@ async function reviewSuggestions(repo: string, ticket: string, port: Interaction
 export async function runTicket(opts: RunTicketOpts): Promise<void> {
   const { repo, ticket, port, project } = opts;
   ensureIntake(repo, ticket, opts.requirement, opts.intakeContext);
-  let state = loadTicket(repo, ticket, opts.startStage ?? 'clarify');
+  let state = loadTicket(repo, ticket, opts.startStage ?? 'clarify', project);
   if (project && state.project !== project.alias) {
     state = { ...state, project: project.alias }; // 项目归属随工单固化，后续阶段与投影都读它
     saveTicket(state);

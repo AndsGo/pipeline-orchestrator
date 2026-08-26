@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jenkinsConfigFromEnv } from './jenkins.js';
+import { ciJobFor, type Project } from './projects.js';
 import type { Stage, TicketState } from './types.js';
 
 const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
@@ -32,7 +33,7 @@ export function peekTicketRepo(ticket: string): string | null {
   }
 }
 
-export function loadTicket(repo: string, ticket: string, startStage: Stage): TicketState {
+export function loadTicket(repo: string, ticket: string, startStage: Stage, project?: Project): TicketState {
   const f = stateFile(ticket);
   if (fs.existsSync(f)) {
     const s = JSON.parse(fs.readFileSync(f, 'utf-8')) as TicketState;
@@ -48,8 +49,9 @@ export function loadTicket(repo: string, ticket: string, startStage: Stage): Tic
     reviewFixRounds: 0,
     acceptanceFixRounds: 0,
     pendingReverify: null,
-    // 建单时固化：是否走 CI 阶段（避免同一工单中途因环境变量变化而改变路径）
-    ciEnabled: jenkinsConfigFromEnv() !== null,
+    // 建单时固化：是否走 CI 阶段（避免同一工单中途因环境变量变化而改变路径）。
+    // 任务名按项目解析（ciJobFor）：多项目下没配自己 job 的项目不走 CI，绝不借全局 job
+    ciEnabled: jenkinsConfigFromEnv(ciJobFor(project)) !== null,
     runs: [],
   };
 }

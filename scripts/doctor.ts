@@ -9,7 +9,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { BitableBoard } from '../src/bitable/client.js';
 import { projectCfgFromEnv } from '../src/bitable/sync.js';
 import { PLUGIN_DIR, RUNNER_SETTINGS } from '../src/config.js';
-import { loadProjects } from '../src/projects.js';
+import { ciJobFor, loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
@@ -79,13 +79,13 @@ for (const p of projects) {
   else if (!fs.existsSync(path.join(p.repo, '.git'))) probs.push('不是 git 仓库');
   else if (!fs.existsSync(path.join(p.repo, 'CLAUDE.md'))) probs.push('无 CLAUDE.md（建议补）');
   if (!cfg.repoToProject[p.repo]) probs.push('无 GitLab 映射（看板工件链接将为空）');
-  // CI 任务：项目级字段优先，缺省回退全局 JENKINS_JOB（lakeghost 就是走回退的）
-  const ciJob = p.jenkins ?? process.env.JENKINS_JOB;
+  // CI 任务按项目解析：全局 JENKINS_JOB 只在单项目部署时兜底（多项目下借全局 job 会跑错项目的构建）
+  const ciJob = ciJobFor(p);
   if (ciJob && (!process.env.JENKINS_USER || !process.env.JENKINS_TOKEN)) probs.push('配了 CI 任务但缺 JENKINS_USER/TOKEN');
   const dup = projects.filter((q) => q.prefix.toLowerCase() === p.prefix.toLowerCase()).length > 1;
   if (dup) probs.push(`前缀 ${p.prefix} 与其他项目冲突（路由会把工单派错仓库）`);
   const fatal = probs.some((s) => s.includes('不存在') || s.includes('不是 git') || s.includes('冲突') || s.includes('缺 JENKINS'));
-  add(probs.length ? (fatal ? '❌' : '⚠️') : '✅', `项目 ${p.alias}（${p.prefix}-）`, probs.join('；') || `${p.repo}${ciJob ? ` · CI ${ciJob}${p.jenkins ? '' : '（全局回退）'}` : ' · 无 CI（工单直达验收）'}`);
+  add(probs.length ? (fatal ? '❌' : '⚠️') : '✅', `项目 ${p.alias}（${p.prefix}-）`, probs.join('；') || `${p.repo}${ciJob ? ` · CI ${ciJob}${p.jenkins ? '' : '（单项目全局兜底）'}` : ' · 无 CI（工单直达验收；要走 CI 请给该项目配 jenkins 字段）'}`);
 }
 
 console.log('\n== 连通性 ==');

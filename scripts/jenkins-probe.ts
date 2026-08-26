@@ -1,7 +1,7 @@
 // Jenkins 集成真机探针：走 jenkins.ts 的完整代码路径（触发→queue→build→结果→日志）
 import { jenkinsConfigFromEnv, runJenkinsBuild, fetchLogTail } from '../src/jenkins.js';
 
-const cfg = jenkinsConfigFromEnv();
+const cfg = jenkinsConfigFromEnv(process.env.JENKINS_JOB);
 if (!cfg) {
   console.error('缺少 JENKINS_URL / JENKINS_JOB / JENKINS_USER / JENKINS_TOKEN');
   process.exit(1);

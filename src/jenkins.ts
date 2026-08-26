@@ -23,19 +23,19 @@ export interface BuildResult {
 type FetchLike = typeof fetch;
 
 /**
- * Jenkins 配置。任务名按**项目**取——全局单值的 JENKINS_JOB 会让第二个项目
- * 静默触发第一个项目的构建，这是接多项目时最危险的一处。
+ * Jenkins 配置。任务名必须由调用方经 projects.ciJobFor 按项目解析后传入——
+ * 本函数不再兜底全局 JENKINS_JOB：旧的 `job ?? JENKINS_JOB` 兜底让第二个项目
+ * 静默触发第一个项目的构建（nova 验收实测，2026-08-26），是接多项目时最危险的一处。
  */
-export function jenkinsConfigFromEnv(job?: string): JenkinsConfig | null {
-  const { JENKINS_URL, JENKINS_JOB, JENKINS_USER, JENKINS_TOKEN, JENKINS_TIMEOUT_MIN } = process.env;
-  const target = job ?? JENKINS_JOB;
-  if (!JENKINS_URL || !target) return null;
+export function jenkinsConfigFromEnv(job: string | undefined): JenkinsConfig | null {
+  const { JENKINS_URL, JENKINS_USER, JENKINS_TOKEN, JENKINS_TIMEOUT_MIN } = process.env;
+  if (!JENKINS_URL || !job) return null;
   if (!JENKINS_USER || !JENKINS_TOKEN) {
     throw new Error('已配置 Jenkins 任务但缺少 JENKINS_USER/JENKINS_TOKEN');
   }
   return {
     url: JENKINS_URL.replace(/\/$/, ''),
-    job: target,
+    job,
     user: JENKINS_USER,
     token: JENKINS_TOKEN,
     timeoutMin: Number(JENKINS_TIMEOUT_MIN ?? 30),

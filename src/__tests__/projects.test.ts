@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterByProject, type KnowledgeEntry } from '../knowledge.js';
-import { describeProjects, loadProjects, nextTicketId, projectOfTicket, resolveProject } from '../projects.js';
+import { ciJobFor, describeProjects, loadProjects, nextTicketId, projectOfTicket, resolveProject } from '../projects.js';
 
 const env = {
   PIPELINE_PROJECTS: JSON.stringify({
@@ -8,6 +8,22 @@ const env = {
     search: { repo: 'D:/work/demo/search', prefix: 'SRCH', jenkins: 'search-deploy', wikiArchive: 'PV2' },
   }),
 } as unknown as NodeJS.ProcessEnv;
+
+describe('CI 任务按项目解析（nova 验收实测，2026-08-26：全局兜底会让 NV- 工单触发 lakeghost 的构建）', () => {
+  it('项目自己的 jenkins 字段永远优先', () => {
+    expect(ciJobFor({ jenkins: 'my-job' }, { ...env, JENKINS_JOB: 'global-job' } as NodeJS.ProcessEnv)).toBe('my-job');
+  });
+  it('多项目部署时全局 JENKINS_JOB 不兜底——宁可不走 CI 也不跑错项目的构建', () => {
+    expect(ciJobFor({}, { ...env, JENKINS_JOB: 'global-job' } as NodeJS.ProcessEnv)).toBeUndefined();
+  });
+  it('单项目部署时全局兜底保留（存量 lakeghost 的配置方式）', () => {
+    const single = {
+      PIPELINE_PROJECTS: '{"only":{"repo":"D:/x","prefix":"ON"}}',
+      JENKINS_JOB: 'global-job',
+    } as NodeJS.ProcessEnv;
+    expect(ciJobFor({}, single)).toBe('global-job');
+  });
+});
 
 describe('项目配置', () => {
   it('解析多项目，各自带前缀/CI/归档节点', () => {
