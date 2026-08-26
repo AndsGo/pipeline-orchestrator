@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { projectCfgFromEnv } from '../bitable/sync.js';
-import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from '../onboarding.js';
+import { normalizeGitlabPath, normalizeWikiToken, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from '../onboarding.js';
 import type { Project } from '../projects.js';
 
 const existing: Project[] = [{ alias: 'lakeghost', repo: 'D:/work/lake_spirit', prefix: 'LS' }];
@@ -51,6 +51,31 @@ describe('.env 文本编辑（凭据文件：只动目标行，其余字节原�
     const parsed = JSON.parse(next) as Record<string, { repo: string; prefix: string; jenkins?: string }>;
     expect(parsed.foo).toEqual({ repo: 'D:/work/foo', prefix: 'FO', gitlab: 'g/foo' });
     expect(parsed.lakeghost.prefix).toBe('LS');
+  });
+});
+
+describe('宽容输入剥壳（nova 接入实测：人就是会粘完整 URL）', () => {
+  it('clone URL / 带 .git / 已是路径，三种输入同一结果', () => {
+    expect(normalizeGitlabPath('http://git.happotech.com/songxulin/nova.git')).toBe('songxulin/nova');
+    expect(normalizeGitlabPath('songxulin/nova.git')).toBe('songxulin/nova');
+    expect(normalizeGitlabPath('songxulin/nova')).toBe('songxulin/nova');
+  });
+  it('wiki 页面 URL / 裸 token，两种输入同一结果', () => {
+    expect(normalizeWikiToken('https://euj0e90can.feishu.cn/wiki/UWRGw3pb5iPVsPk01DEcGnTYn7d')).toBe('UWRGw3pb5iPVsPk01DEcGnTYn7d');
+    expect(normalizeWikiToken('UWRGw3pb5iPVsPk01DEcGnTYn7d')).toBe('UWRGw3pb5iPVsPk01DEcGnTYn7d');
+  });
+  it('projectsJsonWith 落盘的是剥壳后的值', () => {
+    const parsed = JSON.parse(
+      projectsJsonWith('{}', {
+        alias: 'nova',
+        repo: 'D:/work/nova',
+        prefix: 'NV',
+        gitlab: 'http://git.happotech.com/songxulin/nova.git',
+        wikiArchive: 'https://x.feishu.cn/wiki/UWRGw3pb5iPVsPk01DEcGnTYn7d',
+      }),
+    ) as Record<string, { gitlab: string; wikiArchive: string }>;
+    expect(parsed.nova.gitlab).toBe('songxulin/nova');
+    expect(parsed.nova.wikiArchive).toBe('UWRGw3pb5iPVsPk01DEcGnTYn7d');
   });
 });
 

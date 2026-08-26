@@ -55,15 +55,33 @@ export function upsertEnvVar(envText: string, key: string, value: string): strin
   return lines.join(eol);
 }
 
-/** 把新项目并入 PIPELINE_PROJECTS 的 JSON 值（单行序列化，.env 一行一变量） */
+/**
+ * 人会直接粘 clone URL（http://…/组/项目.git）——剥成内部要的「组/项目」。
+ * 实测（nova 接入，2026-08-26）：填了完整 URL，工件链接会拼成 http://host/http://host/… 的坏链接。
+ */
+export function normalizeGitlabPath(v: string): string {
+  return v
+    .trim()
+    .replace(/^https?:\/\/[^/]+\//, '')
+    .replace(/\.git$/, '')
+    .replace(/^\/+|\/+$/g, '');
+}
+
+/** 同上：wiki 归档节点人会粘页面 URL（https://…/wiki/<token>）——剥出 token */
+export function normalizeWikiToken(v: string): string {
+  const m = /\/wiki\/([A-Za-z0-9]+)/.exec(v);
+  return (m ? m[1] : v).trim();
+}
+
+/** 把新项目并入 PIPELINE_PROJECTS 的 JSON 值（单行序列化，.env 一行一变量）。宽容输入在此收口 */
 export function projectsJsonWith(currentJson: string, c: NewProject): string {
   const raw = JSON.parse(currentJson) as Record<string, unknown>;
   raw[c.alias] = {
     repo: c.repo.replace(/\\/g, '/'),
     prefix: c.prefix.toUpperCase(),
-    ...(c.gitlab ? { gitlab: c.gitlab } : {}),
+    ...(c.gitlab ? { gitlab: normalizeGitlabPath(c.gitlab) } : {}),
     ...(c.jenkins ? { jenkins: c.jenkins } : {}),
-    ...(c.wikiArchive ? { wikiArchive: c.wikiArchive } : {}),
+    ...(c.wikiArchive ? { wikiArchive: normalizeWikiToken(c.wikiArchive) } : {}),
   };
   return JSON.stringify(raw);
 }
