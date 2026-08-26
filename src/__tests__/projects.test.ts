@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterByProject, type KnowledgeEntry } from '../knowledge.js';
-import { ciJobFor, describeProjects, loadProjects, nextTicketId, projectOfTicket, resolveProject } from '../projects.js';
+import { ciJobFor, describeProjects, loadProjects, mentionedProject, nextTicketId, projectOfTicket, resolveProject } from '../projects.js';
 
 const env = {
   PIPELINE_PROJECTS: JSON.stringify({
@@ -8,6 +8,32 @@ const env = {
     search: { repo: 'D:/work/demo/search', prefix: 'SRCH', jenkins: 'search-deploy', wikiArchive: 'PV2' },
   }),
 } as unknown as NodeJS.ProcessEnv;
+
+describe('消息文本认项目（「分析下 navo 项目」实测：正名会落默认项目，拼错更是）', () => {
+  const ps = loadProjects({
+    PIPELINE_PROJECTS: '{"lakeghost":{"repo":"D:/a","prefix":"LS"},"nova":{"repo":"D:/b","prefix":"NV"}}',
+  } as NodeJS.ProcessEnv);
+
+  it('原样提到别名 → exact 命中', () => {
+    expect(mentionedProject(ps, '分析下 nova 项目')).toMatchObject({ exact: true, project: { alias: 'nova' } });
+    expect(mentionedProject(ps, '看看 LAKEGHOST 的鉴权')).toMatchObject({ exact: true, project: { alias: 'lakeghost' } });
+  });
+
+  it('手滑拼错（换位/漏字）→ fuzzy 命中，交给调用方确认', () => {
+    expect(mentionedProject(ps, '分析下 navo 项目')).toMatchObject({ exact: false, project: { alias: 'nova' } });
+    expect(mentionedProject(ps, 'lakeghos 跑下测试')).toMatchObject({ exact: false, project: { alias: 'lakeghost' } });
+  });
+
+  it('没提项目 / 无关词 → null（回落默认，不乱认）', () => {
+    expect(mentionedProject(ps, '跑一下前端测试')).toBeNull();
+    expect(mentionedProject(ps, 'novel 不该命中')).toBeNull(); // 长度不同且距 2
+    expect(mentionedProject(ps, 'note 不该命中')).toBeNull(); // 同长度但字母组成不同
+  });
+
+  it('同时提到多个项目 → null（说不清就问人，绝不猜）', () => {
+    expect(mentionedProject(ps, '对比下 nova 和 lakeghost')).toBeNull();
+  });
+});
 
 describe('CI 任务按项目解析（nova 验收实测，2026-08-26：全局兜底会让 NV- 工单触发 lakeghost 的构建）', () => {
   it('项目自己的 jenkins 字段永远优先', () => {

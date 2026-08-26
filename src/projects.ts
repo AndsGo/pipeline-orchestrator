@@ -58,6 +58,49 @@ export function loadProjects(env: NodeJS.ProcessEnv = process.env): Project[] {
   }));
 }
 
+/** OSA 编辑距离（含相邻换位=1）：识别「navo→nova」这类手滑 */
+function osaDistance(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * 从消息文本里认项目（多项目路由，2026-08-26 实测补的课）：
+ * 「分析下 nova 项目」此前会静默落到默认项目——run 的解析链只认分类器不会填的 c.project；
+ * 拼错的「navo」更是如此（当次靠会话自己用绝对路径圆场，但知识提示与续聊指针都记错了项目）。
+ * exact=文本里原样出现别名；fuzzy=某个词与别名的 OSA 距离在阈值内（4-6 字母容 1 错，更长容 2 错）。
+ * 多个别名都命中视为说不清，返回 null 交给调用方问人——绝不猜。
+ */
+export function mentionedProject(projects: Project[], text: string): { project: Project; exact: boolean } | null {
+  const lower = text.toLowerCase();
+  const exact = projects.filter((p) => lower.includes(p.alias.toLowerCase()));
+  if (exact.length === 1) return { project: exact[0], exact: true };
+  if (exact.length > 1) return null;
+  const tokens = [...new Set(lower.match(/[a-z][a-z0-9-]{2,}/g) ?? [])];
+  const sorted = (s: string): string => [...s].sort().join('');
+  const fuzzy = projects.filter((p) => {
+    const alias = p.alias.toLowerCase();
+    const cap = alias.length <= 3 ? 0 : alias.length <= 6 ? 1 : 2;
+    if (!cap) return false;
+    return tokens.some(
+      (t) =>
+        (Math.abs(t.length - alias.length) <= cap && osaDistance(t, alias) <= cap) ||
+        // 变位词：同长度且字母组成相同（「navo→nova」是隔位换位，OSA 距离 2 会漏）；
+        // 不放宽 OSA 阈值本身——那会把 note 这类真单词也当成 nova 的手滑
+        (t.length === alias.length && sorted(t) === sorted(alias)),
+    );
+  });
+  return fuzzy.length === 1 ? { project: fuzzy[0], exact: false } : null;
+}
+
 /**
  * 项目的 CI 任务名：项目字段优先；全局 JENKINS_JOB 只在**单项目部署**时兜底。
  * 多项目共用全局 job = A 项目的工单触发 B 项目的构建（nova 验收实测，2026-08-26）——

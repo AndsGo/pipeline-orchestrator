@@ -29,6 +29,7 @@ import {
   describeProjects,
   loadProjects,
   nextTicketId,
+  mentionedProject,
   projectOfTicket,
   resolveProject,
   type Project,
@@ -284,7 +285,26 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
     }
     case 'run': {
       // 单次执行：低预算、不建工单、不进看板。工具里有 Bash——这不是只读通道，能跑测试也能跑部署脚本
-      const project = resolveProject(projects, c.project) ?? resolveProject(projects, cfg.defaultProject);
+      let project = resolveProject(projects, c.project);
+      // 多项目路由（2026-08-26「navo」实测）：消息里指名项目优先于默认回落；疑似拼错先问、绝不猜
+      if (!project && projects.length > 1) {
+        const m = mentionedProject(projects, c.text);
+        if (m?.exact) project = m.project;
+        else if (m) {
+          const others = projects.filter((p) => p.alias !== m.project.alias).map((p) => p.alias);
+          const pick = await port.chooseOption(
+            '执行',
+            `你是想在项目 **${m.project.alias}** 上执行吗（消息里的写法没完全对上项目名）？\n> ${c.text.slice(0, 120)}`,
+            [`${m.project.alias}（推荐）`, ...others, '取消'],
+          );
+          if (pick === '取消') {
+            await port.notify('执行', '已取消');
+            return;
+          }
+          project = projects.find((p) => pick.startsWith(p.alias)) ?? null;
+        }
+      }
+      project ??= resolveProject(projects, cfg.defaultProject);
       if (!project) {
         await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`);
         return;
@@ -351,9 +371,11 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       await runFollowup(c.text);
       return;
     case 'new': {
-      // 项目来源优先级：显式指定 > 工单号前缀 > 唯一项目 > 问人（绝不猜）
+      // 项目来源优先级：显式指定 > 工单号前缀 > 需求原文里指名 > 唯一项目 > 问人（绝不猜——拼错的指名进问人）
+      const mention = mentionedProject(projects, c.requirement);
       let project =
         resolveProject(projects, c.repo) ?? (c.ticket ? projectOfTicket(projects, c.ticket) : null) ??
+        (mention?.exact ? mention.project : null) ??
         (projects.length === 1 ? projects[0] : null);
       if (!project) {
         const pick = await port.chooseOption(
