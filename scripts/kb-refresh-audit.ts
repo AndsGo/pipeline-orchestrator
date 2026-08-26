@@ -3,7 +3,10 @@
 //   npx tsx scripts/kb-refresh-audit.ts                     # 老化报告（零成本）
 //   npx tsx scripts/kb-refresh-audit.ts --deep D:/work/repo # 加模型深检：逐条对照该仓库现状（约 $1-2）
 // 审计只提建议不动数据——下线（状态→已失效）由人在知识表操作。
+// 注：老化报告已制度化——daemon 每 30 天自动跑一次并发群（src/kbAudit.ts）。本脚本保留两个用途：
+// 手动看全量明细表、跑要花钱的 --deep 深检。老化判据与 daemon 共用 staleActive，不会出现两套标准。
 import { BitableBoard } from '../src/bitable/client.js';
+import { staleActive } from '../src/kbAudit.js';
 import { lastHitByTitle } from '../src/hits.js';
 import { runClaudeText } from '../src/runner.js';
 
@@ -21,13 +24,12 @@ const days = (ts?: string): number | null => (ts ? Math.floor((now - new Date(ts
 console.log(`知识条目 ${entries.length} 条（命中日志自 knowledge-hits.jsonl）\n`);
 console.log('状态   | 最近命中   | 标题');
 console.log('-------|-----------|-----');
-const stale: typeof entries = [];
 for (const e of [...entries].sort((a, b) => (hits.get(a.title) ?? '') < (hits.get(b.title) ?? '') ? -1 : 1)) {
   const d = days(hits.get(e.title));
   const hitStr = d === null ? '从未命中' : d === 0 ? '今天' : `${d} 天前`;
   console.log(`${(e.status ?? '生效').padEnd(5)} | ${hitStr.padEnd(9)} | ${e.title.slice(0, 60)}`);
-  if ((!e.status || e.status === '生效') && (d === null || d > 30)) stale.push(e);
 }
+const stale = staleActive(entries, hits, now);
 console.log(`\n候选关注：${stale.length} 条生效条目超过 30 天未命中或从未命中（命中日志启用于 2026-08-18，早期"从未命中"属正常）`);
 
 const deepIdx = process.argv.indexOf('--deep');

@@ -69,7 +69,9 @@ export function buildDashboard(env: NodeJS.ProcessEnv, rt: RuntimeInfo, tickets:
     config.push({ label: '多维表格看板', value: '工单 / 节点 / 知识', url: `https://feishu.cn/base/${env.BITABLE_APP_TOKEN}` });
   }
   if (env.WIKI_URL || env.WIKI_SPACE_ID) {
-    config.push({ label: '知识库', value: env.WIKI_URL ? '需求档案 / 工程知识' : `space ${env.WIKI_SPACE_ID}`, url: env.WIKI_URL });
+    // 「工程知识」曾在此宣传却从未被写入（假承诺，《押注三项资产》点名摘除）；
+    // 现在写的是 wiki 里真实存在的两类：需求档案（交付文档归档）+ 系统地图（能力页）
+    config.push({ label: '知识库', value: env.WIKI_URL ? '需求档案 / 系统地图' : `space ${env.WIKI_SPACE_ID}`, url: env.WIKI_URL });
   }
   if (env.JENKINS_URL) {
     const job = env.JENKINS_JOB;

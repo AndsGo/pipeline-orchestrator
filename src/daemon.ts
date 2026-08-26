@@ -14,6 +14,9 @@ import {
   type TicketContext,
 } from './commands.js';
 import { fetchGlossaryBrief, fetchKnowledgeBrief, initBitableSync } from './bitable/sync.js';
+import { BitableBoard } from './bitable/client.js';
+import { agingSummary, dueForAudit, readAuditStamp, writeAuditStamp } from './kbAudit.js';
+import { lastHitByTitle } from './hits.js';
 import { buildDashboard, renderDashboard, type TicketRow } from './dashboard.js';
 import { computeMetrics, metricsDashItems, readAllSnapshots } from './metrics.js';
 import { appendEvent, interruptedStage, listTickets, readEvents, timeline, totalCost } from './events.js';
@@ -709,3 +712,20 @@ for (const t of listTickets()) {
   log(`${t} 上次运行在 ${stage} 阶段被打断，已在群里提示恢复`);
   await port.notify(t, `⚠ 上次运行在 **${stage}** 阶段中途被打断（daemon 重启/崩溃），进度未丢失。发「继续 ${t}」或 /resume ${t} 恢复。`);
 }
+
+// 知识库月度老化审计：制度化而不是指望人记得跑脚本（kb-refresh-audit.ts 躺了一周没人跑）。
+// 零成本（只读表+命中日志），到期自动发群；花钱的深检仍由人手动跑脚本
+async function kbAuditTick(): Promise<void> {
+  if (!dueForAudit(readAuditStamp(), Date.now())) return;
+  const board = BitableBoard.fromEnv();
+  if (!board) return; // 未配知识表，无从审计
+  try {
+    await port.notify('知识库', agingSummary(await board.listKnowledge(), lastHitByTitle('knowledge'), Date.now()));
+    writeAuditStamp();
+    log('知识库老化审计已发群（下次约 30 天后）');
+  } catch (e) {
+    log(`知识库老化审计失败（明天再试）：${(e as Error).message.slice(0, 160)}`);
+  }
+}
+void kbAuditTick();
+setInterval(() => void kbAuditTick(), 24 * 3600 * 1000);
