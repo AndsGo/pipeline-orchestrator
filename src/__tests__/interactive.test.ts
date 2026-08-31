@@ -129,6 +129,21 @@ describe('指令解析', () => {
     expect(parseSlash('/pause <LS-004>')).toEqual({ kind: 'pause', ticket: 'LS-004' });
   });
 
+  it('/addproject：三个必填位置参数 + 任意顺序的 key=value 可选项（群内接入项目，2026-08-31）', () => {
+    expect(parseSlash('/addproject nova D:/work/nova NV gitlab=组/nova jenkins=nova-job wiki=TOKEN123')).toEqual({
+      kind: 'addproject',
+      alias: 'nova',
+      repo: 'D:/work/nova',
+      prefix: 'NV',
+      gitlab: '组/nova',
+      jenkins: 'nova-job',
+      wiki: 'TOKEN123',
+    });
+    expect(parseSlash('/add-project foo D:/work/foo FO')).toMatchObject({ kind: 'addproject', gitlab: undefined });
+    expect(parseSlash('/addproject foo D:/work/foo')).toMatchObject({ kind: 'unknown' }); // 缺前缀
+    expect(helpText()).toContain('/addproject'); // 「可以在对话中添加吗」被判成 help——帮助里必须有答案
+  });
+
   it('/new 首段不像工单号时整句当需求，工单号交给自动编号', () => {
     const c = parseSlash('/new MCP 调用方式需要调整，改用 SSE');
     expect(c).toMatchObject({ kind: 'new', ticket: undefined });

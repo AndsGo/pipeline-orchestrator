@@ -28,6 +28,8 @@ export type Command =
   | { kind: 'run'; project?: string; text: string; sideEffect?: boolean }
   /** 续聊：回复上一次 /run 的收尾问题，新会话拼上次输出接着办（见 followup.ts） */
   | { kind: 'followup'; text: string }
+  /** 群内接入新项目（2026-08-31 用户在群里问「可以在对话中添加吗」——此前只有终端向导） */
+  | { kind: 'addproject'; alias: string; repo: string; prefix: string; gitlab?: string; jenkins?: string; wiki?: string }
   | { kind: 'help' }
   | { kind: 'unknown'; text: string };
 
@@ -127,6 +129,7 @@ export function helpText(): string {
     '`/rewind LS-004 plan` 回退到指定阶段重跑（阶段：clarify/plan/implement/review/ci/acceptance）',
     '`/note LS-004 补充一句说明` 追加说明，下个阶段会读到（不回退）',
     '`/run 这个仓库的鉴权中间件在哪` 单次执行：问一句 / 跑测试（不建工单、不入看板）',
+    '`/addproject nova D:/work/nova NV gitlab=组/项目 jenkins=任务名 wiki=节点token` 接入新项目（后三项可省；gitlab/wiki 直接粘 URL 也行）',
     '`/run /docker-push` 跑项目/个人的斜杠指令或 skill——**斜杠要写在最前面**，会先弹确认卡（写清会跑什么命令、有什么对外副作用）',
     '`/re 1 要 push；未跟踪目录删掉` 回复上一次 /run 结尾的问题，接着办完（直接说也行，我会先确认）',
     '_直接写内容，不要照抄尖括号。_',
@@ -213,6 +216,17 @@ export function parseSlash(text: string): Command | null {
     case 'ask':
     case 'skill':
       return arg ? { kind: 'run', text: arg } : { kind: 'unknown', text: t };
+    case 'addproject':
+    case 'add-project': {
+      // 位置参数三个必填 + 可选 key=value（顺序随意）
+      const pos = rest.map((s) => unwrap(s)).filter((s) => s && !s.includes('='));
+      const kv = Object.fromEntries(
+        rest.filter((s) => s.includes('=')).map((s) => [s.slice(0, s.indexOf('=')).toLowerCase(), unwrap(s.slice(s.indexOf('=') + 1))]),
+      ) as Record<string, string>;
+      const [alias, repo, prefix] = pos;
+      if (!alias || !repo || !prefix) return { kind: 'unknown', text: t };
+      return { kind: 'addproject', alias, repo, prefix, gitlab: kv.gitlab, jenkins: kv.jenkins, wiki: kv.wiki };
+    }
     case 're':
     case 'reply':
       return arg ? { kind: 'followup', text: arg } : { kind: 'unknown', text: t };
@@ -282,6 +296,7 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[]): st
     // resume 曾只是兜底行里的裸词条：实测「继续 LS-013」被判成 unknown@30%，用户被迫退回斜杠命令
     'resume：继续/恢复某个工单（「继续 LS-013」「LS-7 接着跑」「恢复 LS-2」）。ticket 必填——带工单号的「继续」是 resume；不带工单号的「继续」多半是在回应上一条执行结果，判 unknown 交给续聊。',
     'status（单个工单的进度时间线）/ list / pause / new / help / unknown。',
+    '想接入/新增一个**项目**（不是工单）→ help：帮助里有 /addproject 的用法，接入必须用显式命令。',
     '',
     '## 判定规则（按优先级）',
     '1. 现场正在等回答，且这句话像是在回应那个问题 → answer。',

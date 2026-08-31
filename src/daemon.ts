@@ -35,8 +35,11 @@ import {
   type Project,
 } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
+import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
 import { PLUGIN_DIR } from './config.js';
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { writeAdhocRecord } from './adhocLog.js';
 import { composeFollowupPrompt, describeLastRun, intakeContextFromLastRun, readLastRun, saveLastRun } from './followup.js';
 import { runClaudeText } from './runner.js';
@@ -394,6 +397,48 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       const context = intakeContextFromLastRun(readLastRun(), project.alias);
       await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement, context ?? undefined));
       if (context) await port.notify(ticket, `已自动附带建单前的 /run 排查记录进 00-intake.md（澄清阶段会参考）`);
+      return;
+    }
+    case 'addproject': {
+      // 群内接入新项目（2026-08-31）：复用终端向导的全部校验与剥壳；写 .env 前整份备份进 backups/
+      const cand = { alias: c.alias, repo: c.repo.replace(/\\/g, '/'), prefix: c.prefix, gitlab: c.gitlab, jenkins: c.jenkins, wikiArchive: c.wiki };
+      const errs = validateNewProject(projects, cand);
+      if (!fs.existsSync(cand.repo)) errs.push(`仓库路径不存在：${cand.repo}`);
+      else if (!fs.existsSync(path.join(cand.repo, '.git'))) errs.push(`${cand.repo} 不是 git 仓库`);
+      if (errs.length) {
+        await port.notify('新项目', `校验未通过：\n${errs.map((e) => `✗ ${e}`).join('\n')}`);
+        return;
+      }
+      const envFile = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env');
+      const envText = fs.readFileSync(envFile, 'utf-8');
+      const cur = readEnvVar(envText, 'PIPELINE_PROJECTS');
+      if (!cur) {
+        await port.notify('新项目', '.env 里没有 PIPELINE_PROJECTS，请先在终端跑 scripts/project-migrate.ts');
+        return;
+      }
+      const next = projectsJsonWith(cur, cand);
+      const backup = path.resolve(path.dirname(envFile), 'backups', `env-${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
+      fs.mkdirSync(path.dirname(backup), { recursive: true });
+      fs.copyFileSync(envFile, backup);
+      fs.writeFileSync(envFile, upsertEnvVar(envText, 'PIPELINE_PROJECTS', next), 'utf-8');
+      // 内存热加载：daemon 不重启即可路由新项目（看板工件链接的投影配置在下次重启后才更新）
+      process.env.PIPELINE_PROJECTS = next;
+      projects.splice(0, projects.length, ...loadProjects());
+      const added = projects.find((p) => p.alias === c.alias);
+      log(`群内接入新项目 ${c.alias}（${added?.prefix}-），现共 ${projects.length} 个项目`);
+      await port.notify(
+        '新项目',
+        [
+          `✅ 项目 **${c.alias}**（工单号 ${added?.prefix}-XXX）已接入，现在就能用（.env 已备份）。`,
+          `仓库：${cand.repo}${added?.gitlab ? `\nGitLab：${added.gitlab}` : ''}${added?.jenkins ? `\nCI：${added.jenkins}` : '\nCI：未配（该项目工单直达验收；要走 CI 用 jenkins=任务名 重新执行本命令）'}`,
+          '',
+          '两个后续建议：',
+          `1. 终端跑 \`npx tsx scripts/doctor.ts\` 做一次体检；`,
+          `2. 铺业务地基（clarify 的洞察力来源）：\`npx tsx scripts/system-map.ts --rebuild ${c.alias}\` + 手写一页 PROJECT-BRIEF.md。`,
+          '',
+          '注：多维表格的工件链接对新项目将在下次 daemon 重启后生效。',
+        ].join('\n'),
+      );
       return;
     }
     case 'unknown': {
