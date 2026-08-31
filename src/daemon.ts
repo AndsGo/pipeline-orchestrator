@@ -430,6 +430,8 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         '新项目',
         [
           `✅ 项目 **${c.alias}**（工单号 ${added?.prefix}-XXX）已接入，现在就能用（.env 已备份）。`,
+          // 与终端向导对齐的提醒（首个群内接入 odoo-product 实测缺失，2026-08-31）
+          ...(fs.existsSync(path.join(cand.repo, 'CLAUDE.md')) ? [] : ['⚠ 该仓库没有 CLAUDE.md——阶段会话将缺少项目规范约束，建议补一份。']),
           `仓库：${cand.repo}${added?.gitlab ? `\nGitLab：${added.gitlab}` : ''}${added?.jenkins ? `\nCI：${added.jenkins}` : '\nCI：未配（该项目工单直达验收；要走 CI 用 jenkins=任务名 重新执行本命令）'}`,
           '',
           '两个后续建议：',
