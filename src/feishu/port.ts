@@ -142,6 +142,17 @@ export class FeishuPort implements InteractionPort {
     return port;
   }
 
+  /**
+   * 群路由钩子（daemon 注入）：按工单号/项目别名找绑定群。
+   * 优先级：调用方显式指定的 chatId（回到消息来源群）> 本钩子（项目绑定群）> 默认主群。
+   * 工单生命周期通知（阶段结果/卡点/验收问题）没有"来源消息"，全靠本钩子路由到项目群。
+   */
+  routeChat?: (ticketOrAlias: string) => string | undefined;
+
+  private chatFor(ticketOrAlias: string, explicit?: string): string | undefined {
+    return explicit ?? this.routeChat?.(ticketOrAlias);
+  }
+
   /** 回调核心（纯逻辑，可单测）：按 key 归位 pending，返回更新后的卡片；未命中返回 null */
   handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>): Record<string, unknown> | null {
     if (!value?.key) return null;
@@ -332,7 +343,7 @@ export class FeishuPort implements InteractionPort {
         ticket,
       }).then(({ value, note }) => ({ id: it.q.id, question: it.q.question, answer: value, note })),
     );
-    group.messageId = await this.postCard(questionsCard(ticket, group.items));
+    group.messageId = await this.postCard(questionsCard(ticket, group.items), this.chatFor(ticket));
     return Promise.all(waits);
   }
 
@@ -345,16 +356,16 @@ export class FeishuPort implements InteractionPort {
   ): Promise<GateDecision> {
     const key = this.nextKey(`gate:${ticket}:${gate}`);
     const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket });
-    await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail));
+    await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.chatFor(ticket));
     const { value, note } = await wait;
     return { approved: value === 'approve', note };
   }
 
-  async notify(ticket: string, message: string): Promise<void> {
+  async notify(ticket: string, message: string, chatId?: string): Promise<void> {
     await this.client.im.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
-        receive_id: this.cfg.chatId,
+        receive_id: this.chatFor(ticket, chatId) ?? this.cfg.chatId,
         msg_type: 'text',
         content: JSON.stringify({ text: `[${ticket}] ${message}` }),
       },
@@ -363,7 +374,7 @@ export class FeishuPort implements InteractionPort {
 
   /** 结构化报告（验收 AC 结果表等）：复用结果卡的长文渲染 */
   async sendReport(ticket: string, title: string, markdown: string): Promise<void> {
-    await this.sendResult(`${title} · ${ticket}`, markdown);
+    await this.sendResult(`${title} · ${ticket}`, markdown, undefined, this.chatFor(ticket));
   }
 
   /**
@@ -430,27 +441,27 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发送单次执行结果：短的走消息，长的走卡片（消息读长文很难受） */
-  async sendResult(title: string, body: string, footer?: string): Promise<void> {
+  async sendResult(title: string, body: string, footer?: string, chatId?: string): Promise<void> {
     if (body.length <= 600) {
-      await this.notify(title, `${body}${footer ? `\n\n${footer}` : ''}`);
+      await this.notify(title, `${body}${footer ? `\n\n${footer}` : ''}`, chatId);
       return;
     }
     const clipped = body.length > 8000 ? body.slice(0, 8000) + '\n\n…（输出过长已截断）' : body;
-    await this.postCard(resultCard(title, clipped, footer));
+    await this.postCard(resultCard(title, clipped, footer), chatId);
   }
 
   /** 发送运行面板卡片（/dashboard 指令） */
-  async sendDashboard(config: string, runtime: string, tickets: string): Promise<void> {
-    await this.postCard(dashboardCard(config, runtime, tickets));
+  async sendDashboard(config: string, runtime: string, tickets: string, chatId?: string): Promise<void> {
+    await this.postCard(dashboardCard(config, runtime, tickets), chatId);
   }
 
   /** 发送状态卡片（/status 指令） */
-  async sendStatus(ticket: string, cursor: string, extra: string, timelineMd: string): Promise<void> {
-    await this.postCard(statusCard(ticket, cursor, extra, timelineMd));
+  async sendStatus(ticket: string, cursor: string, extra: string, timelineMd: string, chatId?: string): Promise<void> {
+    await this.postCard(statusCard(ticket, cursor, extra, timelineMd), this.chatFor(ticket, chatId));
   }
 
   /** 让人从候选里选一个（识别不确定时用，比"没听懂"友好） */
-  async chooseOption(ticket: string, question: string, options: string[]): Promise<string> {
+  async chooseOption(ticket: string, question: string, options: string[], chatId?: string): Promise<string> {
     const key = this.nextKey(`choose:${ticket}`);
     const wait = this.waitFor(key, `${ticket} 已选择`, question, {
       kind: 'answer',
@@ -459,15 +470,15 @@ export class FeishuPort implements InteractionPort {
       ticket,
       strictOptions: true,
     });
-    await this.postCard(chooseCard(ticket, question, options, key));
+    await this.postCard(chooseCard(ticket, question, options, key), this.chatFor(ticket, chatId));
     return (await wait).value;
   }
 
   /** 破坏性指令确认：返回是否执行 */
-  async confirmCommand(ticket: string, what: string): Promise<boolean> {
+  async confirmCommand(ticket: string, what: string, chatId?: string): Promise<boolean> {
     const key = this.nextKey(`cmd:${ticket}`);
     const wait = this.waitFor(key, `${ticket} 操作已处理`, what, { kind: 'gate', label: '确认操作' });
-    await this.postCard(confirmCard(ticket, what, key));
+    await this.postCard(confirmCard(ticket, what, key), this.chatFor(ticket, chatId));
     return (await wait).value === 'approve';
   }
 

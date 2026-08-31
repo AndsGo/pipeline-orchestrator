@@ -144,6 +144,15 @@ describe('指令解析', () => {
     expect(helpText()).toContain('/addproject'); // 「可以在对话中添加吗」被判成 help——帮助里必须有答案
   });
 
+  it('/use 与 /bind：项目粘性与群绑定（2026-08-31 单群多项目的上下文切换之痛）', () => {
+    expect(parseSlash('/use nova')).toEqual({ kind: 'use', alias: 'nova' });
+    expect(parseSlash('/use')).toEqual({ kind: 'use', alias: undefined });
+    expect(parseSlash('/bind odoo-product')).toEqual({ kind: 'bind', alias: 'odoo-product' });
+    expect(parseSlash('/bind')).toMatchObject({ kind: 'unknown' }); // 绑定必须指名项目
+    expect(helpText()).toContain('/use');
+    expect(helpText()).toContain('/bind');
+  });
+
   it('/new 首段不像工单号时整句当需求，工单号交给自动编号', () => {
     const c = parseSlash('/new MCP 调用方式需要调整，改用 SSE');
     expect(c).toMatchObject({ kind: 'new', ticket: undefined });

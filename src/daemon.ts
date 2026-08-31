@@ -36,6 +36,7 @@ import {
 } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
 import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
+import { readSticky, STICKY_TTL_MS, writeSticky } from './sticky.js';
 import { PLUGIN_DIR } from './config.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,6 +52,8 @@ const projects = loadProjects();
 if (!projects.length) {
   throw new Error('daemon 需要 PIPELINE_PROJECTS（或旧的 PIPELINE_REPOS），如 {"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS"}}');
 }
+/** 主群 chat_id：综合入口，不允许 /bind 到单一项目 */
+const MAIN_CHAT = feishuConfigFromEnv().chatId;
 const cfg = {
   defaultProject: process.env.PIPELINE_DEFAULT_REPO ?? projects[0].alias,
   maxConcurrency: Number(process.env.PIPELINE_MAX_CONCURRENCY ?? 2),
@@ -146,10 +149,11 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
   return `${ticket} 已启动${isWorktree ? '（并行隔离工作区）' : ''}`;
 }
 
-async function handleCommand(c: Command, sender: string): Promise<void> {
+async function handleCommand(c: Command, sender: string, chat?: string): Promise<void> {
+  // chat = 消息来源群：通用指令答复回到来源群；工单类通知不带它，由 routeChat 按项目绑定群路由
   switch (c.kind) {
     case 'help':
-      await port.notify('指令', helpText());
+      await port.notify('指令', helpText(), chat);
       return;
     case 'dashboard': {
       const rows: TicketRow[] = listTickets().map((t) => {
@@ -179,7 +183,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         adhoc: { count: adhoc.length, cost: adhoc.reduce((a, x) => a + x.costUsd, 0) },
       }, rows, metricsDashItems(computeMetrics(readAllSnapshots())));
       const r = renderDashboard(d);
-      await port.sendDashboard(r.config, r.runtime, r.tickets);
+      await port.sendDashboard(r.config, r.runtime, r.tickets, chat);
       return;
     }
     case 'list': {
@@ -195,7 +199,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         const mark = active.has(t) ? '🟢在跑' : st?.haltedReason ? '⛔挂起' : '⏹️空闲';
         return `${mark} ${t} @${st?.cursor ?? '?'}　$${totalCost(t).toFixed(2)}`;
       });
-      await port.notify('工单', rows.length ? rows.join('\n') : '暂无工单');
+      await port.notify('工单', rows.length ? rows.join('\n') : '暂无工单', chat);
       return;
     }
     case 'status': {
@@ -214,7 +218,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       ]
         .filter(Boolean)
         .join('\n');
-      await port.sendStatus(t, st?.cursor ?? '未知', extra, timeline(t, 20));
+      await port.sendStatus(t, st?.cursor ?? '未知', extra, timeline(t, 20), chat);
       return;
     }
     case 'pause':
@@ -299,19 +303,25 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
             '执行',
             `你是想在项目 **${m.project.alias}** 上执行吗（消息里的写法没完全对上项目名）？\n> ${c.text.slice(0, 120)}`,
             [`${m.project.alias}（推荐）`, ...others, '取消'],
+            chat,
           );
           if (pick === '取消') {
-            await port.notify('执行', '已取消');
+            await port.notify('执行', '已取消', chat);
             return;
           }
           project = projects.find((p) => pick.startsWith(p.alias)) ?? null;
         }
       }
+      // 群绑定：这个群就是这个项目（/bind）；再往后是项目粘性（本群最近明确指过的项目，见 sticky.ts）
+      if (!project && chat) project = projects.find((p) => p.chatId === chat) ?? null;
+      if (!project && chat) project = readSticky(chat, projects);
       project ??= resolveProject(projects, cfg.defaultProject);
       if (!project) {
-        await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`);
+        await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`, chat);
         return;
       }
+      // 记粘性：绑定群不记（群即项目），未绑定群沿用这次的归属
+      if (chat && !projects.some((p) => p.chatId === chat)) writeSticky(chat, project.alias);
       const isSlashCmd = isProjectSlashCommand(c.text);
       let slashRisks: string[] = []; // 执行失败时要据此提醒"远端状态未知"
       log(`/run on ${project.alias}${isSlashCmd ? '（斜杠指令）' : ''}: ${c.text.slice(0, 100)}`);
@@ -330,9 +340,9 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
         }
         slashRisks = target.risks ?? [];
         log(`  解析为 ${target.origin} ${target.file}${slashRisks.length ? `｜风险：${slashRisks.join('、')}` : ''}`);
-        if (!(await port.confirmCommand('执行', describeSlashTarget(target, project.alias)))) {
+        if (!(await port.confirmCommand('执行', describeSlashTarget(target, project.alias), chat))) {
           log(`/run 已取消：/${target.name}`);
-          await port.notify('执行', '已取消，没有任何改动');
+          await port.notify('执行', '已取消，没有任何改动', chat);
           return;
         }
         log(`  已确认，开始执行 /${target.name}`); // 确认到完成之间可能几分钟，中间没日志会被误判为"点击没落地"
@@ -351,15 +361,15 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
           '',
           '_单次执行：有 Bash 权限、不建工单、不进流水线评审。取消不会有任何改动。_',
         ].join('\n');
-        if (!(await port.confirmCommand('执行', what))) {
+        if (!(await port.confirmCommand('执行', what, chat))) {
           log('/run 已取消（自然语言副作用指令）');
-          await port.notify('执行', '已取消，没有任何改动');
+          await port.notify('执行', '已取消，没有任何改动', chat);
           return;
         }
         slashRisks = ['自然语言判定的对外副作用'];
         log('  已确认，开始执行');
       }
-      await port.notify('执行', `在 ${project.alias} 上执行：${c.text.slice(0, 80)}…`);
+      await port.notify('执行', `在 ${project.alias} 上执行：${c.text.slice(0, 80)}…`, chat);
       // 命中相关经验/术语就带上（无关时为空串，简单问题不受噪音干扰）；斜杠指令不能前置任何文字，否则展不开
       const kbBrief = isSlashCmd ? '' : await fetchKnowledgeBrief(c.text, project.alias);
       const glBrief = isSlashCmd ? '' : await fetchGlossaryBrief(c.text, project.alias);
@@ -367,36 +377,107 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       if (kbBrief) log(`  注入知识提示 ${kbBrief.split('\n').filter((l) => l.startsWith('- **')).length} 条`);
       if (glBrief) log(`  注入术语 ${glBrief.split('\n').filter((l) => l.startsWith('- 「')).length} 条`);
       const brief = [glBrief, kbBrief].filter(Boolean).join('\n');
-      await execAdhoc(project, c.text, `${brief ? `${brief}\n---\n` : ''}${c.text}`, slashRisks, 0);
+      await execAdhoc(project, c.text, `${brief ? `${brief}\n---\n` : ''}${c.text}`, slashRisks, 0, { chat });
       return;
     }
     case 'followup':
-      await runFollowup(c.text);
+      await runFollowup(c.text, chat);
       return;
     case 'new': {
-      // 项目来源优先级：显式指定 > 工单号前缀 > 需求原文里指名 > 唯一项目 > 问人（绝不猜——拼错的指名进问人）
+      // 项目来源优先级：显式指定 > 工单号前缀 > 需求原文里指名 > 群绑定 > 唯一项目 > 问人。
+      // 粘性不静默用于建单（建错项目的工单代价高），只把它顶到问人卡片的推荐位
       const mention = mentionedProject(projects, c.requirement);
       let project =
         resolveProject(projects, c.repo) ?? (c.ticket ? projectOfTicket(projects, c.ticket) : null) ??
         (mention?.exact ? mention.project : null) ??
+        (chat ? (projects.find((p) => p.chatId === chat) ?? null) : null) ??
         (projects.length === 1 ? projects[0] : null);
       if (!project) {
+        const sticky = chat ? readSticky(chat, projects) : null;
+        const options = [...projects].sort((a, b) => (a.alias === sticky?.alias ? -1 : b.alias === sticky?.alias ? 1 : 0));
         const pick = await port.chooseOption(
           '新工单',
           `这个需求属于哪个项目？\n> ${c.requirement.slice(0, 100)}`,
-          projects.map((p) => `${p.alias}（${p.prefix}-）`),
+          options.map((p) => `${p.alias}（${p.prefix}-${p.alias === sticky?.alias ? '，本群当前上下文' : ''}）`),
+          chat,
         );
         project = projects.find((p) => pick.startsWith(p.alias)) ?? null;
         if (!project) {
-          await port.notify('新工单', '未选择项目，已取消');
+          await port.notify('新工单', '未选择项目，已取消', chat);
           return;
         }
       }
+      if (chat && !projects.some((p) => p.chatId === chat)) writeSticky(chat, project.alias);
       const ticket = c.ticket ?? nextTicketId(project, listTickets());
       // 建单自动附带最近一次 /run 的排查记录（LS-013 教训：结论留在续聊里，工单只带走一句话）
       const context = intakeContextFromLastRun(readLastRun(), project.alias);
-      await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement, context ?? undefined));
-      if (context) await port.notify(ticket, `已自动附带建单前的 /run 排查记录进 00-intake.md（澄清阶段会参考）`);
+      await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement, context ?? undefined), chat);
+      if (context) await port.notify(ticket, `已自动附带建单前的 /run 排查记录进 00-intake.md（澄清阶段会参考）`, chat);
+      return;
+    }
+    case 'use': {
+      if (!chat) return;
+      const bound = projects.find((p) => p.chatId === chat);
+      if (bound) {
+        await port.notify('项目', `本群已绑定 **${bound.alias}**，消息默认归它，无需 /use`, chat);
+        return;
+      }
+      if (!c.alias) {
+        const cur = readSticky(chat, projects);
+        await port.notify(
+          '项目',
+          cur
+            ? `本群当前上下文：**${cur.alias}**（${Math.round(STICKY_TTL_MS / 3600_000)} 小时内说的话默认归它）`
+            : `本群当前无项目上下文，消息默认归 **${cfg.defaultProject}**。可用 /use 别名 切换（可用：${describeProjects(projects)}）`,
+          chat,
+        );
+        return;
+      }
+      const target = resolveProject(projects, c.alias) ?? mentionedProject(projects, c.alias)?.project ?? null;
+      if (!target) {
+        await port.notify('项目', `没有叫「${c.alias}」的项目（可用：${describeProjects(projects)}）`, chat);
+        return;
+      }
+      writeSticky(chat, target.alias);
+      await port.notify('项目', `好，本群后续消息默认按 **${target.alias}** 处理（${Math.round(STICKY_TTL_MS / 3600_000)} 小时内有效；换项目再 /use 一次）`, chat);
+      return;
+    }
+    case 'bind': {
+      if (!chat) return;
+      if (chat === MAIN_CHAT) {
+        await port.notify('项目', '主群保持综合入口，不绑定单一项目。要绑定请在目标项目的群里发 /bind', chat);
+        return;
+      }
+      const target = resolveProject(projects, c.alias);
+      if (!target) {
+        await port.notify('项目', `没有叫「${c.alias}」的项目（可用：${describeProjects(projects)}）`, chat);
+        return;
+      }
+      // 持久化：chatId 写进 PIPELINE_PROJECTS 该项目条目（.env 备份后精确改一行），并热加载
+      const envFile0 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env');
+      const envText0 = fs.readFileSync(envFile0, 'utf-8');
+      const cur0 = readEnvVar(envText0, 'PIPELINE_PROJECTS');
+      if (!cur0) {
+        await port.notify('项目', '.env 里没有 PIPELINE_PROJECTS，无法绑定', chat);
+        return;
+      }
+      const raw0 = JSON.parse(cur0) as Record<string, Record<string, unknown>>;
+      const prevOwner = projects.find((p) => p.chatId === chat && p.alias !== target.alias);
+      if (prevOwner) delete raw0[prevOwner.alias].chatId; // 一群一项目：改绑即解除旧绑定
+      raw0[target.alias].chatId = chat;
+      const next0 = JSON.stringify(raw0);
+      const backup0 = path.resolve(path.dirname(envFile0), 'backups', `env-${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
+      fs.mkdirSync(path.dirname(backup0), { recursive: true });
+      fs.copyFileSync(envFile0, backup0);
+      fs.writeFileSync(envFile0, upsertEnvVar(envText0, 'PIPELINE_PROJECTS', next0), 'utf-8');
+      process.env.PIPELINE_PROJECTS = next0;
+      projects.splice(0, projects.length, ...loadProjects());
+      log(`群 ${chat.slice(0, 12)}… 绑定项目 ${target.alias}${prevOwner ? `（解除原绑定 ${prevOwner.alias}）` : ''}`);
+      await port.notify(
+        '项目',
+        `✅ 本群已绑定 **${target.alias}**：在这里说的消息默认归它，${target.prefix}- 工单的通知与卡片也会发到这里${prevOwner ? `（已解除本群与 ${prevOwner.alias} 的原绑定）` : ''}。`,
+        chat,
+      );
       return;
     }
     case 'addproject': {
@@ -406,14 +487,14 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
       if (!fs.existsSync(cand.repo)) errs.push(`仓库路径不存在：${cand.repo}`);
       else if (!fs.existsSync(path.join(cand.repo, '.git'))) errs.push(`${cand.repo} 不是 git 仓库`);
       if (errs.length) {
-        await port.notify('新项目', `校验未通过：\n${errs.map((e) => `✗ ${e}`).join('\n')}`);
+        await port.notify('新项目', `校验未通过：\n${errs.map((e) => `✗ ${e}`).join('\n')}`, chat);
         return;
       }
       const envFile = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env');
       const envText = fs.readFileSync(envFile, 'utf-8');
       const cur = readEnvVar(envText, 'PIPELINE_PROJECTS');
       if (!cur) {
-        await port.notify('新项目', '.env 里没有 PIPELINE_PROJECTS，请先在终端跑 scripts/project-migrate.ts');
+        await port.notify('新项目', '.env 里没有 PIPELINE_PROJECTS，请先在终端跑 scripts/project-migrate.ts', chat);
         return;
       }
       const next = projectsJsonWith(cur, cand);
@@ -440,6 +521,7 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
           '',
           '注：多维表格的工件链接对新项目将在下次 daemon 重启后生效。',
         ].join('\n'),
+        chat,
       );
       return;
     }
@@ -453,15 +535,16 @@ async function handleCommand(c: Command, sender: string): Promise<void> {
           '执行',
           `现在没有待回答的卡片，这句我也没听懂：\n> ${c.text.slice(0, 120)}\n\n你是不是在回复刚才的执行结果 ${describeLastRun(last)}？`,
           [CONT, '不是，忽略这句'],
+          chat,
         );
         if (pick === CONT) {
-          await runFollowup(c.text);
+          await runFollowup(c.text, chat);
           return;
         }
-        await port.notify('指令', '好，这句已忽略。要下指令可用斜杠命令（/help 看用法）。');
+        await port.notify('指令', '好，这句已忽略。要下指令可用斜杠命令（/help 看用法）。', chat);
         return;
       }
-      await port.notify('指令', `没听懂「${c.text.slice(0, 60)}」。\n${helpText()}`);
+      await port.notify('指令', `没听懂「${c.text.slice(0, 60)}」。\n${helpText()}`, chat);
       return;
     }
   }
@@ -478,7 +561,7 @@ async function execAdhoc(
   corePrompt: string,
   slashRisks: string[],
   chain: number,
-  opts?: { resumeSessionId?: string; origin?: string },
+  opts?: { resumeSessionId?: string; origin?: string; chat?: string },
 ): Promise<boolean> {
   const release = await sem.acquire();
   const t0 = Date.now();
@@ -533,6 +616,7 @@ async function execAdhoc(
             : []),
         ].join('\n'),
         `${tail} · 失败，未产出结果`,
+        opts?.chat,
       );
     } else {
       saveLastRun({
@@ -548,6 +632,7 @@ async function execAdhoc(
         `执行结果 · ${project.alias}`,
         r.text,
         `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，直接回复或 \`/re 答复\` 可继续这次任务）`,
+        opts?.chat,
       );
     }
     return true;
@@ -559,7 +644,7 @@ async function execAdhoc(
       return false;
     }
     log(`/run 失败：${(e as Error).message.slice(0, 200)}`);
-    await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`);
+    await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`, opts?.chat);
     return false;
   } finally {
     release();
@@ -567,26 +652,26 @@ async function execAdhoc(
 }
 
 /** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
-async function runFollowup(reply: string): Promise<void> {
+async function runFollowup(reply: string, chat?: string): Promise<void> {
   const last = readLastRun();
   if (!last) {
-    await port.notify('执行', '最近 24 小时内没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。');
+    await port.notify('执行', '最近 24 小时内没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。', chat);
     return;
   }
   const project = resolveProject(projects, last.project) ?? resolveProject(projects, cfg.defaultProject);
   if (!project) {
-    await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`);
+    await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`, chat);
     return;
   }
   const origin = last.origin ?? last.command;
   log(`续聊（第 ${last.chain + 1} 轮${last.sessionId ? '，resume' : '，拼接'}）on ${project.alias}: ${reply.slice(0, 80)}`);
-  await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`);
+  await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`, chat);
   if (last.sessionId) {
     // 真续会话：完整历史在会话里，正文只需要答复本身
-    if (await execAdhoc(project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin })) return;
+    if (await execAdhoc(project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat })) return;
     log('  resume 未成功，改用拼接模式重试');
   }
-  await execAdhoc(project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin });
+  await execAdhoc(project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin, chat });
 }
 
 async function onMessage(m: IncomingMessage): Promise<void> {
@@ -596,7 +681,7 @@ async function onMessage(m: IncomingMessage): Promise<void> {
     // 有待确认卡片时，先看这句话是不是在回答它（明确表决/选项才拦截，不劫持指令）
     const ans = port.tryAnswerByText(m.text);
     if (ans.status === 'resolved') {
-      await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`);
+      await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`, m.chatId);
       return;
     }
     if (ans.status === 'resolved-batch') {
@@ -604,11 +689,12 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         '回答',
         `已记录 ${ans.labels.length} 项 → ${ans.answer}（${ans.labels.join('、')}）` +
           (ans.skipped.length ? `\n未匹配、仍待回答：${ans.skipped.join('、')}` : ''),
+        m.chatId,
       );
       return;
     }
     if (ans.status === 'ambiguous') {
-      await port.notify('回答', ans.detail);
+      await port.notify('回答', ans.detail, m.chatId);
       return;
     }
   }
@@ -619,10 +705,10 @@ async function onMessage(m: IncomingMessage): Promise<void> {
     const issue = slashSanityIssue(cmd, ticketContexts().find((c) => c.ticket === (cmd as { ticket?: string }).ticket));
     if (issue) {
       const t = (cmd as { ticket: string }).ticket;
-      const pick = await port.chooseOption(t, `${issue}\n\n你想要哪一个？`, ['记为说明（不回退）', '确实要改需求（回退到澄清）']);
+      const pick = await port.chooseOption(t, `${issue}\n\n你想要哪一个？`, ['记为说明（不回退）', '确实要改需求（回退到澄清）'], m.chatId);
       if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: t, text: (cmd as { text: string }).text };
       else if (!pick.startsWith('确实')) {
-        await port.notify(t, '已取消');
+        await port.notify(t, '已取消', m.chatId);
         return;
       }
     }
@@ -638,6 +724,7 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       await port.notify(
         '指令',
         `识别服务异常，这条消息没能读懂：${error.slice(0, 120)}\n请重发一次；或直接用斜杠指令（\`/run\`、\`/new\`、\`/note LS-00X 内容\`）绕过识别。`,
+        m.chatId,
       );
       return;
     }
@@ -653,11 +740,12 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         '指令',
         `我听懂了这是一条${missingTicket.kind === 'amend' ? '需求修改' : '说明/缺陷'}，但没说是哪个工单：\n> ${m.text.slice(0, 120)}\n\n怎么处理？`,
         [DIAG, ...cands],
+        m.chatId,
       );
       if (pick === DIAG) cmd = { kind: 'run', text: m.text };
       else if (cands.includes(pick)) cmd = { kind: missingTicket.kind, ticket: pick, text: missingTicket.text };
       else {
-        await port.notify('指令', '已取消');
+        await port.notify('指令', '已取消', m.chatId);
         return;
       }
     }
@@ -667,15 +755,16 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       const am = cmd; // 固化窄化后的引用：cmd 后面会被重新赋值，闭包里读不到窄化类型
       const issue = slashSanityIssue(am, contexts.find((c) => c.ticket === am.ticket));
       if (issue) {
-        const pick = await port.chooseOption(am.ticket, `${issue}\n\n> ${am.text.slice(0, 120)}\n\n你想怎么处理？`, [
-          '开一个新工单',
-          '记为说明（不回退）',
-          '取消',
-        ]);
+        const pick = await port.chooseOption(
+          am.ticket,
+          `${issue}\n\n> ${am.text.slice(0, 120)}\n\n你想怎么处理？`,
+          ['开一个新工单', '记为说明（不回退）', '取消'],
+          m.chatId,
+        );
         if (pick.startsWith('开一个新工单')) cmd = { kind: 'new', requirement: am.text };
         else if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: am.ticket, text: am.text };
         else {
-          await port.notify(am.ticket, '已取消');
+          await port.notify(am.ticket, '已取消', m.chatId);
           return;
         }
       }
@@ -686,7 +775,7 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       const c = cmd;
       const composed = c.target ? `${c.target} ${c.text}` : c.text;
       const r = port.tryAnswerByText(composed, true);
-      if (await reportAnswer(r)) return;
+      if (await reportAnswer(r, m.chatId)) return;
       cmd = { kind: 'note', ticket: c.ticket ?? '', text: c.text }; // 卡片已过期 → 退化为说明
       if (!cmd.ticket) cmd = { kind: 'unknown', text: m.text };
     }
@@ -698,17 +787,18 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         t,
         `我不太确定你的意思（识别为 **${cmd.kind}**，把握 ${(confidence * 100).toFixed(0)}%）：\n> ${m.text.slice(0, 120)}`,
         [`按 ${cmd.kind} 执行`, '记为说明（/note）', '取消'],
+        m.chatId,
       );
       if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: t, text: m.text };
       else if (pick === '取消') {
-        await port.notify(t, '已取消');
+        await port.notify(t, '已取消', m.chatId);
         return;
       }
     }
 
     if (cmd.kind === 'unknown') {
       // 没听懂但有待答卡片 → 当作自由文本答案（人的话不该被丢掉）
-      if (await reportAnswer(port.tryAnswerByText(m.text, true))) return;
+      if (await reportAnswer(port.tryAnswerByText(m.text, true), m.chatId)) return;
       if (!m.mentioned) return; // 没 @ 又没听懂：安静退出
     }
   }
@@ -716,24 +806,24 @@ async function onMessage(m: IncomingMessage): Promise<void> {
   // 分级确认：改变流程走向的一律先问，卡片上写清"我理解为什么、会导致什么"
   if (needsConfirm(cmd)) {
     const t = (cmd as { ticket: string }).ticket;
-    if (!(await port.confirmCommand(t, describeCommand(cmd)))) {
-      await port.notify(t, '已取消');
+    if (!(await port.confirmCommand(t, describeCommand(cmd), m.chatId))) {
+      await port.notify(t, '已取消', m.chatId);
       return;
     }
   }
 
   try {
-    await handleCommand(cmd, m.sender);
+    await handleCommand(cmd, m.sender, m.chatId);
   } catch (e) {
     log(`指令处理失败：${(e as Error).message}`);
-    await port.notify('指令', `处理失败：${(e as Error).message}`);
+    await port.notify('指令', `处理失败：${(e as Error).message}`, m.chatId);
   }
 }
 
 /** 统一回执待答项路由结果；返回是否已处理完毕 */
-async function reportAnswer(r: ReturnType<FeishuPort['tryAnswerByText']>): Promise<boolean> {
+async function reportAnswer(r: ReturnType<FeishuPort['tryAnswerByText']>, chat?: string): Promise<boolean> {
   if (r.status === 'resolved') {
-    await port.notify('回答', `已记录 ${r.label} → ${r.answer}${r.note ? `（补充：${r.note}）` : ''}`);
+    await port.notify('回答', `已记录 ${r.label} → ${r.answer}${r.note ? `（补充：${r.note}）` : ''}`, chat);
     return true;
   }
   if (r.status === 'resolved-batch') {
@@ -741,11 +831,12 @@ async function reportAnswer(r: ReturnType<FeishuPort['tryAnswerByText']>): Promi
       '回答',
       `已记录 ${r.labels.length} 项 → ${r.answer}（${r.labels.join('、')}）` +
         (r.skipped.length ? `\n未匹配、仍待回答：${r.skipped.join('、')}` : ''),
+      chat,
     );
     return true;
   }
   if (r.status === 'ambiguous') {
-    await port.notify('回答', r.detail);
+    await port.notify('回答', r.detail, chat);
     return true;
   }
   return false;
@@ -770,6 +861,8 @@ const boardOn = initBitableSync((t) => active.has(t), log);
 log(boardOn ? '看板投影已启用（多维表格）' : '看板投影未配置（缺 BITABLE_*，跳过）');
 
 port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
+// 工单生命周期通知按项目绑定群路由（/bind 设置）：工单号前缀 → 项目，或直接给项目别名
+port.routeChat = (t) => (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId;
 log(`daemon 就绪：并发上限 ${cfg.maxConcurrency}，项目 ${describeProjects(projects)}（默认 ${cfg.defaultProject}）`);
 await port.notify('流水线', `编排器已上线。并发上限 ${cfg.maxConcurrency}。\n${helpText()}`);
 

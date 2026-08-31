@@ -30,6 +30,10 @@ export type Command =
   | { kind: 'followup'; text: string }
   /** 群内接入新项目（2026-08-31 用户在群里问「可以在对话中添加吗」——此前只有终端向导） */
   | { kind: 'addproject'; alias: string; repo: string; prefix: string; gitlab?: string; jenkins?: string; wiki?: string }
+  /** 项目粘性：本群后续消息默认按该项目处理（不带别名 = 查看当前）；见 sticky.ts 头注 */
+  | { kind: 'use'; alias?: string }
+  /** 群↔项目绑定：在目标群里发，本群从此就是该项目的群（含工单通知路由） */
+  | { kind: 'bind'; alias: string }
   | { kind: 'help' }
   | { kind: 'unknown'; text: string };
 
@@ -130,6 +134,8 @@ export function helpText(): string {
     '`/note LS-004 补充一句说明` 追加说明，下个阶段会读到（不回退）',
     '`/run 这个仓库的鉴权中间件在哪` 单次执行：问一句 / 跑测试（不建工单、不入看板）',
     '`/addproject nova D:/work/nova NV gitlab=组/项目 jenkins=任务名 wiki=节点token` 接入新项目（后三项可省；gitlab/wiki 直接粘 URL 也行）',
+    '`/use nova` 本群后续消息默认按该项目处理（几小时内有效；`/use` 查看当前）',
+    '`/bind nova` 把**当前群**绑定为该项目的群：消息默认归它，工单通知也发到这里（在目标群里发）',
     '`/run /docker-push` 跑项目/个人的斜杠指令或 skill——**斜杠要写在最前面**，会先弹确认卡（写清会跑什么命令、有什么对外副作用）',
     '`/re 1 要 push；未跟踪目录删掉` 回复上一次 /run 结尾的问题，接着办完（直接说也行，我会先确认）',
     '_直接写内容，不要照抄尖括号。_',
@@ -216,6 +222,10 @@ export function parseSlash(text: string): Command | null {
     case 'ask':
     case 'skill':
       return arg ? { kind: 'run', text: arg } : { kind: 'unknown', text: t };
+    case 'use':
+      return { kind: 'use', alias: first };
+    case 'bind':
+      return first ? { kind: 'bind', alias: first } : { kind: 'unknown', text: t };
     case 'addproject':
     case 'add-project': {
       // 位置参数三个必填 + 可选 key=value（顺序随意）

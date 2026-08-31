@@ -17,6 +17,8 @@ export interface Project {
   /** Wiki 归档父节点 */
   wikiArchive?: string;
   wikiKnowledge?: string;
+  /** 绑定的飞书群：该群消息默认按本项目处理，本项目工单通知也发到该群（/bind 设置） */
+  chatId?: string;
 }
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
@@ -41,6 +43,7 @@ export function loadProjects(env: NodeJS.ProcessEnv = process.env): Project[] {
     jenkins: p.jenkins,
     wikiArchive: p.wikiArchive,
     wikiKnowledge: p.wikiKnowledge,
+    chatId: p.chatId,
   }));
   if (list.length) return list.filter((p) => p.repo);
 
