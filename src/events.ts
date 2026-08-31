@@ -96,6 +96,29 @@ export function interruptedStage(events: PipelineEvent[]): string | null {
   return running;
 }
 
+/**
+ * 重启后已死的待答卡片：pending 状态在 daemon 进程内存里，重启即失效——
+ * 飞书上的卡片还在、点了只会提示「已过期」，没人说的话用户会以为流水线还在等他
+ * （实测 OP-001，2026-08-31：clarify 提了 4 问后 daemon 重启，卡片全部变哑）。
+ * 判据：生命周期事件里最后一个是 question.asked / gate.asked（其后无应答、无阶段推进）。
+ */
+export function lostPendingCards(events: PipelineEvent[]): string | null {
+  const lifecycle = new Set<EventType>([
+    'question.asked',
+    'question.answered',
+    'gate.asked',
+    'gate.answered',
+    'stage.start',
+    'stage.end',
+    'halt',
+    'done',
+    'error',
+    'resume',
+  ]);
+  const last = [...events].reverse().find((e) => lifecycle.has(e.type));
+  return last && (last.type === 'question.asked' || last.type === 'gate.asked') ? last.summary : null;
+}
+
 const ICON: Record<EventType, string> = {
   'ticket.created': '🆕',
   triage: '🔀',

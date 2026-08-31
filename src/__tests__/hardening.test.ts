@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
-import { interruptedStage, type PipelineEvent } from '../events.js';
+import { interruptedStage, lostPendingCards, type PipelineEvent } from '../events.js';
 import { formatComment, parseNoteEvent, resolveRepo, shouldTrigger, type MrReviewResult } from '../gitlab/core.js';
 import { acquireLock, releaseLock } from '../lock.js';
 import { validateResult } from '../schema.js';
@@ -33,6 +33,20 @@ describe('中断巡检（LS-013 事故回归：重启杀掉进行中的 clarify�
 
   it('空事件流（如 LS-002 的事件日志曾丢失）→ 不算中断', () => {
     expect(interruptedStage([])).toBeNull();
+  });
+});
+
+describe('重启后失效的待答卡片（OP-001 事故回归：clarify 提了 4 问后重启，卡片全哑没人说）', () => {
+  it('最后的生命周期事件是 question.asked / gate.asked → 报出摘要', () => {
+    expect(lostPendingCards([ev('stage.start', 'clarify'), ev('stage.end', 'clarify'), ev('question.asked', 'clarify')])).toBe('s');
+    expect(lostPendingCards([ev('stage.end', 'review'), ev('gate.asked', 'review')])).toBe('s');
+  });
+  it('已答完 / 阶段已推进 / 已闭环 → 不误报；备注类事件不干扰判定', () => {
+    expect(lostPendingCards([ev('question.asked'), ev('question.answered')])).toBeNull();
+    expect(lostPendingCards([ev('gate.asked'), ev('gate.answered'), ev('stage.start', 'ci')])).toBeNull();
+    expect(lostPendingCards([ev('question.asked'), ev('human.message')])).toBe('s'); // note 不算应答
+    expect(lostPendingCards([ev('stage.end'), ev('done')])).toBeNull();
+    expect(lostPendingCards([])).toBeNull();
   });
 });
 
