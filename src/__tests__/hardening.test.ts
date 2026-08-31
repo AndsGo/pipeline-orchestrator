@@ -8,7 +8,13 @@ import { validateResult } from '../schema.js';
 const T = 'LOCK-TEST';
 afterEach(() => releaseLock(T));
 
-const ev = (type: PipelineEvent['type'], stage?: string): PipelineEvent => ({ ts: 't', ticket: 'T', type, stage, summary: 's' });
+const ev = (type: PipelineEvent['type'], stage?: string): PipelineEvent => ({
+  ts: new Date().toISOString(),
+  ticket: 'T',
+  type,
+  stage,
+  summary: 's',
+});
 
 describe('中断巡检（LS-013 事故回归：重启杀掉进行中的 clarify，工单静停 13 小时没人知道）', () => {
   it('stage.start 后无终结事件 → 判中断并报出阶段', () => {
@@ -47,6 +53,10 @@ describe('重启后失效的待答卡片（OP-001 事故回归：clarify 提了 
     expect(lostPendingCards([ev('question.asked'), ev('human.message')])).toBe('s'); // note 不算应答
     expect(lostPendingCards([ev('stage.end'), ev('done')])).toBeNull();
     expect(lostPendingCards([])).toBeNull();
+  });
+  it('7 天以上的死卡不点名（LS-011 实测：作废工单的旧提问每次开机被唠叨）', () => {
+    const old = { ...ev('question.asked'), ts: new Date(Date.now() - 8 * 86400000).toISOString() };
+    expect(lostPendingCards([old])).toBeNull();
   });
 });
 

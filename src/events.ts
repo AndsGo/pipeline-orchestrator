@@ -116,7 +116,10 @@ export function lostPendingCards(events: PipelineEvent[]): string | null {
     'resume',
   ]);
   const last = [...events].reverse().find((e) => lifecycle.has(e.type));
-  return last && (last.type === 'question.asked' || last.type === 'gate.asked') ? last.summary : null;
+  if (!last || (last.type !== 'question.asked' && last.type !== 'gate.asked')) return null;
+  // 时效护栏：7 天以上的死卡不再点名（实测 LS-011：作废工单的旧提问每次开机都被唠叨一遍）
+  if (Date.now() - Date.parse(last.ts) > 7 * 86400000) return null;
+  return last.summary;
 }
 
 const ICON: Record<EventType, string> = {
