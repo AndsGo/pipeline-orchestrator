@@ -604,8 +604,40 @@ export function parseMessageText(
 ): { text: string; mentioned: boolean } | null {
   if (!content || (messageType && messageType !== 'text' && messageType !== 'post')) return null;
   try {
+    // 富文本（post）优先按结构化 runs 解析——它的 .text 兜底字段里飞书会留 <p></p> 之类的
+    // 段落标签，粘在斜杠命令上会把 /new 变成 /new<p></p> 判成没听懂（实测 2026-09-02，用户被迫重打）
+    if (messageType === 'post') {
+      const p = JSON.parse(content) as {
+        title?: string;
+        content?: Array<Array<{ tag?: string; text?: string }>>;
+        text?: string;
+      };
+      if (Array.isArray(p.content)) {
+        let mentioned = false;
+        const lines: string[] = [];
+        if (p.title?.trim()) lines.push(p.title.trim());
+        for (const para of p.content) {
+          const line = para
+            .map((r) => {
+              if (r.tag === 'at') {
+                mentioned = true;
+                return '';
+              }
+              return r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : '';
+            })
+            .join('');
+          if (line.trim()) lines.push(line.trim());
+        }
+        const raw = lines.join(' ');
+        if (/@_user_\d+/.test(raw)) mentioned = true;
+        const cleaned = raw.replace(/@_user_\d+/g, '').replace(/\s+/g, ' ').trim();
+        return cleaned ? { text: cleaned, mentioned } : null;
+      }
+    }
     const parsed = JSON.parse(content) as { text?: string };
-    const raw = parsed.text ?? '';
+    let raw = parsed.text ?? '';
+    // post 的平铺兜底：只清段落级标签（<p>/<br>）。不做全量尖括号清洗——消息里常有代码泛型（Array<string>）
+    if (messageType === 'post') raw = raw.replace(/<\/?p\s*>/gi, ' ').replace(/<br\s*\/?>/gi, ' ');
     const mentioned = /@_user_\d+/.test(raw);
     const cleaned = raw.replace(/@_user_\d+/g, '').replace(/\s+/g, ' ').trim();
     return cleaned ? { text: cleaned, mentioned } : null;

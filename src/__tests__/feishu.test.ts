@@ -226,6 +226,35 @@ describe('群消息文本解析', () => {
     expect(parseMessageText('{"image_key":"x"}', 'image')).toBeNull();
     expect(parseMessageText(undefined)).toBeNull();
   });
+
+  describe('富文本（post）解析（2026-09-02 实测：<p></p> 粘上 /new 判成没听懂，用户被迫重打）', () => {
+    it('结构化 runs 优先：无 HTML 残片，at 标记算提及', () => {
+      const content = JSON.stringify({
+        title: '',
+        content: [
+          [{ tag: 'at', user_id: 'ou_x' }, { tag: 'text', text: '/new 修复色卡图丢失：' }],
+          [{ tag: 'text', text: '`payload_builder.py` 里重试三次' }],
+        ],
+      });
+      expect(parseMessageText(content, 'post')).toEqual({
+        text: '/new 修复色卡图丢失： `payload_builder.py` 里重试三次',
+        mentioned: true,
+      });
+    });
+    it('平铺 text 兜底：清 <p>/<br> 段落标签，但不动代码里的泛型尖括号', () => {
+      const flat = JSON.stringify({ text: '/new<p></p> 修复 Array<string> 解析<br/>第二行' });
+      expect(parseMessageText(flat, 'post')).toEqual({
+        text: '/new 修复 Array<string> 解析 第二行',
+        mentioned: false,
+      });
+    });
+    it('text 类型消息不做任何标签清洗（用户真写了 <p> 就保留）', () => {
+      expect(parseMessageText(JSON.stringify({ text: '解释下 <p> 标签' }), 'text')).toEqual({
+        text: '解释下 <p> 标签',
+        mentioned: false,
+      });
+    });
+  });
 });
 
 describe('引用/合并转发展开（renderQuotedItems）', () => {
