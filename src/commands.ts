@@ -1,3 +1,4 @@
+import { osaDistance } from './projects.js';
 import { runClaudeJson } from './runner.js';
 import type { Stage } from './types.js';
 
@@ -140,6 +141,19 @@ export function helpText(): string {
     '`/re 1 要 push；未跟踪目录删掉` 回复上一次 /run 结尾的问题，接着办完（直接说也行，我会先确认）',
     '_直接写内容，不要照抄尖括号。_',
   ].join('\n');
+}
+
+/** 全部斜杠命令名（拼错提示用） */
+const SLASH_COMMANDS = [
+  'help', 'list', 'dashboard', 'status', 'pause', 'resume', 'amend', 'rewind',
+  'note', 'new', 'run', 're', 'use', 'bind', 'addproject',
+];
+
+/** 斜杠命令拼错时给最接近的候选（「/dashborad」实测，2026-09-01）；对不上返回 null */
+export function nearestSlash(cmd: string): string | null {
+  const c = cmd.toLowerCase();
+  const best = SLASH_COMMANDS.map((n) => ({ n, d: osaDistance(c, n) })).sort((a, b) => a.d - b.d)[0];
+  return best && best.d > 0 && best.d <= 2 ? best.n : null;
 }
 
 /** 合法工单号（校验用）：字母开头，仅字母数字连字符下划线——要能安全用作文件名与分支名 */

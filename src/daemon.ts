@@ -6,6 +6,7 @@ import {
   helpText,
   isProjectSlashCommand,
   looksLikeCommand,
+  nearestSlash,
   needsConfirm,
   parseSlash,
   slashSanityIssue,
@@ -526,6 +527,15 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
       return;
     }
     case 'unknown': {
+      // 斜杠命令拼错：给最接近的候选，把「名字打错」和「真没这个命令」区分开（/dashborad 实测，2026-09-01）
+      if (c.text.trim().startsWith('/')) {
+        const typo = c.text.trim().slice(1).split(/\s+/)[0];
+        const near = nearestSlash(typo);
+        if (near) {
+          await port.notify('指令', `没有 \`/${typo}\`，你是不是想说 \`/${near}\`？`, chat);
+          return;
+        }
+      }
       // 落空兜底：这句可能是在回复上一次 /run 的收尾问题（实测被判成 answer 后因无待答卡石沉大海）。
       // 以斜杠开头的不算——那是命令格式打错了，不是在回话
       const last = c.text.trim().startsWith('/') ? null : readLastRun();

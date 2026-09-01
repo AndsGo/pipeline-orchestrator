@@ -61,8 +61,8 @@ export function loadProjects(env: NodeJS.ProcessEnv = process.env): Project[] {
   }));
 }
 
-/** OSA 编辑距离（含相邻换位=1）：识别「navo→nova」这类手滑 */
-function osaDistance(a: string, b: string): number {
+/** OSA 编辑距离（含相邻换位=1）：识别「navo→nova」「dashborad→dashboard」这类手滑 */
+export function osaDistance(a: string, b: string): number {
   const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
   for (let j = 0; j <= b.length; j++) d[0][j] = j;
   for (let i = 1; i <= a.length; i++) {

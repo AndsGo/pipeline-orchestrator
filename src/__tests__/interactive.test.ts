@@ -10,6 +10,7 @@ import {
   looksLikeCommand,
   looksLikeDefectReport,
   looksLikeTicket,
+  nearestSlash,
   needsConfirm,
   normalize,
   parseSlash,
@@ -142,6 +143,13 @@ describe('指令解析', () => {
     expect(parseSlash('/add-project foo D:/work/foo FO')).toMatchObject({ kind: 'addproject', gitlab: undefined });
     expect(parseSlash('/addproject foo D:/work/foo')).toMatchObject({ kind: 'unknown' }); // 缺前缀
     expect(helpText()).toContain('/addproject'); // 「可以在对话中添加吗」被判成 help——帮助里必须有答案
+  });
+
+  it('斜杠命令拼错给最接近候选（/dashborad 实测，2026-09-01）', () => {
+    expect(nearestSlash('dashborad')).toBe('dashboard');
+    expect(nearestSlash('reusme')).toBe('resume');
+    expect(nearestSlash('dashboard')).toBeNull(); // 拼对了不提示（不该走到这）
+    expect(nearestSlash('xyzabc')).toBeNull(); // 差太远不硬猜
   });
 
   it('/use 与 /bind：项目粘性与群绑定（2026-08-31 单群多项目的上下文切换之痛）', () => {
