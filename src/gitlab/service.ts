@@ -1,8 +1,12 @@
 // GitLab webhook 入站服务：MR 评论含触发词 → 独立 review → 回帖
+// 兼职：/preview/<工单号>/ 只读静态路由——结果预览（grill-me 定稿 2026-09-01），
+// 复用这个已在内网常驻的端口，业务人员从 PRD 确认卡点链接进来看原型。
 // 启动：npm run webhook（需 GITLAB_* 环境变量，见 core.ts）
+import fs from 'node:fs';
 import http from 'node:http';
-import { gitlabConfigFromEnv, parseNoteEvent, resolveRepo, shouldTrigger } from './core.js';
+import { gitlabConfigFromEnv, parseNoteEvent, previewContentType, previewLocalPath, resolveRepo, shouldTrigger } from './core.js';
 import { runMrReview } from './job.js';
+import { peekTicketRepo } from '../ticket.js';
 
 const cfg = gitlabConfigFromEnv();
 const log = (m: string) => console.log(`[webhook] ${new Date().toISOString()} ${m}`);
@@ -11,6 +15,17 @@ const log = (m: string) => console.log(`[webhook] ${new Date().toISOString()} ${
 let queue: Promise<void> = Promise.resolve();
 
 const server = http.createServer((req, res) => {
+  // 结果预览：只读 GET，路径解析层已挡穿越；工单号 → 仓库用主快照（webhook 与 daemon 共享 data/）
+  if (req.method === 'GET' && req.url?.startsWith('/preview/')) {
+    const file = previewLocalPath(req.url, (t) => peekTicketRepo(t));
+    if (!file || !fs.existsSync(file)) {
+      log(`404 preview：${req.url}（来自 ${req.socket.remoteAddress}）`);
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('无此预览：工单不存在或原型尚未生成');
+      return;
+    }
+    res.writeHead(200, { 'content-type': previewContentType(file), 'cache-control': 'no-cache' }).end(fs.readFileSync(file));
+    return;
+  }
   if (req.method !== 'POST' || req.url !== '/gitlab') {
     log(`404：${req.method} ${req.url}（来自 ${req.socket.remoteAddress}）`);
     res.writeHead(404).end();

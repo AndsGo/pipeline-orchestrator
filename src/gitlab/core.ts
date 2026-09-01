@@ -1,7 +1,46 @@
 /**
  * GitLab MR 评论触发独立 review —— 纯逻辑层（可单测）。
  * 事件解析 / 触发词判定 / 仓库映射 / review 提示词与回帖格式。
+ * 另：/preview 静态路由的路径解析（结果预览，2026-09-01）。
  */
+import path from 'node:path';
+
+/**
+ * 结果预览路由解析：/preview/<工单号>/<相对路径> → 仓库内 prototype 目录下的文件。
+ * 只认合法工单号；相对路径禁止 .. 与绝对段（路径穿越是内网静态服务的第一杀手）；
+ * 空路径与目录访问回落 index.html。解析不出返回 null（调用方 404）。
+ */
+export function previewLocalPath(urlPath: string, resolveTicketRepo: (ticket: string) => string | null): string | null {
+  const m = /^\/preview\/([A-Za-z][A-Za-z0-9_-]{1,31})(?:\/(.*))?$/.exec(urlPath.split('?')[0]);
+  if (!m) return null;
+  let rest: string;
+  try {
+    rest = decodeURIComponent(m[2] ?? '');
+  } catch {
+    return null;
+  }
+  if (!rest || rest.endsWith('/')) rest += 'index.html';
+  if (rest.split('/').some((seg) => seg === '..' || seg === '' || seg.includes('\\'))) return null;
+  const repo = resolveTicketRepo(m[1]);
+  if (!repo) return null;
+  return path.join(repo, 'docs', 'pipeline', m[1], 'prototype', rest);
+}
+
+/** 预览文件的 Content-Type（只服务这几类，其余按下载处理） */
+export function previewContentType(file: string): string {
+  const ext = path.extname(file).toLowerCase();
+  return (
+    {
+      '.html': 'text/html; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.json': 'application/json; charset=utf-8',
+    }[ext] ?? 'application/octet-stream'
+  );
+}
 
 export interface GitlabConfig {
   url: string; // http://gitlab.internal

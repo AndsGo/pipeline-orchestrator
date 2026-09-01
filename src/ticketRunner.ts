@@ -31,6 +31,7 @@ import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import { FASTLANE_MODEL, runFastlane, runTriage, type Lane } from './lanes.js';
 import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
+import { generatePrototype, previewUrl } from './prototype.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
 import { ciJobFor, type Project } from './projects.js';
@@ -811,11 +812,40 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         saveTicket(state);
         continue;
       case 'gate': {
+        let gateSummary = action.summary;
+        // 结果预览（grill-me 定稿 2026-09-01）：prd-confirm 是决策质量最差的一环——业务人员面对
+        // 大段文字只能盲点通过。确认卡弹出前用 sonnet 生成一页可看的原型（UI 可点/数据样例表/流程图），
+        // 失败不阻塞卡点；驳回回 clarify 后下次进卡点自动重生成（原型永远是定稿 PRD 的投影）
+        if (action.gate === 'prd-confirm') {
+          await port.notify(ticket, '正在生成结果预览（1~3 分钟），随 PRD 确认卡一起发出…');
+          const p = await generatePrototype(repo, ticket);
+          if (p.ok) {
+            const url = previewUrl(ticket);
+            gateSummary = `${
+              url
+                ? `📱 **结果预览**：${url}\n（示意非承诺，页内附验收标准清单）`
+                : `📱 结果预览已生成：docs/pipeline/${ticket}/prototype/index.html（配置 PREVIEW_BASE_URL 后卡片将带可点链接）`
+            }\n\n${gateSummary}`;
+            // 成本入账：记为 clarify 的附属会话（extraArgs 标注来源），看板成本才不撒谎
+            state = {
+              ...state,
+              runs: [
+                ...state.runs,
+                { stage: 'clarify', extraArgs: 'prototype', startedAt: new Date().toISOString(), costUsd: p.costUsd, turns: p.turns, status: 'DONE', sessionId: 'prototype' },
+              ],
+            };
+            saveTicket(state);
+          } else {
+            await port.notify(ticket, `结果预览生成失败（不影响确认，PRD 材料齐全）：${p.note ?? '未知原因'}`);
+          }
+          // 可发现性（grill-me 问题 5 的缺口）：业务人员不知道卡片按钮之外可以直接说话
+          gateSummary += '\n\n_按钮之外有任何意见，直接在群里说即可：小的记进需求，大的会回澄清重做。_';
+        }
         appendEvent({ ticket, type: 'gate.asked', stage, summary: `卡点 ${action.gate} 等待人工` });
         const d = await port.confirmGate(
           ticket,
           action.gate,
-          action.summary,
+          gateSummary,
           action.concerns,
           gateDetail(action.gate, repo, ticket),
         );

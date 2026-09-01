@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { interruptedStage, lostPendingCards, type PipelineEvent } from '../events.js';
-import { formatComment, parseNoteEvent, resolveRepo, shouldTrigger, type MrReviewResult } from '../gitlab/core.js';
+import { formatComment, parseNoteEvent, previewContentType, previewLocalPath, resolveRepo, shouldTrigger, type MrReviewResult } from '../gitlab/core.js';
+import { previewUrl } from '../prototype.js';
 import { acquireLock, releaseLock } from '../lock.js';
 import { validateResult } from '../schema.js';
 
@@ -57,6 +58,36 @@ describe('重启后失效的待答卡片（OP-001 事故回归：clarify 提了 
   it('7 天以上的死卡不点名（LS-011 实测：作废工单的旧提问每次开机被唠叨）', () => {
     const old = { ...ev('question.asked'), ts: new Date(Date.now() - 8 * 86400000).toISOString() };
     expect(lostPendingCards([old])).toBeNull();
+  });
+});
+
+describe('结果预览静态路由（内网只读服务，路径穿越是第一杀手）', () => {
+  const repoOf = (t: string): string | null => (t === 'OP-002' ? 'D:/work/odoo-product' : null);
+
+  it('工单根路径回落 index.html；子资源按相对路径解析', () => {
+    expect(previewLocalPath('/preview/OP-002/', repoOf)).toBe('D:\\work\\odoo-product\\docs\\pipeline\\OP-002\\prototype\\index.html');
+    expect(previewLocalPath('/preview/OP-002', repoOf)).toContain('index.html');
+    expect(previewLocalPath('/preview/OP-002/img/a.png', repoOf)).toContain('prototype\\img\\a.png');
+  });
+
+  it('路径穿越、非法工单号、未知工单一律 null', () => {
+    expect(previewLocalPath('/preview/OP-002/../../../.env', repoOf)).toBeNull();
+    expect(previewLocalPath('/preview/OP-002/%2e%2e/secret', repoOf)).toBeNull();
+    expect(previewLocalPath('/preview/OP-002/a\\b.html', repoOf)).toBeNull();
+    expect(previewLocalPath('/preview/<bad>/x', repoOf)).toBeNull();
+    expect(previewLocalPath('/preview/LS-999/', repoOf)).toBeNull();
+    expect(previewLocalPath('/gitlab', repoOf)).toBeNull();
+  });
+
+  it('Content-Type 按扩展名，未知类型按下载', () => {
+    expect(previewContentType('a.html')).toContain('text/html');
+    expect(previewContentType('a.svg')).toBe('image/svg+xml');
+    expect(previewContentType('a.exe')).toBe('application/octet-stream');
+  });
+
+  it('previewUrl：配了 PREVIEW_BASE_URL 才给链接，尾斜杠归一', () => {
+    expect(previewUrl('OP-002', { PREVIEW_BASE_URL: 'http://10.0.0.5:8377/' } as NodeJS.ProcessEnv)).toBe('http://10.0.0.5:8377/preview/OP-002/');
+    expect(previewUrl('OP-002', {} as NodeJS.ProcessEnv)).toBeNull();
   });
 });
 
