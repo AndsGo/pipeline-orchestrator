@@ -164,7 +164,7 @@ else {
     state === 'alive'
       ? `运行中（pid ${pid}）`
       : state === 'elevated'
-        ? `运行中但为提权进程（pid ${pid}）——本 shell 无法重启它，需提权操作或把看门狗计划任务改为非提权运行`
+        ? `运行中但为提权进程（pid ${pid}）——本 shell 杀不动它；重启用 start-daemon.ps1 -Stop 写停止信号，它空闲时自退、看门狗拉起`
         : `pid 文件指向已死进程 ${pid}——删掉 data/daemon.pid 再启动`,
   );
 }

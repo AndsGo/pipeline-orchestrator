@@ -914,3 +914,24 @@ async function kbAuditTick(): Promise<void> {
 }
 void kbAuditTick();
 setInterval(() => void kbAuditTick(), 24 * 3600 * 1000);
+
+// 空闲自退（停止信号文件）：看门狗计划任务拉起的 daemon 是提权进程，普通 shell 杀不动、连命令行都看不见
+// （2026-09-02 实测：任务改成 Limited 照样是 High）。改成约定：start-daemon.ps1 -Stop 杀不动就写
+// data/daemon.stop，daemon 每 10 秒看一眼，没有工单在跑或等卡片时自己退出，看门狗 2 分钟内以最新代码拉起。
+// 启动即清掉残留的信号文件，否则新进程一起来就自杀、无限循环。
+const STOP_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/daemon.stop');
+fs.rmSync(STOP_FILE, { force: true });
+let stopDeferredLogged = false;
+setInterval(() => {
+  if (!fs.existsSync(STOP_FILE)) return;
+  if (active.size) {
+    if (!stopDeferredLogged) {
+      stopDeferredLogged = true;
+      log(`收到停止信号，但 ${[...active.keys()].join('、')} 在跑或等卡片，等它们结束再退出`);
+    }
+    return;
+  }
+  fs.rmSync(STOP_FILE, { force: true });
+  log('收到停止信号（data/daemon.stop），当前空闲，自行退出；看门狗会以最新代码拉起');
+  process.exit(0);
+}, 10_000);

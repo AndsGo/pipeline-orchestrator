@@ -15,8 +15,11 @@ if ($Stop) {
     # 核实而不是假报：提权（看门狗计划任务）拉起的 daemon 在非提权 shell 里 taskkill 会静默失败，
     # 此前照样打印「已停止」并删 pid 文件——随后的启动被日志锁拦下，人却以为进程已死（2026-09-02 实测）
     if (Get-Process -Id $old -ErrorAction SilentlyContinue) {
-      Write-Host "daemon (pid $old) 未能停止：进程仍在，多半是提权拉起的（看门狗计划任务）。" -ForegroundColor Red
-      Write-Host '请在管理员 PowerShell 里执行本命令，或把计划任务改为非提权运行后再试。' -ForegroundColor Yellow
+      # 杀不动就走信号文件：daemon 每 10 秒检查一次，空闲（无在跑工单、无待答卡片）时自行退出，看门狗随后拉起
+      Set-Content -Path (Join-Path $root 'data\daemon.stop') -Value (Get-Date -Format o) -Encoding utf8
+      Write-Host "daemon (pid $old) 是提权进程，本 shell 杀不动；已写入停止信号 data\daemon.stop。" -ForegroundColor Yellow
+      Write-Host '它会在空闲时自行退出（有工单在跑或等卡片则先等），看门狗 2 分钟内以最新代码拉起。' -ForegroundColor Yellow
+      Write-Host '观察：Get-Content logs\daemon.log -Tail 3 -Wait' -ForegroundColor Yellow
       return
     }
     Remove-Item $pidFile -Force
