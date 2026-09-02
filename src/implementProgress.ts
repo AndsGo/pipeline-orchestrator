@@ -26,7 +26,9 @@ export function countPlanTasks(planText: string): number {
  */
 export function countLedgerDone(ledgerText: string): number {
   const ids = new Set<string>();
-  for (const m of ledgerText.matchAll(/^-\s*Task\s+(\d+)\s*[:：]\s*complete\b/gim)) ids.add(m[1]);
+  // 行首允许列表符号 / 反引号 / 引用符：OP-002 实测会话把完成行写成 `Task 1: complete (...)`（反引号包裹、无列表符号），
+  // 只认「- 」开头时数出 0/4，自动续跑的进度口径与台账事实不符
+  for (const m of ledgerText.matchAll(/^[\s\-*>`]*Task\s+(\d+)\s*[:：]\s*complete\b/gim)) ids.add(m[1]);
   return ids.size;
 }
 

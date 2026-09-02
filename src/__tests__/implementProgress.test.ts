@@ -66,6 +66,16 @@ describe('计划任务数与台账完成数', () => {
     expect(countLedgerDone('- Task 1: complete (a)\n- Task 1: complete (b)\n- Task 2: complete\n')).toBe(2);
   });
 
+  it('OP-002 实测：完成行被写成反引号包裹、无列表符号，也要认；提到「Task N: complete」的叙述句不算', () => {
+    const ledger = [
+      '断点恢复判定：本 ledger 无任何 `Task N: complete` 行 → 从 Task 1 Step 2 开始',
+      '`Task 1: minor (deferred): ledger.md 未并入 73a6fa71`',
+      '`Task 1: complete (commits d50f4137..73a6fa71, review clean — spec ✅)`',
+      '* Task 2: complete',
+    ].join('\n');
+    expect(countLedgerDone(ledger)).toBe(2);
+  });
+
   it('读盘：计划/台账缺失时给 0，不抛', () => {
     expect(readImplementProgress(repoWith({}), 'LS-012')).toEqual({ done: 0, total: 0, ledgerLines: 0 });
     const repo = repoWith({ '20-plan.md': PLAN, 'ledger.md': LEDGER_TWO_ROUNDS });
