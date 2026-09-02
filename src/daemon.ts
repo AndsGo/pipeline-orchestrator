@@ -36,7 +36,7 @@ import {
   type Project,
 } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
-import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
+import { pipelineDocsIgnored, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
 import { readSticky, STICKY_TTL_MS, writeSticky } from './sticky.js';
 import { PLUGIN_DIR } from './config.js';
 import fs from 'node:fs';
@@ -514,6 +514,10 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
           `✅ 项目 **${c.alias}**（工单号 ${added?.prefix}-XXX）已接入，现在就能用（.env 已备份）。`,
           // 与终端向导对齐的提醒（首个群内接入 odoo-product 实测缺失，2026-08-31）
           ...(fs.existsSync(path.join(cand.repo, 'CLAUDE.md')) ? [] : ['⚠ 该仓库没有 CLAUDE.md——阶段会话将缺少项目规范约束，建议补一份。']),
+          // 同一项目第二个坑（2026-09-02）：.gitignore 屏蔽 docs → 流水线工件全部不入库
+          ...(pipelineDocsIgnored(cand.repo)
+            ? ['⚠ 该仓库的 .gitignore 屏蔽了 docs/pipeline——PRD/评审/原型都不会入库，MR 里看不到、换 worktree 即丢。建议把 `docs` 改成 `docs/*` 并加一行 `!docs/pipeline/`。']
+            : []),
           `仓库：${cand.repo}${added?.gitlab ? `\nGitLab：${added.gitlab}` : ''}${added?.jenkins ? `\nCI：${added.jenkins}` : '\nCI：未配（该项目工单直达验收；要走 CI 用 jenkins=任务名 重新执行本命令）'}`,
           '',
           '两个后续建议：',

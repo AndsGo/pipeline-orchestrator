@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import type { Project } from './projects.js';
 
 /**
@@ -13,6 +14,19 @@ export interface NewProject {
   gitlab?: string;
   jenkins?: string;
   wikiArchive?: string;
+}
+
+/**
+ * 该仓库是否把流水线工件目录挡在 git 外（实测 odoo-product 的 .gitignore 整行 `docs`，2026-09-02）。
+ * 不是错误、是提醒：工件仍在盘上可用，但 MR 里看不到 PRD/评审、换 worktree 即丢。非 git 仓库返回 false
+ */
+export function pipelineDocsIgnored(repo: string): boolean {
+  try {
+    execSync('git check-ignore -q docs/pipeline/x.md', { cwd: repo, stdio: 'ignore' });
+    return true; // 退出码 0 = 被忽略
+  } catch {
+    return false;
+  }
 }
 
 /** 候选校验：返回错误清单（空数组 = 通过）。路径存在性等文件系统检查由调用方做 */

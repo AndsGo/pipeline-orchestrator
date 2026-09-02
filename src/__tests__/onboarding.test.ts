@@ -1,6 +1,36 @@
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { projectCfgFromEnv } from '../bitable/sync.js';
-import { normalizeGitlabPath, normalizeWikiToken, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from '../onboarding.js';
+import {
+  normalizeGitlabPath,
+  normalizeWikiToken,
+  pipelineDocsIgnored,
+  projectsJsonWith,
+  readEnvVar,
+  upsertEnvVar,
+  validateNewProject,
+} from '../onboarding.js';
+
+describe('pipelineDocsIgnored（odoo-product 实测：.gitignore 整行 docs，工件全部不入库）', () => {
+  it('屏蔽 docs 的仓库 → true；正常仓库 → false；非 git 目录 → false', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ign-'));
+    try {
+      execSync('git init -q', { cwd: dir, stdio: 'ignore' });
+      expect(pipelineDocsIgnored(dir)).toBe(false);
+      fs.writeFileSync(path.join(dir, '.gitignore'), 'docs\n', 'utf-8');
+      expect(pipelineDocsIgnored(dir)).toBe(true);
+      // git 语义：父目录整个被忽略时 !docs/pipeline/ 放不开；正确写法是 docs/* + !docs/pipeline/
+      fs.writeFileSync(path.join(dir, '.gitignore'), 'docs/*\n!docs/pipeline/\n', 'utf-8');
+      expect(pipelineDocsIgnored(dir)).toBe(false);
+      expect(pipelineDocsIgnored(os.tmpdir())).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 import type { Project } from '../projects.js';
 
 const existing: Project[] = [{ alias: 'lakeghost', repo: 'D:/work/lake_spirit', prefix: 'LS' }];
