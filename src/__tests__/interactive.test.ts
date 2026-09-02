@@ -115,6 +115,8 @@ describe('指令解析', () => {
       reason: '计划不对',
     });
     expect(parseSlash('/new LS-9 给 /mcp 加限流')).toEqual({ kind: 'new', ticket: 'LS-9', requirement: '给 /mcp 加限流' });
+    // 不带正文也是合法 new：daemon 据此走「按刚才 /run 对话草拟需求」的零输入建单
+    expect(parseSlash('/new')).toEqual({ kind: 'new', requirement: '' });
     expect(parseSlash('/list')).toEqual({ kind: 'list' });
     expect(parseSlash('/help')).toEqual({ kind: 'help' });
   });

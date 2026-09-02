@@ -127,6 +127,7 @@ export function helpText(): string {
   return [
     '**流水线指令**（斜杠命令，或直接用中文说；群里需 @ 我）：',
     '`/new LS-004 给 /mcp 端点加限流` 新建工单（工单号可省略，我会自动编号）',
+    '`/new` 不带正文 → 把刚才 /run 聊出来的结论整理成需求，确认后建单（说「按刚才聊的建单」也行）',
     '`/dashboard` 运行面板：常用链接（仓库/看板/知识库/Jenkins）+ 运行情况 + 工单一览',
     '`/status LS-004` 查看进度时间线　`/list` 列出全部工单',
     '`/pause LS-004` 下个安全点暂停　`/resume LS-004` 继续',
@@ -230,7 +231,8 @@ export function parseSlash(text: string): Command | null {
       // 第一段像工单号就当工单号，否则整句都是需求（自动编号）——用户常常直接写需求
       const raw = ticketOk ? unwrap(others.join(' ')) : arg;
       const { repo, rest: body } = extractRepo(raw);
-      return body ? { kind: 'new', ticket: ticketOk, repo, requirement: body } : { kind: 'unknown', text: t };
+      // 不带正文也是合法的：daemon 会把最近的 /run 对话整理成需求、弹卡确认后建单（零输入建单）
+      return { kind: 'new', ticket: ticketOk, repo, requirement: body ?? '' };
     }
     case 'run':
     case 'ask':

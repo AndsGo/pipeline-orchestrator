@@ -38,6 +38,72 @@ export interface LastRun {
   sessionId?: string;
   /** 本链条第一轮的用户原话：拼接降级时防止原始任务在第 2 轮后丢失 */
   origin?: string;
+  /**
+   * 整段对话（首轮到本轮，按序）。建单要带走的是全部结论，不是最后一轮——续聊时 output 逐轮覆盖，
+   * 中间轮次聊出来的东西以前只存在于 data/adhoc/ 留痕里。会话本身仍靠 sessionId --resume 复用，不重放。
+   */
+  transcript?: Round[];
+}
+
+export interface Round {
+  /** 用户原话：首轮 = /run 指令，续轮 = 答复 */
+  command: string;
+  output: string;
+}
+
+/** 本轮并入链条：首轮只有自己；续轮 = 上一指针的整段对话 + 本轮（旧指针无 transcript 时由其 command/output 补出） */
+export function withRound(prev: LastRun | null, round: Round): Round[] {
+  if (!prev) return [round];
+  return [...(prev.transcript ?? [{ command: prev.command, output: prev.output }]), round];
+}
+
+function roundsOf(last: LastRun): Round[] {
+  return last.transcript ?? [{ command: last.command, output: last.output }];
+}
+
+/** 按轮渲染，预算从最新一轮往前分：最新结论最重要；超预算的老轮次只留用户原话，输出以留痕位置代替 */
+function renderRounds(rounds: Round[], cap: number): string[] {
+  let budget = cap;
+  const out: string[] = [];
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const r = rounds[i];
+    let body: string;
+    if (budget <= 0) body = '（本轮输出略，全文在编排器 data/adhoc/ 留痕）';
+    else if (r.output.length > budget) {
+      body = `${r.output.slice(0, budget)}\n…（后文过长已截断，全文在编排器 data/adhoc/ 留痕）`;
+      budget = 0;
+    } else {
+      body = r.output;
+      budget -= r.output.length;
+    }
+    out.unshift(`### 第 ${i + 1} 轮\n- ${i === 0 ? '指令' : '用户答复'}：${r.command.slice(0, 500)}\n- 输出：\n${body}`);
+  }
+  return out;
+}
+
+/**
+ * 「/new」不带正文，或正文只是在指代刚才的对话（「按刚才聊的建单」）→ 该按对话草拟需求，而不是把这句话当需求。
+ * 词面判断故意保守：句子要同时提到「刚才/上面/对话」和「建单/工单/需求」，且很短。
+ */
+export function isDraftFromChatRequest(requirement: string): boolean {
+  const t = requirement.trim();
+  if (!t) return true;
+  return t.length <= 40 && /刚才|刚刚|上面|前面|上述|聊的|对话|讨论/.test(t) && /建|工单|需求|单/.test(t);
+}
+
+/** 把整段 /run 对话压成需求原文的提示词（sonnet 一次文本调用，无工具）。只要正文，不要开场白 */
+export function composeRequirementDraftPrompt(last: LastRun): string {
+  return [
+    '下面是用户与助手在代码仓库里的一段排查/讨论对话（/run 单次执行及其续聊）。用户现在要「按这段对话建一张开发工单」。',
+    '请把对话里已经达成的结论整理成一段需求原文，供后续澄清阶段使用。要求：',
+    '- 只输出需求正文本身：不要开场白、标题、解释或结尾寒暄；中文；不超过 400 字。',
+    '- 写清：要解决什么问题（背景一句话）、要做成什么样、范围内/范围外、对话里已确定的关键事实（文件、字段、口径原样引用）。',
+    '- 用户明确说不做的事写进范围外，不要擅自扩大范围。',
+    '- 对话里没有定论的点，以「待确认：…」逐条列在末尾，不要替用户拍板。',
+    '',
+    '## 对话记录',
+    ...renderRounds(roundsOf(last), OUTPUT_CAP),
+  ].join('\n');
 }
 
 /** 落盘最近一次执行指针（写失败不抛——指针丢了只是续不上聊，不能反过来影响结果送达） */
@@ -77,16 +143,12 @@ export function describeLastRun(r: LastRun, now = Date.now()): string {
  */
 export function intakeContextFromLastRun(last: LastRun | null, projectAlias: string): string | null {
   if (!last || last.project !== projectAlias) return null;
-  const out =
-    last.output.length > OUTPUT_CAP
-      ? `${last.output.slice(0, OUTPUT_CAP)}\n…（后文过长已截断，全文在编排器 data/adhoc/ 留痕）`
-      : last.output;
+  const rounds = roundsOf(last);
   return [
-    '以下是建单前最近一次单次执行（/run）的记录，自动附带供澄清参考；若与本需求无关请忽略。',
-    `- 指令：${last.command.slice(0, 200)}`,
-    `- 完成时间：${last.at}${last.chain > 0 ? `（续聊第 ${last.chain} 轮）` : ''}`,
+    `以下是建单前最近一次单次执行（/run）及其续聊的完整记录（共 ${rounds.length} 轮），自动附带供澄清参考；若与本需求无关请忽略。`,
+    `- 完成时间：${last.at}`,
     '',
-    out,
+    ...renderRounds(rounds, OUTPUT_CAP),
   ].join('\n');
 }
 

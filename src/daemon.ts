@@ -43,7 +43,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeAdhocRecord } from './adhocLog.js';
-import { composeFollowupPrompt, describeLastRun, intakeContextFromLastRun, readLastRun, saveLastRun } from './followup.js';
+import {
+  composeFollowupPrompt,
+  composeRequirementDraftPrompt,
+  describeLastRun,
+  intakeContextFromLastRun,
+  isDraftFromChatRequest,
+  type LastRun,
+  readLastRun,
+  saveLastRun,
+  withRound,
+} from './followup.js';
 import { runClaudeText } from './runner.js';
 import { describeSlashTarget, resolveSlashTarget } from './slashTarget.js';
 import { runTicket, scheduleRewind } from './ticketRunner.js';
@@ -385,11 +395,52 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
       await runFollowup(c.text, chat);
       return;
     case 'new': {
+      let requirement = c.requirement;
+      let ticketPick = c.ticket;
+      let project: Project | null = null;
+      // 零输入建单：/new 不带正文（或「按刚才聊的建单」）→ 把最近的 /run 对话压成需求原文，弹卡确认后再建。
+      // 对话本身走的是 --resume 真续会话；这里只读落盘的整段记录，不重放会话
+      if (isDraftFromChatRequest(requirement)) {
+        const last = readLastRun();
+        if (!last) {
+          await port.notify('新工单', '「/new」后面要跟需求原文；或者先用 /run 把问题聊清楚，再发一句「/new」，我会把对话整理成需求给你确认。', chat);
+          return;
+        }
+        const lp = projects.find((p) => p.alias === last.project) ?? null;
+        const bound = chat ? projects.find((p) => p.chatId === chat) : undefined;
+        if (!lp || (bound && bound.alias !== lp.alias)) {
+          await port.notify(
+            '新工单',
+            `最近的 /run 对话 ${describeLastRun(last)} 是在项目 ${last.project} 上${bound ? `，本群绑定的是 ${bound.alias}` : ''}；请到对应项目的群里建，或直接写需求原文。`,
+            chat,
+          );
+          return;
+        }
+        await port.notify('新工单', `正在把 ${describeLastRun(last)} 及其续聊整理成需求原文（约 1 分钟）…`, chat);
+        const draft = await draftRequirementFromChat(lp, last);
+        if (!draft) {
+          await port.notify('新工单', '整理失败，请直接写需求原文：/new <需求>', chat);
+          return;
+        }
+        ticketPick = ticketPick ?? nextTicketId(lp, listTickets());
+        const d = await port.confirmGate(
+          ticketPick,
+          '建单确认',
+          `${draft}\n\n通过 → 按上面这段需求建单 ${ticketPick}（备注里写的补充会并入需求）；驳回 → 取消，不建单`,
+          [],
+        );
+        if (!d.approved) {
+          await port.notify('新工单', `已取消建单${d.note ? `（${d.note.slice(0, 80)}）` : ''}`, chat);
+          return;
+        }
+        requirement = d.note?.trim() ? `${draft}\n\n用户在确认建单时补充：${d.note.trim()}` : draft;
+        project = lp;
+      }
       // 项目来源优先级：显式指定 > 工单号前缀 > 需求原文里指名 > 群绑定 > 唯一项目 > 问人。
       // 粘性不静默用于建单（建错项目的工单代价高），只把它顶到问人卡片的推荐位
-      const mention = mentionedProject(projects, c.requirement);
-      let project =
-        resolveProject(projects, c.repo) ?? (c.ticket ? projectOfTicket(projects, c.ticket) : null) ??
+      const mention = mentionedProject(projects, requirement);
+      project ??=
+        resolveProject(projects, c.repo) ?? (ticketPick ? projectOfTicket(projects, ticketPick) : null) ??
         (mention?.exact ? mention.project : null) ??
         (chat ? (projects.find((p) => p.chatId === chat) ?? null) : null) ??
         (projects.length === 1 ? projects[0] : null);
@@ -398,7 +449,7 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
         const options = [...projects].sort((a, b) => (a.alias === sticky?.alias ? -1 : b.alias === sticky?.alias ? 1 : 0));
         const pick = await port.chooseOption(
           '新工单',
-          `这个需求属于哪个项目？\n> ${c.requirement.slice(0, 100)}`,
+          `这个需求属于哪个项目？\n> ${requirement.slice(0, 100)}`,
           options.map((p) => `${p.alias}（${p.prefix}-${p.alias === sticky?.alias ? '，本群当前上下文' : ''}）`),
           chat,
         );
@@ -409,11 +460,11 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
         }
       }
       if (chat && !projects.some((p) => p.chatId === chat)) writeSticky(chat, project.alias);
-      const ticket = c.ticket ?? nextTicketId(project, listTickets());
-      // 建单自动附带最近一次 /run 的排查记录（LS-013 教训：结论留在续聊里，工单只带走一句话）
+      const ticket = ticketPick ?? nextTicketId(project, listTickets());
+      // 建单自动附带最近一次 /run 的整段对话（LS-013 教训：结论留在续聊里，工单只带走一句话）
       const context = intakeContextFromLastRun(readLastRun(), project.alias);
-      await port.notify(ticket, await startTicket(ticket, project.alias, c.requirement, context ?? undefined), chat);
-      if (context) await port.notify(ticket, `已自动附带建单前的 /run 排查记录进 00-intake.md（澄清阶段会参考）`, chat);
+      await port.notify(ticket, await startTicket(ticket, project.alias, requirement, context ?? undefined), chat);
+      if (context) await port.notify(ticket, `已自动附带建单前的 /run 对话记录进 00-intake.md（澄清阶段会参考）`, chat);
       return;
     }
     case 'use': {
@@ -641,6 +692,8 @@ async function execAdhoc(
         chain,
         sessionId: r.sessionId,
         origin: opts?.origin ?? commandText,
+        // 整段对话随指针累积：续轮读的是尚未被本轮覆盖的上一指针
+        transcript: withRound(chain > 0 ? readLastRun() : null, { command: commandText, output: r.text }),
       });
       await port.sendResult(
         `执行结果 · ${project.alias}`,
@@ -662,6 +715,26 @@ async function execAdhoc(
     return false;
   } finally {
     release();
+  }
+}
+
+/** 零输入建单的草拟：整段 /run 对话 → 一段需求原文。sonnet 纯文本一次调用，失败返回 null 由调用方兜底 */
+async function draftRequirementFromChat(project: Project, last: LastRun): Promise<string | null> {
+  try {
+    const r = await runClaudeText({
+      cwd: project.repo,
+      prompt: composeRequirementDraftPrompt(last),
+      tools: 'Read',
+      model: 'sonnet',
+      maxTurns: 3,
+      budgetUsd: 0.5,
+      pluginDir: PLUGIN_DIR,
+    });
+    log(`建单草拟：$${r.costUsd.toFixed(3)} · ${r.turns} 轮 · ${r.text.length} 字符${r.isError ? '（会话异常）' : ''}`);
+    return r.isError || !r.text.trim() ? null : r.text.trim();
+  } catch (e) {
+    log(`建单草拟失败：${(e as Error).message.slice(0, 160)}`);
+    return null;
   }
 }
 
