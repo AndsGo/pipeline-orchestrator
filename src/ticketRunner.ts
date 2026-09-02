@@ -31,6 +31,7 @@ import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import { FASTLANE_MODEL, runFastlane, runTriage, type Lane } from './lanes.js';
 import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
+import { isTransientApiError, TRANSIENT_RETRY_DELAY_MS } from './transient.js';
 import { generatePrototype, previewUrl } from './prototype.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
@@ -447,6 +448,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
   let offeredRetry = false;
   // 评审仲裁卡同样只发一次：AutoPort 自动放行时最多追加一轮修复，不能变成 BLOCK→修复的无限循环
   let offeredArbitration = false;
+  // 瞬时 API 故障的自动重试：每个阶段一次
+  const retriedTransient = new Set<Stage>();
 
   /** 弹卡点并落地答复。卡在 state.pendingGate 里持久化到答复为止——重启后重发这张卡，而不是跳过它 */
   const askGate = async (g: NonNullable<TicketState['pendingGate']>): Promise<void> => {
@@ -766,10 +769,22 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         };
       }
     }
+    const usedExtraArgs = extraArgs;
     extraArgs = '';
 
     if (envelope.is_error || !envelope.structured_output) {
       const msg = `会话异常：${envelope.result ?? '无结构化返回'}`;
+      // 瞬时故障（529 过载、网关、连接抖动）：等几分钟自动重跑一次，不让工单干等人说「继续」；
+      // 每个阶段每个 runner 生命周期只自动重试一次，再失败才转人工（确定性错误不该变成重试循环）
+      if (envelope.is_error && isTransientApiError(envelope.result ?? '') && !retriedTransient.has(stage)) {
+        retriedTransient.add(stage);
+        const minutes = Math.round(TRANSIENT_RETRY_DELAY_MS / 60_000);
+        appendEvent({ ticket, type: 'error', stage, summary: `${msg.slice(0, 200)}｜疑似瞬时故障，${minutes} 分钟后自动重试一次` });
+        await port.notify(ticket, `${msg}\n疑似 API 瞬时故障，${minutes} 分钟后自动从 ${stage} 阶段重跑一次（不用说「继续」）；再失败才转人工。`);
+        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY_MS));
+        extraArgs = usedExtraArgs; // 带着同样的参数（fix=/feedback=）重跑
+        continue;
+      }
       appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300) });
       // 挂起消息教人怎么恢复，异常消息也必须教——否则人只看到一句 API Error，不知道下一步说什么
       await port.notify(ticket, `${msg}\n本阶段未产生结果（通常是瞬时故障）。在群里说「继续 ${ticket}」即可从 ${stage} 阶段重跑`);
