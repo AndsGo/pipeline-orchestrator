@@ -149,14 +149,24 @@ const pidFile = path.join(root, 'data', 'daemon.pid');
 if (!fs.existsSync(pidFile)) add('⚠️', 'daemon', '未在运行（无 pid 文件）');
 else {
   const pid = Number(fs.readFileSync(pidFile, 'utf-8').trim());
-  let alive = false;
+  // EPERM = 进程活着但本 shell 无权限（看门狗提权拉起的 daemon 就是这样，2026-09-02 实测被误报成「已死」），
+  // 与 lock.ts 的 pidAlive 同一口径；只有 ESRCH 才是真死
+  let state: 'alive' | 'elevated' | 'dead' = 'dead';
   try {
     process.kill(pid, 0);
-    alive = true;
-  } catch {
-    /* 进程已死 */
+    state = 'alive';
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') state = 'elevated';
   }
-  add(alive ? '✅' : '❌', 'daemon', alive ? `运行中（pid ${pid}）` : `pid 文件指向已死进程 ${pid}——删掉 data/daemon.pid 再启动`);
+  add(
+    state === 'dead' ? '❌' : state === 'elevated' ? '⚠️' : '✅',
+    'daemon',
+    state === 'alive'
+      ? `运行中（pid ${pid}）`
+      : state === 'elevated'
+        ? `运行中但为提权进程（pid ${pid}）——本 shell 无法重启它，需提权操作或把看门狗计划任务改为非提权运行`
+        : `pid 文件指向已死进程 ${pid}——删掉 data/daemon.pid 再启动`,
+  );
 }
 add(tryExec('schtasks /query /tn PipelineDaemonWatchdog') ? '✅' : '⚠️', '看门狗计划任务', tryExec('schtasks /query /tn PipelineDaemonWatchdog') ? 'PipelineDaemonWatchdog 已注册' : '未注册（daemon 崩溃后不会自动拉起）');
 

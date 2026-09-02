@@ -11,6 +11,14 @@ if ($Stop) {
   if (Test-Path $pidFile) {
     $old = Get-Content $pidFile
     cmd /c "taskkill /PID $old /T /F 2>nul" | Out-Null
+    Start-Sleep -Milliseconds 800
+    # 核实而不是假报：提权（看门狗计划任务）拉起的 daemon 在非提权 shell 里 taskkill 会静默失败，
+    # 此前照样打印「已停止」并删 pid 文件——随后的启动被日志锁拦下，人却以为进程已死（2026-09-02 实测）
+    if (Get-Process -Id $old -ErrorAction SilentlyContinue) {
+      Write-Host "daemon (pid $old) 未能停止：进程仍在，多半是提权拉起的（看门狗计划任务）。" -ForegroundColor Red
+      Write-Host '请在管理员 PowerShell 里执行本命令，或把计划任务改为非提权运行后再试。' -ForegroundColor Yellow
+      return
+    }
     Remove-Item $pidFile -Force
     Write-Host "daemon (pid $old) 已停止"
   } else { Write-Host 'daemon 未在运行（无 pid 文件）' }

@@ -38,10 +38,20 @@ $bak = Join-Path $bakDir "data-$((Get-Date).ToString('yyyyMMdd')).zip"
 if (-not (Test-Path $bak)) {
   try {
     New-Item -ItemType Directory -Force $bakDir | Out-Null
-    Compress-Archive -Path (Join-Path $root 'data\*') -DestinationPath $bak -ErrorAction Stop
+    # 逐文件复制到暂存目录再压缩：一个被占用的文件（实测 2026-08-30 起 tail -F 攥着 LS-003.events.jsonl）
+    # 曾让 Compress-Archive 整体失败，连续三天零备份。现在占用的跳过并记名，其余照常入包
+    $stage = Join-Path $bakDir '_stage'
+    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force -Confirm:$false }
+    New-Item -ItemType Directory -Force $stage | Out-Null
+    $skipped = @()
+    foreach ($f in Get-ChildItem (Join-Path $root 'data') -File) {
+      try { Copy-Item $f.FullName (Join-Path $stage $f.Name) -ErrorAction Stop } catch { $skipped += $f.Name }
+    }
+    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $bak -ErrorAction Stop
+    Remove-Item $stage -Recurse -Force -Confirm:$false
     Get-ChildItem $bakDir -Filter 'data-*.zip' | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
       Remove-Item -Force -Confirm:$false
-    WdLog "data/ 已备份 → $(Split-Path $bak -Leaf)"
+    WdLog "data/ 已备份 → $(Split-Path $bak -Leaf)$(if ($skipped) { "（跳过被占用：$($skipped -join '、')）" })"
   } catch { WdLog "备份失败：$($_.Exception.Message)" }
 }
 
