@@ -894,7 +894,7 @@ for (const t of listTickets()) {
   const lost = lostPendingCards(evs);
   if (lost) {
     log(`${t} 重启前的待答卡片已失效（${lost.slice(0, 60)}），已在群里提示`);
-    await port.notify(t, `⚠ 重启前的待答卡片已失效（${lost.slice(0, 80)}）——旧卡片点了没用。发「继续 ${t}」重新发起提问；已经说过的内容若已记入反馈会被读到，不用重复。`);
+    await port.notify(t, `⚠ 重启前的待答卡片已失效（${lost.slice(0, 80)}）——旧卡片点了没用。发「继续 ${t}」：卡点卡会原样重发，问题卡会重新提问；已经说过的内容若已记入反馈会被读到，不用重复。`);
   }
 }
 

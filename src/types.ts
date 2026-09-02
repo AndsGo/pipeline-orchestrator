@@ -95,9 +95,18 @@ export interface TicketState {
    * 中途换臂（改环境变量、重启 daemon）会让这一单变成混合臂，数据废掉。
    */
   implementModel?: string;
+  /**
+   * 已弹出、尚未得到答复的卡点。applyResult 在弹卡之前就把游标推到了下一阶段，进程一重启，
+   * 卡随内存消失而游标已在后头——「继续」会直接跑下一阶段，卡点被无声跳过
+   * （OP-002 实测 2026-09-02：plan-approval 没人答，盘上 cursor 已是 implement）。
+   * 有它在，重进 runner 先原样重发这张卡：不重跑产出它的阶段，更不跳过它。答复落地即清。
+   */
+  pendingGate?: { gate: GateName; summary: string; concerns: string[]; stage: Stage };
   runs: RunRecord[];
   haltedReason?: string;
 }
+
+export type GateName = 'prd-confirm' | 'plan-approval' | 'deploy-approval';
 
 export type Action =
   | { kind: 'run'; stage: Stage; extraArgs?: string }
@@ -109,7 +118,7 @@ export type Action =
       backfillHeader: string;
       thenRerun: Stage;
     }
-  | { kind: 'gate'; gate: 'prd-confirm' | 'plan-approval' | 'deploy-approval'; summary: string; concerns: string[]; then: Stage }
+  | { kind: 'gate'; gate: GateName; summary: string; concerns: string[]; then: Stage }
   | { kind: 'fix'; findingsPath: string; reverify: 'review' | 'acceptance' }
   | { kind: 'halt'; reason: string }
   | { kind: 'done' };

@@ -448,6 +448,32 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
   // 评审仲裁卡同样只发一次：AutoPort 自动放行时最多追加一轮修复，不能变成 BLOCK→修复的无限循环
   let offeredArbitration = false;
 
+  /** 弹卡点并落地答复。卡在 state.pendingGate 里持久化到答复为止——重启后重发这张卡，而不是跳过它 */
+  const askGate = async (g: NonNullable<TicketState['pendingGate']>): Promise<void> => {
+    appendEvent({ ticket, type: 'gate.asked', stage: g.stage, summary: `卡点 ${g.gate} 等待人工` });
+    const d = await port.confirmGate(ticket, g.gate, g.summary, g.concerns, gateDetail(g.gate, repo, ticket));
+    appendEvent({
+      ticket,
+      type: 'gate.answered',
+      stage: g.stage,
+      summary: `卡点 ${g.gate} → ${d.approved ? '通过' : '驳回'}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
+    });
+    state = { ...state, pendingGate: undefined };
+    if (!d.approved) {
+      const back = GATE_SOURCE[g.gate] ?? 'halt';
+      const fbPath = appendFeedback(repo, ticket, `${g.gate} 驳回`, d.note ?? '（未填写原因）');
+      if (back === 'halt') {
+        state = { ...state, haltedReason: `${g.gate} 驳回：${d.note ?? '未填写原因'}` };
+      } else {
+        // 驳回不是终止，而是带着人的意见重跑产出这份材料的阶段
+        state = { ...state, pendingRewind: { to: back, reason: `${g.gate} 驳回`, feedbackPath: fbPath } };
+      }
+    } else if (d.note?.trim()) {
+      appendFeedback(repo, ticket, `${g.gate} 通过备注`, d.note);
+    }
+    saveTicket(state);
+  };
+
   // implement 分批续做：上一批开工前的进展基线 + 本进程已自动续跑的批次数（判据见 implementProgress.ts）
   let implementBefore: ImplementProgress | undefined;
   let autoContinued = 0;
@@ -642,6 +668,12 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       appendEvent({ ticket, type: 'pause', stage: state.cursor, summary: `在 ${state.cursor} 前暂停` });
       await port.notify(ticket, `已在安全点暂停（游标 ${state.cursor}）。恢复：群里说"继续 ${ticket}"或重跑 start-ticket`);
       return;
+    }
+    // 重启前弹出、没等到答复的卡点：原样重发。游标早已推到下一阶段，不拦在这里就等于人没审批直接开工
+    if (state.pendingGate) {
+      await port.notify(ticket, `重启前的 ${state.pendingGate.gate} 卡未得到答复，原样重发（${state.pendingGate.stage} 阶段产物未变，不重跑）`);
+      await askGate(state.pendingGate);
+      continue;
     }
 
     // 首次 implement 前记录分支切出点，review 阶段以此为 diff 基点
@@ -841,33 +873,10 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
           // 可发现性（grill-me 问题 5 的缺口）：业务人员不知道卡片按钮之外可以直接说话
           gateSummary += '\n\n_按钮之外有任何意见，直接在群里说即可：小的记进需求，大的会回澄清重做。_';
         }
-        appendEvent({ ticket, type: 'gate.asked', stage, summary: `卡点 ${action.gate} 等待人工` });
-        const d = await port.confirmGate(
-          ticket,
-          action.gate,
-          gateSummary,
-          action.concerns,
-          gateDetail(action.gate, repo, ticket),
-        );
-        appendEvent({
-          ticket,
-          type: 'gate.answered',
-          stage,
-          summary: `卡点 ${action.gate} → ${d.approved ? '通过' : '驳回'}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
-        });
-        if (!d.approved) {
-          const back = GATE_SOURCE[action.gate] ?? 'halt';
-          const fbPath = appendFeedback(repo, ticket, `${action.gate} 驳回`, d.note ?? '（未填写原因）');
-          if (back === 'halt') {
-            state = { ...state, haltedReason: `${action.gate} 驳回：${d.note ?? '未填写原因'}` };
-          } else {
-            // 驳回不是终止，而是带着人的意见重跑产出这份材料的阶段
-            state = { ...state, pendingRewind: { to: back, reason: `${action.gate} 驳回`, feedbackPath: fbPath } };
-          }
-          saveTicket(state);
-        } else if (d.note?.trim()) {
-          appendFeedback(repo, ticket, `${action.gate} 通过备注`, d.note);
-        }
+        // 先落盘再弹卡：卡随进程内存消失，盘上的这条记录是重启后重发它的唯一依据
+        state = { ...state, pendingGate: { gate: action.gate, summary: gateSummary, concerns: action.concerns, stage } };
+        saveTicket(state);
+        await askGate(state.pendingGate!);
         continue;
       }
       case 'ask': {
