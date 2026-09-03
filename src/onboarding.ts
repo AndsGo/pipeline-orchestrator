@@ -21,8 +21,20 @@ export interface NewProject {
  * 不是错误、是提醒：工件仍在盘上可用，但 MR 里看不到 PRD/评审、换 worktree 即丢。非 git 仓库返回 false
  */
 export function pipelineDocsIgnored(repo: string): boolean {
+  return gitIgnored(repo, 'docs/pipeline/x.md');
+}
+
+/**
+ * CLAUDE.md 被 .gitignore 屏蔽（odoo-product 实测第 25 行，2026-09-03）：compound 采纳的沉淀建议
+ * 走 MR 路径时 `git add` 静默失败、回退路径同样失败，常识只停在本机工作区，永远进不了主干、也到不了别的机器
+ */
+export function claudeMdIgnored(repo: string): boolean {
+  return gitIgnored(repo, 'CLAUDE.md');
+}
+
+function gitIgnored(repo: string, relPath: string): boolean {
   try {
-    execSync('git check-ignore -q docs/pipeline/x.md', { cwd: repo, stdio: 'ignore' });
+    execSync(`git check-ignore -q ${relPath}`, { cwd: repo, stdio: 'ignore' });
     return true; // 退出码 0 = 被忽略
   } catch {
     return false;

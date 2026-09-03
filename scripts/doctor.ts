@@ -9,7 +9,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { BitableBoard } from '../src/bitable/client.js';
 import { projectCfgFromEnv } from '../src/bitable/sync.js';
 import { PLUGIN_DIR, RUNNER_SETTINGS } from '../src/config.js';
-import { pipelineDocsIgnored } from '../src/onboarding.js';
+import { claudeMdIgnored, pipelineDocsIgnored } from '../src/onboarding.js';
 import { PROFILE_FILE } from '../src/profile.js';
 import { ciJobFor, loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
@@ -84,6 +84,10 @@ for (const p of projects) {
   // 实测 odoo-product（2026-09-02）：.gitignore 整个屏蔽 docs，PRD/评审/原型/知识沉淀全部不入库
   if (fs.existsSync(path.join(p.repo, '.git')) && pipelineDocsIgnored(p.repo)) {
     probs.push('.gitignore 屏蔽了 docs/pipeline（流水线工件不入库：MR 里看不到 PRD/评审，换 worktree 即丢；把 docs 改成 docs/* 并加 !docs/pipeline/）');
+  }
+  // 同一仓库第三个坑（2026-09-03）：CLAUDE.md 也被屏蔽 → compound 采纳的常识 MR 路径与回退路径都提交失败，只留在本机
+  if (fs.existsSync(path.join(p.repo, '.git')) && claudeMdIgnored(p.repo)) {
+    probs.push('.gitignore 屏蔽了 CLAUDE.md（沉淀采纳的常识进不了 git，只停在本机工作区；请从 .gitignore 删掉 CLAUDE.md 那行）');
   }
   if (!cfg.repoToProject[p.repo]) probs.push('无 GitLab 映射（看板工件链接将为空）');
   // CI 任务按项目解析：全局 JENKINS_JOB 只在单项目部署时兜底（多项目下借全局 job 会跑错项目的构建）

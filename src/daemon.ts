@@ -36,7 +36,7 @@ import {
   type Project,
 } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
-import { pipelineDocsIgnored, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
+import { claudeMdIgnored, pipelineDocsIgnored, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
 import { ensureProfileTemplate } from './profile.js';
 import { readSticky, STICKY_TTL_MS, writeSticky } from './sticky.js';
 import { PLUGIN_DIR } from './config.js';
@@ -573,6 +573,9 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
           // 同一项目第二个坑（2026-09-02）：.gitignore 屏蔽 docs → 流水线工件全部不入库
           ...(pipelineDocsIgnored(cand.repo)
             ? ['⚠ 该仓库的 .gitignore 屏蔽了 docs/pipeline——PRD/评审/原型都不会入库，MR 里看不到、换 worktree 即丢。建议把 `docs` 改成 `docs/*` 并加一行 `!docs/pipeline/`。']
+            : []),
+          ...(claudeMdIgnored(cand.repo)
+            ? ['⚠ 该仓库的 .gitignore 屏蔽了 CLAUDE.md——沉淀采纳的常识进不了 git，只停在本机。请从 .gitignore 删掉那一行。']
             : []),
           `仓库：${cand.repo}${added?.gitlab ? `\nGitLab：${added.gitlab}` : ''}${added?.jenkins ? `\nCI：${added.jenkins}` : '\nCI：未配（该项目工单直达验收；要走 CI 用 jenkins=任务名 重新执行本命令）'}`,
           '',

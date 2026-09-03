@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { projectCfgFromEnv } from '../bitable/sync.js';
 import {
+  claudeMdIgnored,
   normalizeGitlabPath,
   normalizeWikiToken,
   pipelineDocsIgnored,
@@ -26,6 +27,10 @@ describe('pipelineDocsIgnored（odoo-product 实测：.gitignore 整行 docs，�
       fs.writeFileSync(path.join(dir, '.gitignore'), 'docs/*\n!docs/pipeline/\n', 'utf-8');
       expect(pipelineDocsIgnored(dir)).toBe(false);
       expect(pipelineDocsIgnored(os.tmpdir())).toBe(false);
+      // 同一仓库第三个坑：CLAUDE.md 被屏蔽 → 沉淀采纳提交失败，常识只留本机
+      expect(claudeMdIgnored(dir)).toBe(false);
+      fs.writeFileSync(path.join(dir, '.gitignore'), 'CLAUDE.md\n', 'utf-8');
+      expect(claudeMdIgnored(dir)).toBe(true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
