@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dataDir } from './paths.js';
 
 /**
  * 轻量续聊协议：让 /run 收尾的提问有一条"答案回得去的路"。
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
  * resume 失败（会话文件被清等）降级为拼接模式：原始任务 + 上次完整输出 + 答复拼进新会话。
  */
 
-const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/last-run.json');
+const lastRunFile = (): string => path.join(dataDir(), 'last-run.json');
 
 /** 续聊有效期：隔天再回"1"大概率已不是在回上次的问题，宁可让人重新说清 */
 export const FOLLOWUP_TTL_MS = 24 * 60 * 60 * 1000;
@@ -107,7 +107,7 @@ export function composeRequirementDraftPrompt(last: LastRun): string {
 }
 
 /** 落盘最近一次执行指针（写失败不抛——指针丢了只是续不上聊，不能反过来影响结果送达） */
-export function saveLastRun(r: LastRun, file = FILE): void {
+export function saveLastRun(r: LastRun, file = lastRunFile()): void {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(r), 'utf-8');
@@ -117,7 +117,7 @@ export function saveLastRun(r: LastRun, file = FILE): void {
 }
 
 /** 读最近一次执行；无记录、损坏或超过 TTL 都返回 null（落盘是为了熬过看门狗重启 daemon） */
-export function readLastRun(now = Date.now(), file = FILE): LastRun | null {
+export function readLastRun(now = Date.now(), file = lastRunFile()): LastRun | null {
   try {
     const r = JSON.parse(fs.readFileSync(file, 'utf-8')) as LastRun;
     if (!r?.at || typeof r.output !== 'string' || typeof r.command !== 'string') return null;

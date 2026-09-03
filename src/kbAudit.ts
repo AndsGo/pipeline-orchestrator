@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { activeOnly, type KnowledgeEntry } from './knowledge.js';
+import { dataDir } from './paths.js';
 
 /**
  * 知识库老化审计的制度化（《押注三项资产》单元三收尾项，2026-08-26）。
@@ -11,7 +11,7 @@ import { activeOnly, type KnowledgeEntry } from './knowledge.js';
  * 审计只提建议不动数据：下线（状态→已失效）由人在知识表操作。
  */
 
-const STAMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/kb-audit-last.json');
+const stampFile = (): string => path.join(dataDir(), 'kb-audit-last.json');
 
 export const AUDIT_INTERVAL_DAYS = 30;
 export const STALE_DAYS = 30;
@@ -24,7 +24,7 @@ export function dueForAudit(lastAt: string | null, now: number, intervalDays = A
   return now - t >= intervalDays * 86400000;
 }
 
-export function readAuditStamp(file = STAMP): string | null {
+export function readAuditStamp(file = stampFile()): string | null {
   try {
     const at = (JSON.parse(fs.readFileSync(file, 'utf-8')) as { at?: string }).at;
     return typeof at === 'string' ? at : null;
@@ -34,7 +34,7 @@ export function readAuditStamp(file = STAMP): string | null {
 }
 
 /** 写失败不抛：戳丢了顶多下次重发一份报告，不能反过来影响 daemon */
-export function writeAuditStamp(at = new Date().toISOString(), file = STAMP): void {
+export function writeAuditStamp(at = new Date().toISOString(), file = stampFile()): void {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ at }), 'utf-8');

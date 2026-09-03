@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { DashItem } from './dashboard.js';
+import { dataDir } from './paths.js';
 import type { TicketState } from './types.js';
 
 /**
@@ -9,8 +9,6 @@ import type { TicketState } from './types.js';
  * 「越用越准」必须可以被回答而不是被感觉——这三个数就是回答的载体，
  * 对照实验（PIPELINE_HINTS_OFF 控制期）也用它们比较。
  */
-
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
 
 type MetricState = Pick<TicketState, 'runs' | 'reviewFixRounds' | 'acceptanceFixRounds'>;
 
@@ -50,14 +48,14 @@ export function computeMetrics(states: MetricState[]): QualityMetrics {
 }
 
 /** 读全部工单快照（<前缀>-<号>.json；索引/pid 等其他 data 文件不算） */
-export function readAllSnapshots(dataDir = DATA_DIR): MetricState[] {
+export function readAllSnapshots(dir = dataDir()): MetricState[] {
   try {
     return fs
-      .readdirSync(dataDir)
+      .readdirSync(dir)
       .filter((f) => /^[A-Za-z]+-\d+\.json$/.test(f))
       .map((f) => {
         try {
-          return JSON.parse(fs.readFileSync(path.join(dataDir, f), 'utf-8')) as TicketState;
+          return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as TicketState;
         } catch {
           return null;
         }

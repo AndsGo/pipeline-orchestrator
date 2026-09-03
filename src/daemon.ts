@@ -24,6 +24,7 @@ import { appendEvent, interruptedStage, listTickets, lostPendingCards, readEvent
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { appendFeedback, appendRequirementAmendment } from './feedback.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
+import { dataDir } from './paths.js';
 import { clearPaused, setPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
 import {
@@ -1000,7 +1001,7 @@ setInterval(() => void kbAuditTick(), 24 * 3600 * 1000);
 // （2026-09-02 实测：任务改成 Limited 照样是 High）。改成约定：start-daemon.ps1 -Stop 杀不动就写
 // data/daemon.stop，daemon 每 10 秒看一眼，没有工单在跑或等卡片时自己退出，看门狗 2 分钟内以最新代码拉起。
 // 启动即清掉残留的信号文件，否则新进程一起来就自杀、无限循环。
-const STOP_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/daemon.stop');
+const STOP_FILE = path.join(dataDir(), 'daemon.stop');
 fs.rmSync(STOP_FILE, { force: true });
 let stopDeferredLogged = false;
 setInterval(() => {

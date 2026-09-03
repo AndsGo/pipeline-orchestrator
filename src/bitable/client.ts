@@ -1,9 +1,9 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Term } from '../glossary.js';
 import type { KnowledgeEntry } from '../knowledge.js';
+import { dataDir } from '../paths.js';
 import {
   KB_KINDS,
   KB_SCOPES,
@@ -28,8 +28,7 @@ function linkOf(v: unknown): string | undefined {
   return undefined;
 }
 
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data');
-const INDEX_FILE = path.join(DATA_DIR, 'bitable-index.json');
+const indexFile = (): string => path.join(dataDir(), 'bitable-index.json');
 
 export interface BitableCfg {
   appToken: string;
@@ -61,15 +60,15 @@ interface IndexFile {
 
 function readIndex(): IndexFile {
   try {
-    return JSON.parse(fs.readFileSync(INDEX_FILE, 'utf-8')) as IndexFile;
+    return JSON.parse(fs.readFileSync(indexFile(), 'utf-8')) as IndexFile;
   } catch {
     return { tickets: {}, nodes: {} };
   }
 }
 
 function writeIndex(ix: IndexFile): void {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(ix, null, 2), 'utf-8');
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.writeFileSync(indexFile(), JSON.stringify(ix, null, 2), 'utf-8');
 }
 
 /** 节点行的表内去重键：主字段 + 时间。表里没有幂等键列，这两列合起来足以认出同一次事件的重复投影 */

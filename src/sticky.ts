@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dataDir } from './paths.js';
 import type { Project } from './projects.js';
 
 /**
@@ -12,7 +12,7 @@ import type { Project } from './projects.js';
  * 绑定群（Project.chatId 命中）不记粘性——群即项目，粘性只服务未绑定的群。
  */
 
-const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/sticky-project.json');
+const stickyFile = (): string => path.join(dataDir(), 'sticky-project.json');
 
 export const STICKY_TTL_MS = 4 * 3600_000;
 
@@ -27,7 +27,7 @@ function readMap(file: string): StickyMap {
 }
 
 /** 本群当前粘住的项目；过期、项目已不存在（改名/删除）都视为无 */
-export function readSticky(chatId: string, projects: Project[], now = Date.now(), file = FILE): Project | null {
+export function readSticky(chatId: string, projects: Project[], now = Date.now(), file = stickyFile()): Project | null {
   const rec = readMap(file)[chatId];
   if (!rec) return null;
   if (now - Date.parse(rec.at) > STICKY_TTL_MS) return null;
@@ -35,7 +35,7 @@ export function readSticky(chatId: string, projects: Project[], now = Date.now()
 }
 
 /** 记粘性（写失败不抛：粘不住顶多退回问一次，不能反过来影响主流程） */
-export function writeSticky(chatId: string, alias: string, file = FILE): void {
+export function writeSticky(chatId: string, alias: string, file = stickyFile()): void {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const map = readMap(file);

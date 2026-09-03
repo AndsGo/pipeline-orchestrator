@@ -59,6 +59,15 @@ export interface RunTicketOpts {
   lane?: Lane;
   /** claude 会话并发闸门（daemon 模式下限流），返回释放函数 */
   acquire?: () => Promise<() => void>;
+  /**
+   * 以下三个是外部效应的注入点，缺省即线上行为（spawn claude / 真等 3 分钟）。
+   * 集成测试用假引擎替换：OP-002 那次「卡点没人答、重启后游标已在下一阶段」的缺陷之所以能到生产，
+   * 就是因为 runTicket 从来没有一条不起真会话就能跑完整个循环的路。
+   */
+  stageRunner?: typeof runStage;
+  prototype?: typeof generatePrototype;
+  /** 瞬时 API 故障自动重试前的等待（毫秒） */
+  transientRetryDelayMs?: number;
 }
 
 /** 项目流程约定节选：每阶段开工前抄进工单目录供会话先读；没有约定或该阶段无节 → 删掉旧文件，不留过期内容 */
@@ -446,6 +455,9 @@ async function reviewSuggestions(repo: string, ticket: string, port: Interaction
  */
 export async function runTicket(opts: RunTicketOpts): Promise<void> {
   const { repo, ticket, port, project } = opts;
+  const stageRunner = opts.stageRunner ?? runStage;
+  const prototype = opts.prototype ?? generatePrototype;
+  const transientRetryDelayMs = opts.transientRetryDelayMs ?? TRANSIENT_RETRY_DELAY_MS;
   ensureIntake(repo, ticket, opts.requirement, opts.intakeContext);
   let state = loadTicket(repo, ticket, opts.startStage ?? 'clarify', project);
   if (project && state.project !== project.alias) {
@@ -881,7 +893,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       envelope = await withGate(() =>
         stage === 'ci'
           ? runCiStage(repo, ticket, port, project)
-          : runStage(repo, ticket, stage, extraArgs, stageModel).then((r) => r.envelope),
+          : stageRunner(repo, ticket, stage, extraArgs, stageModel).then((r) => r.envelope),
       );
     } finally {
       ledgerWatch?.stop();
@@ -890,7 +902,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     // 双评审取严
     if (stage === 'review' && process.env.PIPELINE_DOUBLE_REVIEW === '1' && envelope.structured_output?.verdict) {
       await port.notify(ticket, '双评审模式：启动第二轮独立评审…');
-      const second = await withGate(() => runStage(repo, ticket, 'review', extraArgs));
+      const second = await withGate(() => stageRunner(repo, ticket, 'review', extraArgs));
       if (second.envelope.structured_output?.verdict) {
         envelope = {
           ...envelope,
@@ -909,10 +921,10 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       // 每个阶段每个 runner 生命周期只自动重试一次，再失败才转人工（确定性错误不该变成重试循环）
       if (envelope.is_error && isTransientApiError(envelope.result ?? '') && !retriedTransient.has(stage)) {
         retriedTransient.add(stage);
-        const minutes = Math.round(TRANSIENT_RETRY_DELAY_MS / 60_000);
+        const minutes = Math.round(transientRetryDelayMs / 60_000);
         appendEvent({ ticket, type: 'error', stage, summary: `${msg.slice(0, 200)}｜疑似瞬时故障，${minutes} 分钟后自动重试一次` });
         await port.notify(ticket, `${msg}\n疑似 API 瞬时故障，${minutes} 分钟后自动从 ${stage} 阶段重跑一次（不用说「继续」）；再失败才转人工。`);
-        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY_MS));
+        await new Promise((r) => setTimeout(r, transientRetryDelayMs));
         extraArgs = usedExtraArgs; // 带着同样的参数（fix=/feedback=）重跑
         continue;
       }
@@ -996,7 +1008,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         // 失败不阻塞卡点；驳回回 clarify 后下次进卡点自动重生成（原型永远是定稿 PRD 的投影）
         if (action.gate === 'prd-confirm') {
           await port.notify(ticket, '正在生成结果预览（1~3 分钟），随 PRD 确认卡一起发出…');
-          const p = await generatePrototype(repo, ticket);
+          const p = await prototype(repo, ticket);
           if (p.ok) {
             const url = previewUrl(ticket);
             gateSummary = `${

@@ -1,8 +1,8 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Answer } from '../backfill.js';
+import { dataDir } from '../paths.js';
 import type { GateDecision, InteractionPort } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
 import {
@@ -415,9 +415,10 @@ export class FeishuPort implements InteractionPort {
         params: { type: ref.kind },
         path: { message_id: ref.messageId, file_key: ref.fileKey },
       });
-      fs.mkdirSync(QUOTED_DIR, { recursive: true });
-      for (const f of fs.readdirSync(QUOTED_DIR)) {
-        const fp = path.join(QUOTED_DIR, f);
+      const quoted = quotedDir();
+      fs.mkdirSync(quoted, { recursive: true });
+      for (const f of fs.readdirSync(quoted)) {
+        const fp = path.join(quoted, f);
         if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 24 * 3600_000) fs.rmSync(fp, { force: true });
       }
       // file_key 可作文件名（字母数字下划线连字符），复用它天然去重同资源多次引用；
@@ -432,7 +433,7 @@ export class FeishuPort implements InteractionPort {
         const safe = (ref.name ?? 'file').replace(/[\\/:*?"<>|]/g, '_').slice(-80);
         name = `${keyPart.slice(0, 16)}_${safe}`;
       }
-      const file = path.join(QUOTED_DIR, name);
+      const file = path.join(quoted, name);
       await resp.writeFile(file);
       return file;
     } catch {
@@ -510,7 +511,7 @@ export interface QuotedResourceRef {
 const QUOTE_CAP = 3000;
 
 /** 引用图片的落盘目录（data/ 已 gitignore；下载时顺手清 7 天前的旧图） */
-const QUOTED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/quoted');
+const quotedDir = (): string => path.join(dataDir(), 'quoted');
 
 /** 合并转发子消息里的资源：飞书资源接口明确不开放（错误码 234043），只能占位说明 */
 const MF_RES_PLACEHOLDER = (what: string): string =>

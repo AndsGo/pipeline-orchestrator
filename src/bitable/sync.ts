@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { onEvent, readEvents, type PipelineEvent } from '../events.js';
 import { activeTermsOnly, filterTermsByProject, matchTerms, readTermsFile, renderTermsBrief, writeGlossaryFile } from '../glossary.js';
 import { recordHits } from '../hits.js';
 import { activeOnly, filterByProject, keywords, readKnowledgeFile, scoreEntry, selectHints, writeHints } from '../knowledge.js';
+import { dataDir } from '../paths.js';
 import { loadProjects } from '../projects.js';
 import { readSnapshot } from '../ticket.js';
 import { BitableBoard } from './client.js';
@@ -14,9 +14,6 @@ import { nodeRow, ticketRow, type ProjectCfg } from './project.js';
  * 旁路投影器：事件 → 多维表格。
  * 三条铁律：① 绝不阻塞流水线（全异步、异常吞掉）；② 失败进 outbox 可重放；③ 表格只读，不回写流程状态。
  */
-
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data');
-const OUTBOX = path.join(DATA_DIR, 'bitable-outbox.jsonl');
 
 export function projectCfgFromEnv(env: NodeJS.ProcessEnv = process.env): ProjectCfg {
   const repoToProject: Record<string, string> = {};
@@ -78,8 +75,8 @@ export class BitableSync {
 
   private toOutbox(ev: PipelineEvent, err: string): void {
     try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.appendFileSync(OUTBOX, JSON.stringify({ ev, err, at: new Date().toISOString() }) + '\n', 'utf-8');
+      fs.mkdirSync(dataDir(), { recursive: true });
+      fs.appendFileSync(path.join(dataDir(), 'bitable-outbox.jsonl'), JSON.stringify({ ev, err, at: new Date().toISOString() }) + '\n', 'utf-8');
     } catch {
       /* outbox 也写不了就只剩日志 */
     }

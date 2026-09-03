@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dataDir } from './paths.js';
 
 /**
  * 单次执行（/run）的落盘留痕。
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
  * 唯一的证据在别人的聊天窗口里，我只能靠猜。已经因为这个误判过一次。
  */
 
-const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/adhoc');
+const adhocDir = (): string => path.join(dataDir(), 'adhoc');
 
 /** 文件名安全的短标识：取指令前几十个字符 */
 function slug(text: string): string {
@@ -40,8 +40,9 @@ export interface AdhocRecord {
 /** 落盘一条执行记录，返回文件路径（写失败返回 null——留痕失败不能反过来影响执行结果的送达） */
 export function writeAdhocRecord(r: AdhocRecord): string | null {
   try {
-    fs.mkdirSync(DIR, { recursive: true });
-    const file = path.join(DIR, `${r.at.replace(/[:.]/g, '-')}-${slug(r.command)}.md`);
+    const dir = adhocDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${r.at.replace(/[:.]/g, '-')}-${slug(r.command)}.md`);
     fs.writeFileSync(
       file,
       [

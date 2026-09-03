@@ -1,9 +1,7 @@
 import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
+import { dataDir } from './paths.js';
 
 export interface LockInfo {
   pid: number;
@@ -22,7 +20,7 @@ export function defaultPidAlive(pid: number): boolean {
 }
 
 function lockFile(ticket: string): string {
-  return path.join(DATA_DIR, `${ticket}.lock`);
+  return path.join(dataDir(), `${ticket}.lock`);
 }
 
 /**
@@ -30,7 +28,7 @@ function lockFile(ticket: string): string {
  * 持有者进程已死 → 视为陈旧锁，接管。
  */
 export function acquireLock(ticket: string, pidAlive: PidAlive = defaultPidAlive): { ok: true } | { ok: false; holder: LockInfo } {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   const f = lockFile(ticket);
   if (fs.existsSync(f)) {
     try {

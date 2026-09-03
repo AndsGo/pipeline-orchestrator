@@ -1,14 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { jenkinsConfigFromEnv } from './jenkins.js';
+import { dataDir } from './paths.js';
 import { ciJobFor, type Project } from './projects.js';
 import type { Stage, TicketState } from './types.js';
 
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
-
 function stateFile(ticket: string): string {
-  return path.join(DATA_DIR, `${ticket}.json`);
+  return path.join(dataDir(), `${ticket}.json`);
 }
 
 /** 只读快照（不校验 repo）：投影器与看板用 */
@@ -57,6 +55,6 @@ export function loadTicket(repo: string, ticket: string, startStage: Stage, proj
 }
 
 export function saveTicket(state: TicketState): void {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(stateFile(state.ticket), JSON.stringify(state, null, 2), 'utf-8');
 }

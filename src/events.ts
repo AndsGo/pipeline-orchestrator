@@ -1,14 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dataDir } from './paths.js';
 
 /**
  * 节点级事件日志（append-only JSONL）。
  * 定位：审计与可观测性的权威记录——每个节点的开始/结束/人工输入/决策都在这里；
  * 工单快照（<ticket>.json）仍是断点恢复用的工作状态，两者互补。
  */
-
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
 
 export type EventType =
   | 'ticket.created'
@@ -40,7 +38,7 @@ export interface PipelineEvent {
 }
 
 function eventFile(ticket: string): string {
-  return path.join(DATA_DIR, `${ticket}.events.jsonl`);
+  return path.join(dataDir(), `${ticket}.events.jsonl`);
 }
 
 type Listener = (e: PipelineEvent) => void;
@@ -53,7 +51,7 @@ export function onEvent(fn: Listener): void {
 
 export function appendEvent(e: Omit<PipelineEvent, 'ts'>): PipelineEvent {
   const full: PipelineEvent = { ts: new Date().toISOString(), ...e };
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.appendFileSync(eventFile(e.ticket), JSON.stringify(full) + '\n', 'utf-8');
   for (const l of listeners) {
     try {
@@ -171,9 +169,10 @@ export function totalCost(ticket: string): number {
  * 只看 .json 会把它们当成工单混进 /list。
  */
 export function listTickets(): string[] {
-  if (!fs.existsSync(DATA_DIR)) return [];
+  const dir = dataDir();
+  if (!fs.existsSync(dir)) return [];
   const names = new Set<string>();
-  for (const f of fs.readdirSync(DATA_DIR)) {
+  for (const f of fs.readdirSync(dir)) {
     if (f.endsWith('.events.jsonl')) {
       names.add(f.slice(0, -'.events.jsonl'.length));
       continue;
@@ -181,7 +180,7 @@ export function listTickets(): string[] {
     if (!f.endsWith('.json')) continue;
     const name = f.slice(0, -'.json'.length);
     try {
-      const snap = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf-8')) as { ticket?: string; cursor?: string };
+      const snap = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as { ticket?: string; cursor?: string };
       if (snap.ticket === name && snap.cursor) names.add(name); // 工单快照的自证字段
     } catch {
       /* 不是合法快照就不是工单 */

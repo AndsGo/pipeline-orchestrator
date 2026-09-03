@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dataDir } from './paths.js';
 
 /**
  * 知识/术语命中日志：每次注入记下具体条目。
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * 必须知道命中的是谁——这是生命周期审计（kb-refresh-audit）的数据底座。
  */
 
-const DEFAULT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/knowledge-hits.jsonl');
+const defaultFile = (): string => path.join(dataDir(), 'knowledge-hits.jsonl');
 
 export interface HitRecord {
   ts: string;
@@ -19,7 +19,7 @@ export interface HitRecord {
 }
 
 /** 追加命中记录（best-effort：记不上不影响主流程） */
-export function recordHits(source: string, kind: HitRecord['kind'], titles: string[], file = DEFAULT_FILE): void {
+export function recordHits(source: string, kind: HitRecord['kind'], titles: string[], file = defaultFile()): void {
   if (!titles.length) return;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -31,7 +31,7 @@ export function recordHits(source: string, kind: HitRecord['kind'], titles: stri
 }
 
 /** 每个条目的最近命中时间（审计用） */
-export function lastHitByTitle(kind: HitRecord['kind'], file = DEFAULT_FILE): Map<string, string> {
+export function lastHitByTitle(kind: HitRecord['kind'], file = defaultFile()): Map<string, string> {
   const out = new Map<string, string>();
   try {
     for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
