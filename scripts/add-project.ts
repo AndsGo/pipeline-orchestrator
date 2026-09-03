@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject, type NewProject } from '../src/onboarding.js';
+import { ensureProfileTemplate } from '../src/profile.js';
 import { loadProjects } from '../src/projects.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
@@ -79,6 +80,7 @@ if (errs.length) {
 }
 if (cand.repo && !fs.existsSync(path.join(cand.repo, 'CLAUDE.md'))) {
   console.log('⚠ 该仓库没有 CLAUDE.md——阶段会话会缺少项目规范约束，建议补一份。');
+  if (ensureProfileTemplate(cand.repo, cand.alias)) console.log('已生成 docs/pipeline/PIPELINE.md 模板（流程开关：测试环境 / 验收人 / 上线方式），请按项目实际填写；不填 = 无测试环境、研发验收、不设上线环节。');
 }
 
 const nextJson = projectsJsonWith(projectsJson, cand);

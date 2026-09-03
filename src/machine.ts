@@ -113,6 +113,7 @@ export const GATE_SOURCE: Record<string, Stage | 'halt'> = {
   'prd-confirm': 'clarify',
   'plan-approval': 'plan',
   'deploy-approval': 'halt',
+  'release-approval': 'halt',
 };
 
 const VERDICT_RANK = { BLOCK: 2, PASS_WITH_SUGGESTIONS: 1, PASS: 0 } as const;

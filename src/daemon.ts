@@ -37,6 +37,7 @@ import {
 } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
 import { pipelineDocsIgnored, projectsJsonWith, readEnvVar, upsertEnvVar, validateNewProject } from './onboarding.js';
+import { ensureProfileTemplate } from './profile.js';
 import { readSticky, STICKY_TTL_MS, writeSticky } from './sticky.js';
 import { PLUGIN_DIR } from './config.js';
 import fs from 'node:fs';
@@ -565,6 +566,10 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
           `✅ 项目 **${c.alias}**（工单号 ${added?.prefix}-XXX）已接入，现在就能用（.env 已备份）。`,
           // 与终端向导对齐的提醒（首个群内接入 odoo-product 实测缺失，2026-08-31）
           ...(fs.existsSync(path.join(cand.repo, 'CLAUDE.md')) ? [] : ['⚠ 该仓库没有 CLAUDE.md——阶段会话将缺少项目规范约束，建议补一份。']),
+          // 流程约定文件：没有就生成模板（有副作用，但只是一份 docs 文件），让人把测试环境/验收人/上线方式填进去
+          ensureProfileTemplate(cand.repo, c.alias)
+            ? '已生成 docs/pipeline/PIPELINE.md 模板：请填测试环境地址、验收人、上线方式，各阶段会话会读对应小节。不填 = 无测试环境、研发验收、不设上线环节。'
+            : 'docs/pipeline/PIPELINE.md 已存在，流程按它走。',
           // 同一项目第二个坑（2026-09-02）：.gitignore 屏蔽 docs → 流水线工件全部不入库
           ...(pipelineDocsIgnored(cand.repo)
             ? ['⚠ 该仓库的 .gitignore 屏蔽了 docs/pipeline——PRD/评审/原型都不会入库，MR 里看不到、换 worktree 即丢。建议把 `docs` 改成 `docs/*` 并加一行 `!docs/pipeline/`。']

@@ -10,6 +10,7 @@ import { BitableBoard } from '../src/bitable/client.js';
 import { projectCfgFromEnv } from '../src/bitable/sync.js';
 import { PLUGIN_DIR, RUNNER_SETTINGS } from '../src/config.js';
 import { pipelineDocsIgnored } from '../src/onboarding.js';
+import { PROFILE_FILE } from '../src/profile.js';
 import { ciJobFor, loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
 
@@ -79,6 +80,7 @@ for (const p of projects) {
   if (!fs.existsSync(p.repo)) probs.push('仓库路径不存在');
   else if (!fs.existsSync(path.join(p.repo, '.git'))) probs.push('不是 git 仓库');
   else if (!fs.existsSync(path.join(p.repo, 'CLAUDE.md'))) probs.push('无 CLAUDE.md（建议补）');
+  if (fs.existsSync(p.repo) && !fs.existsSync(path.join(p.repo, PROFILE_FILE))) probs.push(`无 ${PROFILE_FILE}（流程约定：测试环境/验收人/上线方式，缺省按无测试环境、不设上线走）`);
   // 实测 odoo-product（2026-09-02）：.gitignore 整个屏蔽 docs，PRD/评审/原型/知识沉淀全部不入库
   if (fs.existsSync(path.join(p.repo, '.git')) && pipelineDocsIgnored(p.repo)) {
     probs.push('.gitignore 屏蔽了 docs/pipeline（流水线工件不入库：MR 里看不到 PRD/评审，换 worktree 即丢；把 docs 改成 docs/* 并加 !docs/pipeline/）');

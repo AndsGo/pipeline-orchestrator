@@ -32,6 +32,8 @@ import { FASTLANE_MODEL, runFastlane, runTriage, type Lane } from './lanes.js';
 import { applyResult, GATE_SOURCE, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
 import { isPaused } from './pause.js';
 import { isTransientApiError, TRANSIENT_RETRY_DELAY_MS } from './transient.js';
+import { describeRelease, type PipelineProfile, readProfile, releaseTargetBranch, STAGE_PROFILE_FILE, stageBrief } from './profile.js';
+import { findOpenMr, gitlabApiFromEnv, mergeMr } from './gitlab/release.js';
 import { generatePrototype, previewUrl } from './prototype.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
@@ -56,6 +58,14 @@ export interface RunTicketOpts {
   lane?: Lane;
   /** claude 会话并发闸门（daemon 模式下限流），返回释放函数 */
   acquire?: () => Promise<() => void>;
+}
+
+/** 项目流程约定节选：每阶段开工前抄进工单目录供会话先读；没有约定或该阶段无节 → 删掉旧文件，不留过期内容 */
+function writeStageProfile(repo: string, ticket: string, stage: Stage, profile: PipelineProfile | null): void {
+  const f = path.join(ticketDir(repo, ticket), STAGE_PROFILE_FILE);
+  const brief = profile && stage !== 'ci' ? stageBrief(profile, stage) : null;
+  if (brief) fs.writeFileSync(f, brief, 'utf-8');
+  else fs.rmSync(f, { force: true });
 }
 
 /** 提取 40-acceptance.md 的「本阶段结论」（含 AC 结果总表），发给业务方逐条确认——替代一句「PASS」 */
@@ -558,6 +568,82 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     saveTicket(state);
   }
 
+  /**
+   * 上线环节（编排器原生步骤，由仓库 PIPELINE.md 的 release 开关启用）：
+   * 上线审批卡（含 MR / 验收结论 / 待补验清单）→ merge-* 模式合并 MR，manual 模式等人点确认 → 上线后补验（没有测试环境时验收跳过的人工项）。
+   * 返回 'halt' 表示已挂起（驳回或合并失败），调用方 continue 让挂起分支接手。
+   */
+  const runRelease = async (profile: PipelineProfile): Promise<'done' | 'halt'> => {
+    const target = releaseTargetBranch(profile.release);
+    const api = gitlabApiFromEnv();
+    const branch = state.branch ?? detectTicketBranch(repo, ticket) ?? null;
+    const mr = api && project?.gitlab && branch ? await findOpenMr(api, project.gitlab, branch) : null;
+    if (!state.releaseApproved) {
+      const acc = [...state.runs].reverse().find((r) => r.stage === 'acceptance');
+      const checks = state.postReleaseChecks ?? [];
+      const summary = [
+        `**上线方式**：${describeRelease(profile.release)}`,
+        `**分支**：${branch ?? '未探测到'}${mr ? `　**MR**：${mr.webUrl}（→ ${mr.targetBranch}）` : '　MR：未找到开着的 MR'}`,
+        `**验收结论**：${acc ? (acc.verdict ?? acc.status) : '无验收记录'}`,
+        checks.length
+          ? `**上线后待补验 ${checks.length} 项**（项目无测试环境，验收时未能实测）：\n${checks.map((q) => `- ${q.id} ${q.question.split('\n')[0].slice(0, 80)}`).join('\n')}`
+          : '',
+        profile.sections['release'] ? `**项目上线约定**：\n${profile.sections['release'].slice(0, 600)}` : '',
+        '',
+        target
+          ? `通过 → 编排器合并 MR 到 ${target}${mr ? '' : '（当前找不到开着的 MR，通过后需你手动合并）'}；驳回 → 不上线，工单挂起`
+          : '本项目为人工上线：完成上线后点「通过」，编排器进入上线后补验与知识沉淀；驳回 → 不上线，工单挂起',
+      ]
+        .filter((l) => l !== '')
+        .join('\n');
+      state = { ...state, pendingGate: { gate: 'release-approval', summary, concerns: [], stage: 'acceptance' } };
+      saveTicket(state);
+      await askGate(state.pendingGate!);
+      if (state.haltedReason) return 'halt';
+      state = { ...state, releaseApproved: true };
+      saveTicket(state);
+    }
+    if (target) {
+      if (api && project?.gitlab && mr) {
+        const r = await mergeMr(api, project.gitlab, mr.iid);
+        if (!r.ok) {
+          state = { ...state, haltedReason: `自动合并 MR !${mr.iid} → ${target} 失败：${r.message}。请手动合并后在群里说「继续 ${ticket}」` };
+          saveTicket(state);
+          return 'halt';
+        }
+        appendEvent({ ticket, type: 'release', summary: `已合并 MR !${mr.iid} → ${target}（${r.sha.slice(0, 8)}）` });
+        await port.notify(ticket, `已合并 MR !${mr.iid} → ${target}：${mr.webUrl}`);
+      } else {
+        appendEvent({ ticket, type: 'release', summary: `人工合并 ${branch ?? '工单分支'} → ${target}（无可用 MR 或未配 GitLab API）` });
+        await port.notify(
+          ticket,
+          `未找到可自动合并的 MR${api ? '' : '（未配置 GITLAB_URL/GITLAB_API_TOKEN）'}，请手动把 ${branch ?? '工单分支'} 合入 ${target}。流水线按已上线继续`,
+        );
+      }
+    } else {
+      appendEvent({ ticket, type: 'release', summary: '人工上线已确认' });
+    }
+    state = { ...state, released: true };
+    saveTicket(state);
+    // 上线后补验：没有测试环境的项目，验收时跳过的人工项现在弹出来
+    const checks = state.postReleaseChecks ?? [];
+    if (checks.length) {
+      appendEvent({ ticket, type: 'question.asked', stage: 'acceptance', summary: `上线后补验 ${checks.length} 项：${checks.map((q) => q.id).join(', ')}` });
+      const answers = await port.askQuestions(ticket, checks.map((q) => ({ ...q, question: `【上线后补验】${q.question}` })));
+      appendAnswers(repo, ticket, '40-acceptance.md', '上线后补验结果', answers);
+      for (const a of answers) {
+        appendEvent({ ticket, type: 'question.answered', stage: 'acceptance', summary: `${a.id} → ${a.answer.slice(0, 60)}${a.note ? `｜补充：${a.note.slice(0, 60)}` : ''}` });
+      }
+      const bad = answers.filter((a) => /不通过/.test(a.answer));
+      if (bad.length) {
+        await port.notify(ticket, `⚠ 上线后补验有 ${bad.length} 项不通过（${bad.map((a) => a.id).join('、')}），已记入 40-acceptance.md。本单继续沉淀知识；修复请发 /new 新建工单并引用本单`);
+      }
+      state = { ...state, postReleaseChecks: [] };
+      saveTicket(state);
+    }
+    return 'done';
+  };
+
   for (;;) {
     // 指令通道会在会话运行期间直接改盘上的状态（暂停/回退/需求变更），
     // 而本 runner 手里是自己的内存副本——不回读就会在下次 saveTicket 时把人的指令悄悄覆盖掉。
@@ -693,6 +779,12 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
 
     const stage = state.cursor;
+    const profile = readProfile(repo);
+    // 上线环节：compound 之前先过（上线审批 → 合并/人工上线 → 上线后补验）。驳回或合并失败 → 挂起分支接手
+    if (stage === 'compound' && profile && profile.release !== 'none' && !state.released) {
+      if ((await runRelease(profile)) === 'halt') continue;
+    }
+    writeStageProfile(repo, ticket, stage, profile);
     // 对照实验臂在首次进入 implement 时冻结进工单，之后所有分批与修复轮都用同一个模型
     if (stage === 'implement' && !state.implementModel) {
       const arm = resolveImplementModel();
@@ -901,8 +993,31 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
           stage,
           summary: `${action.questions.length} 个待确认问题：${action.questions.map((q) => q.id).join(', ')}`,
         });
-        let answers = await port.askQuestions(ticket, action.questions);
-        if (stage === 'acceptance') answers = await ensureRejectionEvidence(port, ticket, action.questions, answers);
+        // 没有测试环境（PIPELINE.md testEnv: none）：验收的人工项无法实测，不弹卡让人猜——记「无法验证」并存起来，上线后再弹
+        const skipManual = stage === 'acceptance' && profile !== null && profile.testEnv === null;
+        // 有测试环境：把地址与登录说明写在每个问题最前面，验收人不用再问「去哪看」
+        const questions =
+          stage === 'acceptance' && profile?.testEnv
+            ? action.questions.map((q) => ({
+                ...q,
+                question: `【验收环境】${profile.testEnv!.url}${profile.testEnv!.note ? `（${profile.testEnv!.note}）` : ''}\n\n${q.question}`,
+              }))
+            : action.questions;
+        let answers = skipManual
+          ? action.questions.map((q) => ({
+              id: q.id,
+              question: q.question,
+              answer: '无法验证',
+              note: '项目无测试环境（docs/pipeline/PIPELINE.md testEnv: none），转上线后补验',
+            }))
+          : await port.askQuestions(ticket, questions);
+        if (skipManual) {
+          state = { ...state, postReleaseChecks: [...(state.postReleaseChecks ?? []), ...action.questions] };
+          saveTicket(state);
+          await port.notify(ticket, `验收的 ${action.questions.length} 个人工项（${action.questions.map((q) => q.id).join('、')}）因本项目无测试环境暂记「无法验证」，上线后会再弹卡补验`);
+        } else if (stage === 'acceptance') {
+          answers = await ensureRejectionEvidence(port, ticket, action.questions, answers);
+        }
         appendAnswers(repo, ticket, action.backfillTarget, action.backfillHeader, answers);
         for (const a of answers) {
           appendEvent({

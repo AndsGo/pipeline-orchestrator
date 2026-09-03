@@ -20,6 +20,7 @@ export type EventType =
   | 'gate.asked'
   | 'gate.answered'
   | 'human.message'
+  | 'release'
   | 'amend'
   | 'rewind'
   | 'pause'
@@ -132,6 +133,7 @@ const ICON: Record<EventType, string> = {
   'gate.asked': '🚦',
   'gate.answered': '👤',
   'human.message': '🗣️',
+  release: '🚀',
   amend: '✏️',
   rewind: '⏪',
   pause: '⏸️',

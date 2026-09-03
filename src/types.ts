@@ -102,11 +102,19 @@ export interface TicketState {
    * 有它在，重进 runner 先原样重发这张卡：不重跑产出它的阶段，更不跳过它。答复落地即清。
    */
   pendingGate?: { gate: GateName; summary: string; concerns: string[]; stage: Stage };
+  /**
+   * 上线环节（由仓库 docs/pipeline/PIPELINE.md 的 release 开关启用，编排器原生步骤，不是会话阶段）。
+   * postReleaseChecks：项目没有测试环境时，验收的人工项不弹卡、先记在这里，上线后再弹；
+   * releaseApproved：上线审批已通过（自动合并失败时据此重试合并而不重发审批卡）；released：上线动作已完成。
+   */
+  postReleaseChecks?: OpenQuestion[];
+  releaseApproved?: boolean;
+  released?: boolean;
   runs: RunRecord[];
   haltedReason?: string;
 }
 
-export type GateName = 'prd-confirm' | 'plan-approval' | 'deploy-approval';
+export type GateName = 'prd-confirm' | 'plan-approval' | 'deploy-approval' | 'release-approval';
 
 export type Action =
   | { kind: 'run'; stage: Stage; extraArgs?: string }
