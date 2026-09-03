@@ -52,6 +52,7 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'run'>, _sender: s
         target.suggestion
           ? `${project.alias} 里没有 \`/${target.name}\`，你是不是想跑 \`/${target.suggestion}\`？`
           : `${project.alias} 里没有 \`/${target.name}\`。要问问题就直接写自然语言，不用加斜杠`,
+        chat, // 回到来源群（拆分时发现的历史遗漏）
       );
       return; // 不花钱让模型去"讨论"一个不存在的命令
     }

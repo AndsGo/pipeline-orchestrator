@@ -6,7 +6,7 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'status'>, _sender
   const { port, active } = ctx;
   const t = c.ticket ?? [...active.keys()][0] ?? listTickets().at(-1);
   if (!t) {
-    await port.notify('状态', '还没有工单');
+    await port.notify('状态', '还没有工单', chat); // 回到来源群，别落到主群（拆分时发现的历史遗漏）
     return;
   }
   const repo = peekTicketRepo(t);
