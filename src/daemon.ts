@@ -16,7 +16,7 @@ import { initBitableSync } from './bitable/sync.js';
 import { BitableBoard } from './bitable/client.js';
 import { agingSummary, dueForAudit, readAuditStamp, writeAuditStamp } from './kbAudit.js';
 import { lastHitByTitle } from './hits.js';
-import { appendEvent, interruptedStage, listTickets, lostPendingCards, readEvents } from './events.js';
+import { appendEvent, listTickets } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
 import { clearPaused } from './pause.js';
@@ -27,8 +27,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { draftRequirementFromChat, execAdhoc, runFollowup } from './daemon/adhoc.js';
+import { announceInterruptedTickets } from './daemon/boot.js';
 import type { DaemonContext } from './daemon/context.js';
 import { dispatch } from './daemon/handlers/index.js';
+import { startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
 import { runTicket } from './ticketRunner.js';
 import { allocateWorkspace } from './workspace.js';
 
@@ -348,61 +350,6 @@ const ctx: DaemonContext = {
 log(`daemon 就绪：并发上限 ${cfg.maxConcurrency}，项目 ${describeProjects(projects)}（默认 ${cfg.defaultProject}）`);
 await port.notify('流水线', `编排器已上线。并发上限 ${cfg.maxConcurrency}。\n${helpText()}`);
 
-// 中断巡检：上一个 daemon 死掉时正在跑的工单不会自我恢复，必须开机点名（LS-013 教训：静停 13 小时没人知道）。
-// 刚启动时 active 必空，events 判据即事实
-for (const t of listTickets()) {
-  const evs = readEvents(t);
-  const stage = interruptedStage(evs);
-  if (stage) {
-    log(`${t} 上次运行在 ${stage} 阶段被打断，已在群里提示恢复`);
-    await port.notify(t, `⚠ 上次运行在 **${stage}** 阶段中途被打断（daemon 重启/崩溃），进度未丢失。发「继续 ${t}」或 /resume ${t} 恢复。`);
-    continue;
-  }
-  // 姊妹盲区（OP-001 实测）：等人工的卡片随进程内存失效，飞书上的旧卡点了只提示过期
-  const lost = lostPendingCards(evs);
-  if (lost) {
-    log(`${t} 重启前的待答卡片已失效（${lost.slice(0, 60)}），已在群里提示`);
-    await port.notify(t, `⚠ 重启前的待答卡片已失效（${lost.slice(0, 80)}）——旧卡片点了没用。发「继续 ${t}」：卡点卡会原样重发，问题卡会重新提问；已经说过的内容若已记入反馈会被读到，不用重复。`);
-  }
-}
-
-// 知识库月度老化审计：制度化而不是指望人记得跑脚本（kb-refresh-audit.ts 躺了一周没人跑）。
-// 零成本（只读表+命中日志），到期自动发群；花钱的深检仍由人手动跑脚本
-async function kbAuditTick(): Promise<void> {
-  if (!dueForAudit(readAuditStamp(), Date.now())) return;
-  const board = BitableBoard.fromEnv();
-  if (!board) return; // 未配知识表，无从审计
-  try {
-    await port.notify('知识库', agingSummary(await board.listKnowledge(), lastHitByTitle('knowledge'), Date.now()));
-    writeAuditStamp();
-    log('知识库老化审计已发群（下次约 30 天后）');
-  } catch (e) {
-    log(`知识库老化审计失败（明天再试）：${(e as Error).message.slice(0, 160)}`);
-  }
-}
-void kbAuditTick();
-setInterval(() => void kbAuditTick(), 24 * 3600 * 1000);
-
-// 空闲自退（停止信号文件）：看门狗计划任务拉起的 daemon 是提权进程，普通 shell 杀不动、连命令行都看不见
-// （2026-09-02 实测：任务改成 Limited 照样是 High）。改成约定：start-daemon.ps1 -Stop 杀不动就写
-// data/daemon.stop，daemon 每 10 秒看一眼，没有工单在跑或等卡片时自己退出，看门狗 2 分钟内以最新代码拉起。
-// 启动即清掉残留的信号文件，否则新进程一起来就自杀、无限循环。
-const STOP_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/daemon.stop');
-fs.rmSync(STOP_FILE, { force: true });
-let stopDeferredLogged = false;
-setInterval(() => {
-  if (!fs.existsSync(STOP_FILE)) return;
-  // 「空闲」= 没有会话在执行。等卡片的工单不算：卡片可恢复（卡点卡原样重发、问题卡由「继续」重问），
-  // 而一张几天没人答的上线后补验卡不该让 daemon 永远停不下来（2026-09-03 实测）
-  if (sem.inUse > 0) {
-    if (!stopDeferredLogged) {
-      stopDeferredLogged = true;
-      log(`收到停止信号，但有 ${sem.inUse} 个阶段会话在执行，等它们结束再退出`);
-    }
-    return;
-  }
-  fs.rmSync(STOP_FILE, { force: true });
-  const waiting = [...active.keys()];
-  log(`收到停止信号（data/daemon.stop），无会话在执行，自行退出；看门狗会以最新代码拉起${waiting.length ? `。等卡片的工单 ${waiting.join('、')} 的卡将失效，启动时会在群里提示` : ''}`);
-  process.exit(0);
-}, 10_000);
+await announceInterruptedTickets(ctx);
+startKbAudit(ctx);
+startStopFilePoller(ctx, path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/daemon.stop'));
