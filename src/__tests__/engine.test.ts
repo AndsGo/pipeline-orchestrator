@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bridgePrompt, codexCostUsd, sandboxFor, stripNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
-import { wireSchema } from '../schema.js';
+import { bridgePrompt, codexCostUsd, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { validateResult, wireSchema } from '../schema.js';
 import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
 
@@ -88,8 +88,16 @@ describe('Codex 引擎的纯函数部分', () => {
     walk(strict);
   });
 
-  it('stripNulls：可空回来的 null 剥成缺省，嵌套与数组同样处理', () => {
-    expect(stripNulls({ stage: 'review', verdict: null, concerns: [{ a: 1, b: null }], open_questions: null })).toEqual({ stage: 'review', concerns: [{ a: 1 }] });
+  it('stripOptionalNulls：只剥原本可选字段的 null；必填可空（axes.spec.worst）保留——真机干跑返回过契约校验', () => {
+    // codex-cli 0.152 对严格 schema 的真实返回（2026-09-03）
+    const fromCodex = JSON.parse(
+      '{"stage":"review","status":"DONE","handoff_path":"docs/pipeline/T-0/30-review-r1.md","summary_for_card":"契约干跑","open_questions":null,"concerns":[],"blocked_reason":null,"verdict":"PASS","axes":{"spec":{"total":0,"failed":0,"worst":null},"quality":{"critical":0,"important":0,"minor":0,"worst":null}}}',
+    );
+    const cleaned = stripOptionalNulls(fromCodex, JSON.parse(wireSchema())) as Record<string, unknown>;
+    expect(cleaned).not.toHaveProperty('open_questions');
+    expect(cleaned).not.toHaveProperty('blocked_reason');
+    expect((cleaned.axes as { spec: { worst: unknown } }).spec.worst).toBeNull();
+    expect(validateResult(cleaned as never)).toEqual([]);
   });
 
   it('沙箱映射：含 Write/Edit/Bash → workspace-write，否则 read-only', () => {

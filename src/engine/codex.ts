@@ -123,14 +123,20 @@ export function toStrictSchema(schema: unknown): unknown {
   return s;
 }
 
-/** 严格模式下可选字段回来是 null；契约里它们是「缺省」，剥掉以免校验与路由把 null 当值 */
-export function stripNulls<T>(v: T): T {
-  if (Array.isArray(v)) return v.map(stripNulls) as unknown as T;
+/**
+ * 严格模式下「原本可选」的字段回来是 null，契约里它们是「缺省」，要剥掉；
+ * 「原本必填且允许 null」的字段（如 axes.spec.worst）必须保留 null，否则校验报缺字段（2026-09-03 探针实测）。
+ * 所以按原 schema 走：只剥原 required 之外的 null。
+ */
+export function stripOptionalNulls<T>(v: T, schema: unknown): T {
+  const s = (schema ?? {}) as { type?: unknown; properties?: Record<string, unknown>; required?: string[]; items?: unknown };
+  if (Array.isArray(v)) return v.map((x) => stripOptionalNulls(x, s.items)) as unknown as T;
   if (v && typeof v === 'object') {
+    const required = new Set(s.required ?? []);
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (x === null) continue;
-      out[k] = stripNulls(x);
+      if (x === null && !required.has(k)) continue;
+      out[k] = x === null ? null : stripOptionalNulls(x, s.properties?.[k]);
     }
     return out as T;
   }
@@ -232,7 +238,7 @@ function execCodex(o: ExecOpts): Promise<ExecOutcome> {
 }
 
 /** 把一次执行的结果装进编排器认的 Envelope */
-export function toEnvelope(r: ExecOutcome, parseStructured: boolean): Envelope {
+export function toEnvelope(r: ExecOutcome, parseStructured: boolean, originalSchema: unknown = parseStructured ? JSON.parse(wireSchema()) : undefined): Envelope {
   const { summary } = r;
   const cost = codexCostUsd(summary);
   const text = r.lastMessage.trim() || summary.lastAgentText?.trim() || '';
@@ -240,7 +246,7 @@ export function toEnvelope(r: ExecOutcome, parseStructured: boolean): Envelope {
   let structured: StageResult | undefined;
   if (parseStructured && !failed && text) {
     try {
-      structured = stripNulls(JSON.parse(text.slice(text.indexOf('{'))) as StageResult);
+      structured = stripOptionalNulls(JSON.parse(text.slice(text.indexOf('{'))) as StageResult, originalSchema);
     } catch {
       structured = undefined;
     }
