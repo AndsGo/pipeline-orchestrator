@@ -34,6 +34,7 @@ import { isPaused } from './pause.js';
 import { isTransientApiError, TRANSIENT_RETRY_DELAY_MS } from './transient.js';
 import { describeRelease, type PipelineProfile, readProfile, releaseTargetBranch, STAGE_PROFILE_FILE, stageBrief } from './profile.js';
 import { findOpenMr, gitlabApiFromEnv, mergeMr } from './gitlab/release.js';
+import { checkMergeAgainstTarget, describeMergeCheck } from './mergeCheck.js';
 import { generatePrototype, previewUrl } from './prototype.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from './systemMap.js';
 import type { InteractionPort } from './ports.js';
@@ -578,12 +579,23 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     const api = gitlabApiFromEnv();
     const branch = state.branch ?? detectTicketBranch(repo, ticket) ?? null;
     const mr = api && project?.gitlab && branch ? await findOpenMr(api, project.gitlab, branch) : null;
+    // 合并前先拉目标分支最新代码干跑一次：有冲突不合并、不发卡，交给人在分支上解决后「继续」
+    const preCheck = target && branch ? checkMergeAgainstTarget(repo, branch, target) : null;
+    if (preCheck && preCheck.ok === false) {
+      state = {
+        ...state,
+        haltedReason: `${describeMergeCheck(preCheck, target!)}。请在分支 ${branch} 上合并 origin/${target} 解决冲突并推送，然后在群里说「继续 ${ticket}」`,
+      };
+      saveTicket(state);
+      return 'halt';
+    }
     if (!state.releaseApproved) {
       const acc = [...state.runs].reverse().find((r) => r.stage === 'acceptance');
       const checks = state.postReleaseChecks ?? [];
       const summary = [
         `**上线方式**：${describeRelease(profile.release)}`,
         `**分支**：${branch ?? '未探测到'}${mr ? `　**MR**：${mr.webUrl}（→ ${mr.targetBranch}）` : '　MR：未找到开着的 MR'}`,
+        preCheck ? `**冲突预检**：${describeMergeCheck(preCheck, target!)}` : '',
         `**验收结论**：${acc ? (acc.verdict ?? acc.status) : '无验收记录'}`,
         checks.length
           ? `**上线后待补验 ${checks.length} 项**（项目无测试环境，验收时未能实测）：\n${checks.map((q) => `- ${q.id} ${q.question.split('\n')[0].slice(0, 80)}`).join('\n')}`
@@ -604,6 +616,16 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       saveTicket(state);
     }
     if (target) {
+      // 审批到合并之间可能过了很久，目标分支又前进了：合并前再复查一次
+      const recheck = branch ? checkMergeAgainstTarget(repo, branch, target) : null;
+      if (recheck && recheck.ok === false) {
+        state = {
+          ...state,
+          haltedReason: `合并前复查：${describeMergeCheck(recheck, target)}。请在分支 ${branch} 上合并 origin/${target} 解决冲突并推送，然后在群里说「继续 ${ticket}」（不会重发审批卡）`,
+        };
+        saveTicket(state);
+        return 'halt';
+      }
       if (api && project?.gitlab && mr) {
         const r = await mergeMr(api, project.gitlab, mr.iid);
         if (!r.ok) {
