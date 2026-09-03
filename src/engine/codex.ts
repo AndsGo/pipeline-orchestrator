@@ -85,6 +85,58 @@ export function codexCostUsd(s: CodexSummary, env = process.env): { usd: number;
   return { usd: priced ? Math.max(0, usd) : 0, priced };
 }
 
+/**
+ * OpenAI 严格结构化输出对 schema 的要求（2026-09-03 真机报错 invalid_json_schema 实测）：
+ * 每个 object 的 required 必须列出全部 properties；可选字段改成可空类型；`default` 等关键字不认。
+ * 这里把契约 schema 转成严格形态，返回值里的 null 再由 stripNulls 剥回「缺省」——编排器那边一个字不改。
+ */
+export function toStrictSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(toStrictSchema);
+  if (!schema || typeof schema !== 'object') return schema;
+  const s = { ...(schema as Record<string, unknown>) };
+  delete s.default;
+  delete s.$schema;
+  delete s.$id;
+  if (s.type === 'object' && s.properties && typeof s.properties === 'object') {
+    const props = s.properties as Record<string, unknown>;
+    const required = new Set((s.required as string[] | undefined) ?? []);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(props)) {
+      const strict = toStrictSchema(v) as Record<string, unknown>;
+      if (!required.has(k)) {
+        // 可选 → 可空：type 数组补 null；anyOf/oneOf 补一个 {type:null}
+        if (typeof strict.type === 'string') strict.type = [strict.type, 'null'];
+        else if (Array.isArray(strict.type)) strict.type = [...new Set([...(strict.type as string[]), 'null'])];
+        else if (Array.isArray(strict.anyOf)) strict.anyOf = [...(strict.anyOf as unknown[]), { type: 'null' }];
+        else if (Array.isArray(strict.oneOf)) strict.oneOf = [...(strict.oneOf as unknown[]), { type: 'null' }];
+      }
+      out[k] = strict;
+    }
+    s.properties = out;
+    s.required = Object.keys(props);
+    s.additionalProperties = false;
+  }
+  if (s.items) s.items = toStrictSchema(s.items);
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    if (Array.isArray(s[key])) s[key] = (s[key] as unknown[]).map(toStrictSchema);
+  }
+  return s;
+}
+
+/** 严格模式下可选字段回来是 null；契约里它们是「缺省」，剥掉以免校验与路由把 null 当值 */
+export function stripNulls<T>(v: T): T {
+  if (Array.isArray(v)) return v.map(stripNulls) as unknown as T;
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (x === null) continue;
+      out[k] = stripNulls(x);
+    }
+    return out as T;
+  }
+  return v;
+}
+
 /** 工具白名单 → 沙箱级别 */
 export function sandboxFor(tools: string): 'read-only' | 'workspace-write' {
   return /\b(Write|Edit|Bash|NotebookEdit)\b/.test(tools) ? 'workspace-write' : 'read-only';
@@ -188,7 +240,7 @@ export function toEnvelope(r: ExecOutcome, parseStructured: boolean): Envelope {
   let structured: StageResult | undefined;
   if (parseStructured && !failed && text) {
     try {
-      structured = JSON.parse(text.slice(text.indexOf('{'))) as StageResult;
+      structured = stripNulls(JSON.parse(text.slice(text.indexOf('{'))) as StageResult);
     } catch {
       structured = undefined;
     }
@@ -216,7 +268,7 @@ export const codexEngine: Engine = {
       prompt: bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`),
       sandbox: sandboxFor(cfg.tools),
       model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : codexModel(),
-      schema: JSON.parse(wireSchema()) as object,
+      schema: toStrictSchema(JSON.parse(wireSchema())) as object,
       timeoutMs: STAGE_TIMEOUT_MS,
     });
     return { envelope: toEnvelope(r, true), rawStdout: r.lastMessage };

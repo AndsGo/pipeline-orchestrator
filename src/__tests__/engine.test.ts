@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bridgePrompt, codexCostUsd, sandboxFor, summarizeCodexEvents, toEnvelope } from '../engine/codex.js';
+import { bridgePrompt, codexCostUsd, sandboxFor, stripNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { wireSchema } from '../schema.js';
 import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
 
@@ -42,12 +43,13 @@ describe('Codex 引擎的纯函数部分', () => {
     '{"type":"error","message":"Your access token could not be refreshed"}',
     '{"type":"turn.failed","error":{"message":"Your access token could not be refreshed"}}',
   ].join('\n');
+  // 成功样本按 codex-cli 0.152 真机探针（2026-09-03）：usage 还带 cache_write_input_tokens / reasoning_output_tokens，解析器忽略即可
   const okRun = [
     '{"type":"thread.started","thread_id":"t-1"}',
     '{"type":"turn.started"}',
-    '{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}',
-    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"stage\\":\\"review\\"}"}}',
-    '{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200}}',
+    '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"ls"}}',
+    '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\\"stage\\":\\"review\\"}"}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":0,"output_tokens":200,"reasoning_output_tokens":0}}',
     'not json',
   ].join('\n');
 
@@ -67,6 +69,27 @@ describe('Codex 引擎的纯函数部分', () => {
     const c = codexCostUsd(s, { PIPELINE_CODEX_PRICE_IN: '2', PIPELINE_CODEX_PRICE_CACHED: '0.5', PIPELINE_CODEX_PRICE_OUT: '8' } as NodeJS.ProcessEnv);
     expect(c.priced).toBe(true);
     expect(c.usd).toBeCloseTo((600 * 2 + 400 * 0.5 + 200 * 8) / 1e6, 9);
+  });
+
+  it('严格 schema：每个 object 的 required 覆盖全部属性，可选字段变可空，default/$schema 剥掉（2026-09-03 invalid_json_schema 实测）', () => {
+    const strict = toStrictSchema(JSON.parse(wireSchema())) as { required: string[]; properties: Record<string, { type: unknown }>; $schema?: unknown };
+    expect(strict.$schema).toBeUndefined();
+    expect(new Set(strict.required)).toEqual(new Set(Object.keys(strict.properties)));
+    expect(strict.properties.stage.type).toBe('string'); // 原本 required 的不动
+    expect(strict.properties.open_questions.type).toEqual(['array', 'null']); // 原本可选的变可空
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!n || typeof n !== 'object') return;
+      const o = n as Record<string, unknown>;
+      expect(o).not.toHaveProperty('default');
+      if (o.type === 'object' && o.properties) expect(new Set(o.required as string[])).toEqual(new Set(Object.keys(o.properties as object)));
+      Object.values(o).forEach(walk);
+    };
+    walk(strict);
+  });
+
+  it('stripNulls：可空回来的 null 剥成缺省，嵌套与数组同样处理', () => {
+    expect(stripNulls({ stage: 'review', verdict: null, concerns: [{ a: 1, b: null }], open_questions: null })).toEqual({ stage: 'review', concerns: [{ a: 1 }] });
   });
 
   it('沙箱映射：含 Write/Edit/Bash → workspace-write，否则 read-only', () => {
