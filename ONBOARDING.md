@@ -53,6 +53,8 @@ acceptor: ops                    # ops 运营验收 / dev 研发验收
 release: merge-develop           # merge-develop / merge-master 审批后自动合并；manual 人工上线后点确认；none 不设上线环节
 ```
 
+还有一个可选开关 `engine: claude | codex`（按阶段覆盖写 `engine.review: codex`）：同一条流水线可以让某个阶段换 Codex 跑，比如用另一家模型做独立评审来对冲评审的非确定性。选了 codex 的机器要先 `codex login`，`doctor` 会查。
+
 frontmatter 下面按 `## 全阶段`、`## implement`、`## review`、`## acceptance`、`## release` 分节写项目事实（测试库怎么建、哪些入口必须核查、验收样例在哪、上线前要过谁）。每个阶段开工前，会话会先读自己那一节，与通用流程冲突时以它为准。一个项目踩过的坑，写进去就不会再踩第二次。
 
 ## 五、几条实话

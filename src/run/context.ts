@@ -2,7 +2,8 @@ import type { ImplementProgress } from '../implementProgress.js';
 import type { InteractionPort } from '../ports.js';
 import type { Project } from '../projects.js';
 import { generatePrototype } from '../prototype.js';
-import { runStage } from '../runner.js';
+import { engineFor } from '../engine/index.js';
+import type { runStage } from '../runner.js';
 import { saveTicket } from '../ticket.js';
 import type { RunTicketOpts } from '../ticketRunner.js';
 import { TRANSIENT_RETRY_DELAY_MS } from '../transient.js';
@@ -45,7 +46,8 @@ export class TicketRun {
     this.ticket = opts.ticket;
     this.port = opts.port;
     this.project = opts.project;
-    this.stageRunner = opts.stageRunner ?? runStage;
+    // 缺省按仓库的流程约定选引擎（engine / engine.<stage>），每次调用时读——中途改 PIPELINE.md 下一阶段就生效
+    this.stageRunner = opts.stageRunner ?? ((repo, ticket, stage, extraArgs, model) => engineFor(repo, stage).runStage(repo, ticket, stage, extraArgs, model));
     this.prototype = opts.prototype ?? generatePrototype;
     this.transientRetryDelayMs = opts.transientRetryDelayMs ?? TRANSIENT_RETRY_DELAY_MS;
     this.state = state;

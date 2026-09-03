@@ -10,7 +10,7 @@ import { BitableBoard } from '../src/bitable/client.js';
 import { projectCfgFromEnv } from '../src/bitable/sync.js';
 import { PLUGIN_DIR, RUNNER_SETTINGS } from '../src/config.js';
 import { claudeMdIgnored, pipelineDocsIgnored } from '../src/onboarding.js';
-import { PROFILE_FILE } from '../src/profile.js';
+import { PROFILE_FILE, readProfile } from '../src/profile.js';
 import { ciJobFor, loadProjects } from '../src/projects.js';
 import { runClaudeText } from '../src/runner.js';
 
@@ -59,6 +59,20 @@ for (const [name, cmd, why] of [
 }
 const glab = tryExec('glab --version');
 add(glab ? '✅' : '⚠️', 'glab', glab ? glab.split('\n')[0] : '未安装——会话无法自动建 MR（人工在 GitLab 建则不受影响）');
+// Codex 引擎只在有项目选了它时才体检：CLI 在不在、登录态是否有效（2026-09-03 实测 refresh token 失效会让每个阶段都失败）
+const usesCodex = loadProjects().some((p) => {
+  const prof = readProfile(p.repo);
+  return prof && (prof.engine.default === 'codex' || Object.values(prof.engine.byStage).includes('codex'));
+});
+if (usesCodex) {
+  const codexV = tryExec('codex --version');
+  const login = codexV ? tryExec('codex login status') : null;
+  add(
+    codexV && login && /logged in/i.test(login) ? '✅' : '❌',
+    'codex 引擎',
+    !codexV ? '有项目选了 engine: codex，但本机没有 codex CLI' : !login || !/logged in/i.test(login) ? `${codexV}，未登录或登录态失效——终端跑 codex login` : `${codexV} · ${login.split('\n')[0]}`,
+  );
+}
 
 console.log('\n== 编排器自身 ==');
 // manifest 的标准位置是 .claude-plugin/plugin.json（首版 doctor 查错了根目录，实测被自己抓包）

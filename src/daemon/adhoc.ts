@@ -11,7 +11,7 @@ import {
   withRound,
 } from '../followup.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
-import { runClaudeText } from '../runner.js';
+import { engineFor } from '../engine/index.js';
 import type { DaemonContext } from './context.js';
 
 /**
@@ -38,7 +38,7 @@ export async function execAdhoc(
   // 白名单钉死在 daemon 里，续聊也不会变，这个授权不存在。改代码的正路是 /new 建单走流水线（有评审有 CI）。
   const prompt = `${corePrompt}\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里）`;
   try {
-    const r = await runClaudeText({
+    const r = await engineFor(project.repo).runText({
       cwd: project.repo,
       prompt,
       tools: 'Read,Grep,Glob,Bash,Skill,WebFetch',
@@ -122,7 +122,7 @@ export async function execAdhoc(
 /** 零输入建单的草拟：整段 /run 对话 → 一段需求原文。sonnet 纯文本一次调用，失败返回 null 由调用方兜底 */
 export async function draftRequirementFromChat(ctx: DaemonContext, project: Project, last: LastRun): Promise<string | null> {
   try {
-    const r = await runClaudeText({
+    const r = await engineFor(project.repo).runText({
       cwd: project.repo,
       prompt: composeRequirementDraftPrompt(last),
       tools: 'Read',

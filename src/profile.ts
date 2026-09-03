@@ -26,6 +26,8 @@ export interface PipelineProfile {
   acceptor: 'ops' | 'dev';
   /** 上线方式：merge-* = 上线审批通过后编排器合并 MR；manual = 人上线后点确认；none = 不设上线环节 */
   release: ReleaseMode;
+  /** 执行引擎：`engine:` 全项目默认，`engine.<stage>:` 按阶段覆盖；缺省 claude（见 src/engine/） */
+  engine: { default: string | null; byStage: Record<string, string> };
   /** 正文分节：小写标题 → 正文 */
   sections: Record<string, string>;
 }
@@ -39,7 +41,8 @@ export function parseProfile(md: string): PipelineProfile {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
   if (m) {
     for (const line of m[1].split('\n')) {
-      const kv = /^\s*([A-Za-z][\w-]*)\s*:\s*(.*?)\s*$/.exec(line);
+      // 键允许点号：engine.review 这类按阶段的覆盖写成扁平键，不引入嵌套 YAML 解析
+      const kv = /^\s*([A-Za-z][\w.-]*)\s*:\s*(.*?)\s*$/.exec(line);
       // 值后允许行内注释（模板就是这么写的）；引号剥掉
       if (kv) fm[kv[1]] = kv[2].replace(/\s+#.*$/, '').replace(/^#.*$/, '').replace(/^["']|["']$/g, '').trim();
     }
@@ -63,10 +66,16 @@ export function parseProfile(md: string): PipelineProfile {
 
   const env = (fm.testEnv ?? 'none').trim();
   const release = (fm.release ?? 'none').trim() as ReleaseMode;
+  const byStage: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fm)) {
+    const m = /^engine\.([A-Za-z]+)$/.exec(k);
+    if (m && v) byStage[m[1].toLowerCase()] = v.toLowerCase();
+  }
   return {
     testEnv: !env || /^none$/i.test(env) ? null : { url: env, note: fm.testEnvNote?.trim() || undefined },
     acceptor: fm.acceptor?.trim() === 'ops' ? 'ops' : 'dev',
     release: RELEASE_MODES.includes(release) ? release : 'none',
+    engine: { default: fm.engine ? fm.engine.toLowerCase() : null, byStage },
     sections,
   };
 }
@@ -129,6 +138,7 @@ testEnv: none            # none = 没有测试环境；否则填地址，如 htt
 testEnvNote:             # 可选：登录方式、账号在哪、注意事项（会原样出现在验收卡上）
 acceptor: dev            # ops = 运营验收（卡片用业务措辞）/ dev = 研发验收
 release: none            # merge-develop / merge-master = 审批后自动合并 MR；manual = 人上线后点确认；none = 不设上线环节
+# engine: claude         # 执行引擎：claude（默认）/ codex；按阶段覆盖写 engine.review: codex（异构评审对冲非确定性）
 ---
 # ${alias} 流水线项目约定
 

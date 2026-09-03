@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_DIR, ticketDir } from './config.js';
-import { runClaudeText } from './runner.js';
+import { engineFor } from './engine/index.js';
 
 /**
  * 结果预览（grill-me 质询定稿，2026-09-01）：prd-confirm 是决策质量最差的一环——
@@ -32,7 +32,7 @@ export interface PrototypeResult {
 /** 生成（或修订轮重生成）结果预览。任何失败都吞成 ok:false——预览是增益件，不是流程依赖 */
 export async function generatePrototype(repo: string, ticket: string): Promise<PrototypeResult> {
   try {
-    const r = await runClaudeText({
+    const r = await engineFor(repo).runText({
       cwd: repo,
       prompt: `/pipeline-prototype ${ticket}`,
       tools: 'Read,Grep,Glob,Write,Edit,Bash',
