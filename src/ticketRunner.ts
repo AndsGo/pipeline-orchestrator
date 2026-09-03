@@ -625,10 +625,18 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
     state = { ...state, released: true };
     saveTicket(state);
-    // 上线后补验：没有测试环境的项目，验收时跳过的人工项现在弹出来
-    const checks = state.postReleaseChecks ?? [];
-    if (checks.length) {
-      appendEvent({ ticket, type: 'question.asked', stage: 'acceptance', summary: `上线后补验 ${checks.length} 项：${checks.map((q) => q.id).join(', ')}` });
+    return 'done';
+  };
+
+  /**
+   * 上线后补验（没有测试环境的项目，验收时跳过的人工项）：卡异步挂着，**不阻塞** compound——
+   * 运营要等模块升级才能答，可能是几天，知识沉淀不能跟着等。答复到了写回 40-acceptance.md 并清掉待办；
+   * 重启丢卡时状态里的待办仍在，「继续」重发。
+   */
+  let postReleaseAsked = false;
+  const askPostReleaseChecks = async (checks: OpenQuestion[]): Promise<void> => {
+    appendEvent({ ticket, type: 'question.asked', stage: 'acceptance', summary: `上线后补验 ${checks.length} 项：${checks.map((q) => q.id).join(', ')}` });
+    try {
       const answers = await port.askQuestions(ticket, checks.map((q) => ({ ...q, question: `【上线后补验】${q.question}` })));
       appendAnswers(repo, ticket, '40-acceptance.md', '上线后补验结果', answers);
       for (const a of answers) {
@@ -636,12 +644,15 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       }
       const bad = answers.filter((a) => /不通过/.test(a.answer));
       if (bad.length) {
-        await port.notify(ticket, `⚠ 上线后补验有 ${bad.length} 项不通过（${bad.map((a) => a.id).join('、')}），已记入 40-acceptance.md。本单继续沉淀知识；修复请发 /new 新建工单并引用本单`);
+        await port.notify(ticket, `⚠ 上线后补验有 ${bad.length} 项不通过（${bad.map((a) => a.id).join('、')}），已记入 40-acceptance.md。修复请发 /new 新建工单并引用本单`);
       }
+      // 只清待办，不动别的字段：runner 可能已经跑到别处，盘上以它为准
+      const disk = readSnapshot(ticket) ?? state;
       state = { ...state, postReleaseChecks: [] };
-      saveTicket(state);
+      saveTicket({ ...disk, postReleaseChecks: [] });
+    } catch (e) {
+      appendEvent({ ticket, type: 'error', stage: 'acceptance', summary: `上线后补验卡异常：${(e as Error).message.slice(0, 200)}` });
     }
-    return 'done';
   };
 
   for (;;) {
@@ -783,6 +794,12 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     // 上线环节：compound 之前先过（上线审批 → 合并/人工上线 → 上线后补验）。驳回或合并失败 → 挂起分支接手
     if (stage === 'compound' && profile && profile.release !== 'none' && !state.released) {
       if ((await runRelease(profile)) === 'halt') continue;
+    }
+    // 上线后补验：已上线且有待办 → 异步弹卡（每个 runner 生命周期一次），不等答复；已闭环的工单进来只为重发这张卡
+    if (state.released && state.postReleaseChecks?.length && !postReleaseAsked) {
+      postReleaseAsked = true;
+      void askPostReleaseChecks(state.postReleaseChecks);
+      if (state.runs.some((r) => r.stage === 'compound' && r.status === 'DONE')) return;
     }
     writeStageProfile(repo, ticket, stage, profile);
     // 对照实验臂在首次进入 implement 时冻结进工单，之后所有分批与修复轮都用同一个模型

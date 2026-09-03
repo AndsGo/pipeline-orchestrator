@@ -1002,14 +1002,17 @@ fs.rmSync(STOP_FILE, { force: true });
 let stopDeferredLogged = false;
 setInterval(() => {
   if (!fs.existsSync(STOP_FILE)) return;
-  if (active.size) {
+  // 「空闲」= 没有会话在执行。等卡片的工单不算：卡片可恢复（卡点卡原样重发、问题卡由「继续」重问），
+  // 而一张几天没人答的上线后补验卡不该让 daemon 永远停不下来（2026-09-03 实测）
+  if (sem.inUse > 0) {
     if (!stopDeferredLogged) {
       stopDeferredLogged = true;
-      log(`收到停止信号，但 ${[...active.keys()].join('、')} 在跑或等卡片，等它们结束再退出`);
+      log(`收到停止信号，但有 ${sem.inUse} 个阶段会话在执行，等它们结束再退出`);
     }
     return;
   }
   fs.rmSync(STOP_FILE, { force: true });
-  log('收到停止信号（data/daemon.stop），当前空闲，自行退出；看门狗会以最新代码拉起');
+  const waiting = [...active.keys()];
+  log(`收到停止信号（data/daemon.stop），无会话在执行，自行退出；看门狗会以最新代码拉起${waiting.length ? `。等卡片的工单 ${waiting.join('、')} 的卡将失效，启动时会在群里提示` : ''}`);
   process.exit(0);
 }, 10_000);
