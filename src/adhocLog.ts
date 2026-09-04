@@ -35,6 +35,8 @@ export interface AdhocRecord {
   seconds: number;
   /** 会话本身报错（如中途断线）——此时 output 里是报错文案，不是执行结果 */
   isError: boolean;
+  /** claude/codex 会话 id：留痕里有它，哪天指针丢了也能人工 --resume 回去 */
+  sessionId?: string;
 }
 
 /** 落盘一条执行记录，返回文件路径（写失败返回 null——留痕失败不能反过来影响执行结果的送达） */
@@ -51,6 +53,7 @@ export function writeAdhocRecord(r: AdhocRecord): string | null {
         `- 结果：${r.isError ? '**会话异常（未正常跑完）**' : '正常完成'}`,
         `- 时间：${r.at}`,
         `- 项目：${r.project}`,
+        ...(r.sessionId ? [`- 会话：${r.sessionId}`] : []),
         `- 成本：$${r.costUsd.toFixed(2)}｜轮次：${r.turns}｜耗时：${r.seconds}s`,
         '',
         '## 提示词',

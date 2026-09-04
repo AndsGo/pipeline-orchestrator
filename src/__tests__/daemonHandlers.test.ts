@@ -9,7 +9,7 @@ import type { TicketState } from '../types.js';
 import type { DaemonContext, DaemonPort } from '../daemon/context.js';
 import { handlers } from '../daemon/handlers/index.js';
 import { appendEvent, listTickets } from '../events.js';
-import { readLastRun, type LastRun } from '../followup.js';
+import { readLastRun, readLastRunFor, type LastRun } from '../followup.js';
 import { clearPaused } from '../pause.js';
 import { peekTicketRepo, readSnapshot, saveTicket } from '../ticket.js';
 
@@ -32,6 +32,7 @@ vi.mock('../pause.js', () => ({ clearPaused: vi.fn(), setPaused: vi.fn() }));
 vi.mock('../followup.js', async (orig) => ({
   ...(await orig<typeof import('../followup.js')>()),
   readLastRun: vi.fn(() => null),
+  readLastRunFor: vi.fn(() => null),
 }));
 vi.mock('../sticky.js', async (orig) => {
   const m = await orig<typeof import('../sticky.js')>();
@@ -75,7 +76,7 @@ function fakeCtx(script: Script = {}, over: Partial<DaemonContext> = {}) {
     confirmCommand: async () => true,
     sendDashboard: async () => {},
     sendStatus: async () => {},
-    sendResult: async () => {},
+    sendResult: async () => undefined,
     pendingLabels: () => [],
   };
   const ctx: DaemonContext = {
@@ -108,6 +109,7 @@ function lastRun(over: Partial<LastRun> = {}): LastRun {
 
 beforeEach(() => {
   vi.mocked(readLastRun).mockReturnValue(null);
+  vi.mocked(readLastRunFor).mockReturnValue(null);
   vi.mocked(readSnapshot).mockReturnValue(null);
   vi.mocked(peekTicketRepo).mockReturnValue(null);
   vi.mocked(listTickets).mockReturnValue([]);
@@ -279,7 +281,7 @@ describe('resume', () => {
 
 describe('unknown', () => {
   it('斜杠命令拼错 → 给最接近的候选（/dashborad 实测）', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun()); // 有记录也不该当续聊：斜杠开头是命令打错，不是回话
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun()); // 有记录也不该当续聊：斜杠开头是命令打错，不是回话
     const { ctx, notify, choose } = fakeCtx();
     await handlers.unknown(ctx, { kind: 'unknown', text: '/dashborad' }, 'alice', 'oc_free');
     expect(notify).toEqual([['指令', '没有 `/dashborad`，你是不是想说 `/dashboard`？', 'oc_free']]);
@@ -294,7 +296,7 @@ describe('unknown', () => {
   });
 
   it('非斜杠、有 /run 记录 → 先问是否在回复上次执行；选「是」走续聊', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun());
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
     const { ctx, followups, choose } = fakeCtx({ choose: ['是，接着办'] });
     await handlers.unknown(ctx, { kind: 'unknown', text: '1 要，阈值 100' }, 'alice', 'oc_free');
     expect(choose[0].question).toContain('你是不是在回复刚才的执行结果');
@@ -302,7 +304,7 @@ describe('unknown', () => {
   });
 
   it('选「不是」→ 忽略这句', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun());
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
     const { ctx, followups, notify } = fakeCtx({ choose: ['不是，忽略这句'] });
     await handlers.unknown(ctx, { kind: 'unknown', text: '随便一句' }, 'alice', 'oc_free');
     expect(followups).toEqual([]);

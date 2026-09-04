@@ -55,7 +55,7 @@ export interface DaemonContext {
     opts?: { resumeSessionId?: string; origin?: string; chat?: string },
   ): Promise<boolean>;
   /** 续聊：把答复接回上一次单次执行 */
-  runFollowup(reply: string, chat?: string): Promise<void>;
+  runFollowup(reply: string, chat?: string, quotedMessageId?: string): Promise<void>;
   /** 零输入建单的草拟：整段 /run 对话 → 一段需求原文；失败返回 null */
   draftRequirementFromChat(project: Project, last: LastRun): Promise<string | null>;
 }

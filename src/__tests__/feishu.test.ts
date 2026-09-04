@@ -298,6 +298,12 @@ describe('引用/合并转发展开（renderQuotedItems）', () => {
     const v2 = JSON.stringify({ schema: '2.0', header: { title: { tag: 'plain_text', content: '结果' } }, body: { elements: [{ tag: 'markdown', content: '1. 触发方式：自动' }] } });
     expect(renderQuotedItems([{ msg_type: 'interactive', body: { content: v2 } }]).text).toContain('触发方式：自动');
     expect(renderQuotedItems([{ msg_type: 'interactive', body: { content: '{oops' } }]).text).toContain('无可读文字');
+    // im.message.get 拉回来的卡是 post 形状（真机 2026-09-04）：文字在 elements[][].text
+    const fetched = JSON.stringify({ title: '执行结果 · lakeghost', elements: [[{ tag: 'text', text: '结论:目前没有这个功能' }, { tag: 'text', text: '\n\n1. 展示位置：都做？' }]] });
+    const t = renderQuotedItems([{ msg_type: 'interactive', body: { content: fetched } }]).text;
+    expect(t).toContain('执行结果 · lakeghost');
+    expect(t).toContain('目前没有这个功能');
+    expect(t).toContain('展示位置');
   });
 
   it('引用图片消息（非合并转发）：登记下载引用，文本占 marker 位', () => {

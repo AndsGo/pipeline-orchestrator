@@ -68,6 +68,8 @@ export interface IncomingMessage {
   messageId: string;
   /** 消息里是否 @ 了机器人——@了就一定要回应，这是群里最基本的礼貌 */
   mentioned: boolean;
+  /** 引用回复时被引用消息的 ID：引用的是机器人发过的结果卡 → 精确续那次会话（见 followup.runByCard） */
+  quotedMessageId?: string;
 }
 
 /**
@@ -132,6 +134,7 @@ export class FeishuPort implements InteractionPort {
             mentioned: parsed.mentioned,
             sender: data.sender?.sender_id?.open_id ?? 'unknown',
             messageId: data.message?.message_id ?? '',
+            quotedMessageId: data.message?.parent_id,
           });
         }
         return { code: 0 };
@@ -362,14 +365,20 @@ export class FeishuPort implements InteractionPort {
   }
 
   async notify(ticket: string, message: string, chatId?: string): Promise<void> {
-    await this.client.im.message.create({
+    await this.postText(ticket, message, chatId);
+  }
+
+  /** 发纯文本，返回 message_id（结果卡要记「这条消息 ↔ 哪次会话」，引用它就能精确续聊） */
+  private async postText(ticket: string, message: string, chatId?: string): Promise<string | undefined> {
+    const res = (await this.client.im.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
         receive_id: this.chatFor(ticket, chatId) ?? this.cfg.chatId,
         msg_type: 'text',
         content: JSON.stringify({ text: `[${ticket}] ${message}` }),
       },
-    });
+    })) as { data?: { message_id?: string } } | undefined;
+    return res?.data?.message_id;
   }
 
   /** 结构化报告（验收 AC 结果表等）：复用结果卡的长文渲染 */
@@ -442,13 +451,10 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发送单次执行结果：短的走消息，长的走卡片（消息读长文很难受） */
-  async sendResult(title: string, body: string, footer?: string, chatId?: string): Promise<void> {
-    if (body.length <= 600) {
-      await this.notify(title, `${body}${footer ? `\n\n${footer}` : ''}`, chatId);
-      return;
-    }
+  async sendResult(title: string, body: string, footer?: string, chatId?: string): Promise<string | undefined> {
+    if (body.length <= 600) return this.postText(title, `${body}${footer ? `\n\n${footer}` : ''}`, chatId);
     const clipped = body.length > 8000 ? body.slice(0, 8000) + '\n\n…（输出过长已截断）' : body;
-    await this.postCard(resultCard(title, clipped, footer), chatId);
+    return this.postCard(resultCard(title, clipped, footer), chatId);
   }
 
   /** 发送运行面板卡片（/dashboard 指令） */
@@ -518,8 +524,10 @@ const MF_RES_PLACEHOLDER = (what: string): string =>
   `[${what}，未解析——合并转发内的${what}飞书不开放下载，如需分析请单独发]`;
 
 /**
- * 卡片 JSON → 可读文字（纯逻辑，可单测）。兼容 v1（header/elements）与 v2（schema 2.0 的 body.elements）：
- * 按文档顺序收集所有 `content` 字串（标题、div/markdown 正文、note、按钮文字），去掉 lark_md 的标签噱头不做，原样保留。
+ * 卡片 JSON → 可读文字（纯逻辑，可单测）。三种形状都要认：
+ * - 发出时的 v1 卡（header/elements，文字在 `content`）与 v2 卡（schema 2.0 的 body.elements）；
+ * - im.message.get 拉回来的卡（2026-09-04 真机实测）：被折成 post 形状 `{title, elements:[[{tag:'text', text:'…'}]]}`，文字在 `text`。
+ * 按文档顺序收集 title / content / text 三种键的字串，原样保留。
  */
 export function renderCardText(content: string | undefined): string {
   if (!content) return '';
@@ -533,7 +541,7 @@ export function renderCardText(content: string | undefined): string {
   const walk = (n: unknown, key?: string): void => {
     if (Array.isArray(n)) return n.forEach((x) => walk(x));
     if (!n || typeof n !== 'object') {
-      if (typeof n === 'string' && key === 'content' && n.trim()) out.push(n.trim());
+      if (typeof n === 'string' && (key === 'content' || key === 'text' || key === 'title') && n.trim()) out.push(n.trim());
       return;
     }
     for (const [k, v] of Object.entries(n as Record<string, unknown>)) {

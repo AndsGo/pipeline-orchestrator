@@ -128,6 +128,66 @@ export function readLastRun(now = Date.now(), file = lastRunFile(), ttlMs = FOLL
   }
 }
 
+/**
+ * 结果卡 ↔ 会话 的映射：机器人每发一张 /run 结果卡就记 message_id → 那轮的 LastRun。
+ * 人引用哪张卡回话，就精确续哪次会话——不受「最近一次」指针和 24 小时 TTL 的限制。
+ * 由来（2026-09-04 实测）：lakeghost 的结果卡被引用，却按全局指针续到了 odoo-product 的会话，两轮白花。
+ */
+const runSessionsFile = (): string => path.join(dataDir(), 'run-sessions.json');
+const RUN_SESSIONS_CAP = 500;
+const RUN_SESSIONS_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+const STORED_OUTPUT_CAP = 8000;
+
+type RunSessions = Record<string, LastRun>;
+
+function readRunSessions(file: string): RunSessions {
+  try {
+    const v = JSON.parse(fs.readFileSync(file, 'utf-8')) as RunSessions;
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function rememberRunCard(messageId: string, run: LastRun, file = runSessionsFile(), now = Date.now()): void {
+  try {
+    const all = readRunSessions(file);
+    all[messageId] = { ...run, output: run.output.slice(0, STORED_OUTPUT_CAP), transcript: undefined };
+    // 修剪：过期的删，超量的按时间删最老的
+    const entries = Object.entries(all).filter(([, r]) => now - Date.parse(r.at) <= RUN_SESSIONS_TTL_MS);
+    entries.sort((a, b) => Date.parse(a[1].at) - Date.parse(b[1].at));
+    const kept = Object.fromEntries(entries.slice(-RUN_SESSIONS_CAP));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(kept), 'utf-8');
+  } catch {
+    /* 记不上只是引用续聊退回按指针，不影响结果送达 */
+  }
+}
+
+export function runByCard(messageId: string | undefined, file = runSessionsFile()): LastRun | null {
+  if (!messageId) return null;
+  const r = readRunSessions(file)[messageId];
+  return r && typeof r.output === 'string' && typeof r.command === 'string' ? r : null;
+}
+
+/**
+ * 按群一份指针：两个群同时聊不互相覆盖（全局那份仍写，供主群/无群上下文兜底）。
+ * 群 id 只含字母数字下划线，直接进文件名。
+ */
+export function lastRunFileFor(chat: string): string {
+  return path.join(dataDir(), `last-run.${chat.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+}
+
+export function saveLastRunFor(chat: string | undefined, r: LastRun): void {
+  saveLastRun(r);
+  if (chat) saveLastRun(r, lastRunFileFor(chat));
+}
+
+/** 先看本群的指针，没有再退回全局 */
+export function readLastRunFor(chat: string | undefined, now = Date.now(), ttlMs = FOLLOWUP_TTL_MS): LastRun | null {
+  return (chat ? readLastRun(now, lastRunFileFor(chat), ttlMs) : null) ?? readLastRun(now, undefined, ttlMs);
+}
+
 /** 卡片/日志里指代上次执行的短句：《指令前 60 字》（N 分钟前） */
 export function describeLastRun(r: LastRun, now = Date.now()): string {
   const min = Math.max(0, Math.round((now - Date.parse(r.at)) / 60_000));

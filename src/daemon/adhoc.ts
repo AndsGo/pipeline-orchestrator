@@ -6,8 +6,10 @@ import {
   composeRequirementDraftPrompt,
   describeLastRun,
   type LastRun,
-  readLastRun,
-  saveLastRun,
+  readLastRunFor,
+  rememberRunCard,
+  runByCard,
+  saveLastRunFor,
   withRound,
 } from '../followup.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
@@ -26,7 +28,7 @@ export async function execAdhoc(
   corePrompt: string,
   slashRisks: string[],
   chain: number,
-  opts?: { resumeSessionId?: string; origin?: string; chat?: string },
+  opts?: { resumeSessionId?: string; origin?: string; chat?: string; /** 被续的那条记录（按卡续时不是本群指针） */ prev?: LastRun },
 ): Promise<boolean> {
   const { port, log } = ctx;
   const release = await ctx.sem.acquire();
@@ -62,6 +64,7 @@ export async function execAdhoc(
       turns: r.turns,
       seconds,
       isError: r.isError,
+      sessionId: r.sessionId,
     });
     const tail = `$${r.costUsd.toFixed(2)} · ${r.turns} 轮 · ${seconds}s`;
     log(
@@ -85,7 +88,7 @@ export async function execAdhoc(
         opts?.chat,
       );
     } else {
-      saveLastRun({
+      const rec: LastRun = {
         at,
         project: project.alias,
         command: commandText,
@@ -93,15 +96,19 @@ export async function execAdhoc(
         chain,
         sessionId: r.sessionId,
         origin: opts?.origin ?? commandText,
-        // 整段对话随指针累积：续轮读的是尚未被本轮覆盖的上一指针
-        transcript: withRound(chain > 0 ? readLastRun() : null, { command: commandText, output: r.text }),
-      });
-      await port.sendResult(
+        // 整段对话随指针累积：续轮接在被续的那条记录后面（按卡续时是那张卡的记录，否则是本群指针）
+        transcript: withRound(chain > 0 ? (opts?.prev ?? readLastRunFor(opts?.chat)) : null, { command: commandText, output: r.text }),
+      };
+      // 指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
+      saveLastRunFor(opts?.chat, rec);
+      const mid = await port.sendResult(
         `执行结果 · ${project.alias}`,
         r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，直接回复或 \`/re 答复\` 可继续这次任务）`,
+        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，引用这张卡回复或 \`/re 答复\` 可继续这次任务）`,
         opts?.chat,
       );
+      // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
+      if (mid) rememberRunCard(mid, rec);
     }
     return true;
   } catch (e) {
@@ -140,13 +147,16 @@ export async function draftRequirementFromChat(ctx: DaemonContext, project: Proj
 }
 
 /** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
-export async function runFollowup(ctx: DaemonContext, reply: string, chat?: string): Promise<void> {
+export async function runFollowup(ctx: DaemonContext, reply: string, chat?: string, quotedMessageId?: string): Promise<void> {
   const { port, projects, cfg, log } = ctx;
-  let last = readLastRun();
+  // 引用了哪张结果卡就续哪次会话；没引用才看本群指针（再退全局）
+  const byCard = runByCard(quotedMessageId);
+  if (byCard) log(`按引用的结果卡续会话：${describeLastRun(byCard)}（项目 ${byCard.project}）`);
+  let last = byCard ?? readLastRunFor(chat);
   if (!last) {
     // 24 小时 TTL 是为「隔天回个 1」这种含糊答复设的；人明确打了 /re 就该问一句而不是直接拒（2026-09-04 实测：
     // 用户隔了两天带着三条答复回来，被一句「没有可继续的记录」挡住，又换自然语言重发一遍）
-    const stale = readLastRun(Date.now(), undefined, Number.POSITIVE_INFINITY);
+    const stale = readLastRunFor(chat, Date.now(), Number.POSITIVE_INFINITY);
     if (!stale) {
       await port.notify('执行', '最近没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。', chat);
       return;
@@ -174,8 +184,8 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: stri
   await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`, chat);
   if (last.sessionId) {
     // 真续会话：完整历史在会话里，正文只需要答复本身
-    if (await execAdhoc(ctx, project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat })) return;
+    if (await execAdhoc(ctx, project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat, prev: last })) return;
     log('  resume 未成功，改用拼接模式重试');
   }
-  await execAdhoc(ctx, project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin, chat });
+  await execAdhoc(ctx, project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin, chat, prev: last });
 }

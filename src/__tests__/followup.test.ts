@@ -9,8 +9,13 @@ import {
   FOLLOWUP_TTL_MS,
   intakeContextFromLastRun,
   isDraftFromChatRequest,
+  lastRunFileFor,
   readLastRun,
+  readLastRunFor,
+  rememberRunCard,
+  runByCard,
   saveLastRun,
+  saveLastRunFor,
   withRound,
   type LastRun,
 } from '../followup.js';
@@ -167,6 +172,45 @@ describe('整段对话累积（聊完即建单，2026-09-02）', () => {
     expect(isDraftFromChatRequest('把上面讨论的结论开一个工单')).toBe(true);
     expect(isDraftFromChatRequest('给 /mcp 端点加限流')).toBe(false);
     expect(isDraftFromChatRequest('对话框上面的按钮要加一个导出功能，导出为 CSV')).toBe(false); // 含「对话」「上面」但是正常需求
+  });
+});
+
+describe('结果卡 ↔ 会话映射与按群指针（2026-09-04：引用 lakeghost 的卡却续到了 odoo-product 的会话）', () => {
+  it('rememberRunCard / runByCard：按 message_id 精确找回那次会话；不存在 → null；输出裁到上限、不存整段 transcript', () => {
+    const f = path.join(dir, 'run-sessions.json');
+    const r = mkRun({ sessionId: 'sess-lake', project: 'lakeghost', output: 'x'.repeat(20_000), transcript: [{ command: 'a', output: 'b' }] });
+    rememberRunCard('om_card1', r, f);
+    const got = runByCard('om_card1', f)!;
+    expect(got.sessionId).toBe('sess-lake');
+    expect(got.project).toBe('lakeghost');
+    expect(got.output.length).toBe(8000);
+    expect(got.transcript).toBeUndefined();
+    expect(runByCard('om_nope', f)).toBeNull();
+    expect(runByCard(undefined, f)).toBeNull();
+  });
+
+  it('修剪：过期条目删掉，超量按时间保留最新的', () => {
+    const f = path.join(dir, 'run-sessions.json');
+    const now = Date.now();
+    rememberRunCard('old', mkRun({ at: new Date(now - 61 * 24 * 3600_000).toISOString() }), f, now);
+    rememberRunCard('new', mkRun({ at: new Date(now).toISOString() }), f, now);
+    expect(runByCard('old', f)).toBeNull();
+    expect(runByCard('new', f)).not.toBeNull();
+  });
+
+  it('按群指针：本群有就用本群的，没有退回全局', () => {
+    const chat = 'oc_test_chat';
+    process.env.PIPELINE_DATA_DIR = dir;
+    try {
+      saveLastRunFor(undefined, mkRun({ project: 'odoo-product', command: '全局那次' }));
+      expect(readLastRunFor(chat)?.command).toBe('全局那次');
+      saveLastRunFor(chat, mkRun({ project: 'lakeghost', command: '本群那次' }));
+      expect(readLastRunFor(chat)?.command).toBe('本群那次');
+      expect(readLastRunFor('oc_other')?.command).toBe('本群那次'); // 全局指针也被最新一次刷新
+      expect(fs.existsSync(lastRunFileFor(chat))).toBe(true);
+    } finally {
+      delete process.env.PIPELINE_DATA_DIR;
+    }
   });
 });
 

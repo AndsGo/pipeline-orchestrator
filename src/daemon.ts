@@ -16,6 +16,7 @@ import { initBitableSync } from './bitable/sync.js';
 import { appendEvent, listTickets } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
+import { runByCard } from './followup.js';
 import { dataDir } from './paths.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
@@ -268,6 +269,14 @@ async function onMessage(m: IncomingMessage): Promise<void> {
   }
 
   // 分级确认：改变流程走向的一律先问，卡片上写清"我理解为什么、会导致什么"
+  // 引用了机器人发过的结果卡再说话（/re、追问、甚至被判成别的）→ 精确续那次会话，不看「最近一次」指针
+  // （2026-09-04 实测：引用 lakeghost 的结果卡，按全局指针续到了 odoo-product 的会话）
+  if (m.quotedMessageId && runByCard(m.quotedMessageId) && ['followup', 'run', 'unknown', 'answer'].includes(cmd.kind)) {
+    const own = m.text.split('\n\n【用户引用的消息】')[0].replace(/^\/re\s*/i, '').trim() || '继续';
+    log(`引用结果卡 ${m.quotedMessageId} → 续那次会话（原判定 ${cmd.kind}）`);
+    cmd = { kind: 'followup', text: own, quotedMessageId: m.quotedMessageId };
+  }
+
   if (needsConfirm(cmd)) {
     const t = (cmd as { ticket: string }).ticket;
     if (!(await port.confirmCommand(t, describeCommand(cmd), m.chatId))) {
@@ -342,7 +351,7 @@ const ctx: DaemonContext = {
   envFile: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
   startTicket,
   execAdhoc: (project, commandText, corePrompt, slashRisks, chain, opts) => execAdhoc(ctx, project, commandText, corePrompt, slashRisks, chain, opts),
-  runFollowup: (reply, chat) => runFollowup(ctx, reply, chat),
+  runFollowup: (reply, chat, quotedMessageId) => runFollowup(ctx, reply, chat, quotedMessageId),
   draftRequirementFromChat: (project, last) => draftRequirementFromChat(ctx, project, last),
 };
 log(`daemon 就绪：并发上限 ${cfg.maxConcurrency}，项目 ${describeProjects(projects)}（默认 ${cfg.defaultProject}）`);
