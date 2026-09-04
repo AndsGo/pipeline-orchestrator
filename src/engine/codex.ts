@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -289,6 +289,38 @@ export function toEnvelope(r: ExecOutcome, parseStructured: boolean, originalSch
 
 const STAGE_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
+/**
+ * Codex 阶段跑完后把落错位置的工件挪回本工单 worktree（2026-09-04 LS-014/LS-015 两次实测：
+ * 提示词里钉死工作根拦不住——Codex 为跑 git diff 溜进主检出后，把 30-review-r1.md 等写去了主检出）。
+ * worktree 的 .git 是主检出 .git 的文件，git-common-dir 的父目录就是主检出；把主检出里工单目录下、
+ * 本次新出现且 worktree 里没有的文件搬回来。只搬本工单目录，不碰仓库其它文件。
+ */
+export function reconcileWorktreeArtifacts(repo: string, ticket: string, log: (m: string) => void): void {
+  try {
+    const common = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, encoding: 'utf-8' });
+    if (common.status !== 0) return;
+    const mainRepo = path.dirname(path.resolve(repo, common.stdout.trim()));
+    if (path.resolve(mainRepo) === path.resolve(repo)) return; // 不是 worktree，无需搬
+    const rel = path.join('docs', 'pipeline', ticket);
+    const src = path.join(mainRepo, rel);
+    const dst = path.join(repo, rel);
+    if (!fs.existsSync(src)) return;
+    let moved = 0;
+    for (const name of fs.readdirSync(src)) {
+      const s = path.join(src, name);
+      if (!fs.statSync(s).isFile()) continue; // 只搬文件，prototype/ 等目录不动（预览由 clarify 在 worktree 内生成）
+      const d = path.join(dst, name);
+      if (fs.existsSync(d)) continue; // worktree 已有的以 worktree 为准，不覆盖
+      fs.mkdirSync(dst, { recursive: true });
+      fs.renameSync(s, d);
+      moved += 1;
+    }
+    if (moved) log(`Codex 工件回收：从主检出搬回 ${moved} 个到 worktree（${rel}）`);
+  } catch (e) {
+    log(`Codex 工件回收失败（不影响结果）：${(e as Error).message.slice(0, 160)}`);
+  }
+}
+
 export const codexEngine: Engine = {
   name: 'codex',
   async runStage(repo, ticket, stage: Exclude<Stage, 'ci'>, extraArgs = '', modelOverride?: string): Promise<RunOutcome> {
@@ -301,6 +333,7 @@ export const codexEngine: Engine = {
       schema: toStrictSchema(JSON.parse(wireSchema())) as object,
       timeoutMs: STAGE_TIMEOUT_MS,
     });
+    reconcileWorktreeArtifacts(repo, ticket, (m) => console.log(`[codex] ${new Date().toISOString()} ${m}`));
     return { envelope: toEnvelope(r, true), rawStdout: r.lastMessage };
   },
   async runText(opts: TextRunOpts): Promise<TextResult> {

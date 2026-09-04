@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bridgePrompt, codexCommand, codexCostUsd, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { bridgePrompt, codexCommand, codexCostUsd, reconcileWorktreeArtifacts, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { execSync } from 'node:child_process';
+import fsMod from 'node:fs';
+import osMod from 'node:os';
+import pathMod from 'node:path';
 import { validateResult, wireSchema } from '../schema.js';
 import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
@@ -108,6 +112,40 @@ describe('Codex 引擎的纯函数部分', () => {
     });
     expect(codexCommand({ PIPELINE_CODEX_BIN: 'C:/x/codex.js' } as NodeJS.ProcessEnv, node, () => false)).toEqual({ cmd: node, prefix: ['C:/x/codex.js'] });
     expect(codexCommand({ PIPELINE_CODEX_BIN: '/usr/bin/codex' } as NodeJS.ProcessEnv, node, () => false)).toEqual({ cmd: '/usr/bin/codex', prefix: [] });
+  });
+
+  it('reconcileWorktreeArtifacts：Codex 写到主检出的工件搬回 worktree；worktree 已有的不覆盖（LS-015 实测）', () => {
+    const root = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'wtrec-'));
+    const sh = (cwd: string, cmd: string) => execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    try {
+      const main = pathMod.join(root, 'main');
+      fsMod.mkdirSync(main, { recursive: true });
+      sh(main, 'git init -q && git config user.email t@t && git config user.name t');
+      fsMod.writeFileSync(pathMod.join(main, 'a.txt'), 'x');
+      sh(main, 'git add . && git commit -q -m init');
+      const wt = pathMod.join(root, 'wt');
+      sh(main, `git worktree add -q "${wt}" -b feat`);
+      const rel = pathMod.join('docs', 'pipeline', 'LS-9');
+      // Codex 把评审写去了主检出；worktree 已有 clarify 的产物
+      fsMod.mkdirSync(pathMod.join(main, rel), { recursive: true });
+      fsMod.writeFileSync(pathMod.join(main, rel, '30-review-r1.md'), 'codex review');
+      fsMod.writeFileSync(pathMod.join(main, rel, '10-prd.md'), '主检出的旧版');
+      fsMod.mkdirSync(pathMod.join(wt, rel), { recursive: true });
+      fsMod.writeFileSync(pathMod.join(wt, rel, '10-prd.md'), 'worktree 的真版');
+
+      reconcileWorktreeArtifacts(wt, 'LS-9', () => {});
+
+      // 评审搬回 worktree、从主检出移走
+      expect(fsMod.readFileSync(pathMod.join(wt, rel, '30-review-r1.md'), 'utf-8')).toBe('codex review');
+      expect(fsMod.existsSync(pathMod.join(main, rel, '30-review-r1.md'))).toBe(false);
+      // worktree 已有的 10-prd.md 不被主检出版本覆盖
+      expect(fsMod.readFileSync(pathMod.join(wt, rel, '10-prd.md'), 'utf-8')).toBe('worktree 的真版');
+      // 非 worktree（传主检出自身）时安全返回，不动文件
+      reconcileWorktreeArtifacts(main, 'LS-9', () => {});
+      expect(fsMod.existsSync(pathMod.join(main, rel, '10-prd.md'))).toBe(true);
+    } finally {
+      fsMod.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('沙箱映射：含 Write/Edit/Bash → workspace-write，否则 read-only', () => {
