@@ -5,6 +5,7 @@ import { prefetchGlossary, prefetchKnowledgeHints } from '../bitable/sync.js';
 import { resolveImplementModel, STAGES, ticketDir } from '../config.js';
 import { appendEvent } from '../events.js';
 import { readImplementProgress } from '../implementProgress.js';
+import { engineFor } from '../engine/index.js';
 import { type PipelineProfile, STAGE_PROFILE_FILE, stageBrief } from '../profile.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from '../systemMap.js';
 import type { Stage } from '../types.js';
@@ -33,6 +34,10 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
     if (arm.note) await port.notify(ticket, arm.note);
   }
   const stageModel = stage === 'ci' ? undefined : stage === 'implement' ? run.state.implementModel : STAGES[stage].model;
+  // 事件里的 model 标签要如实：非 claude 引擎跑时，stageModel 只是 claude 侧配置，实际用的是 codex 的默认模型。
+  // 只改事件展示，不动传给引擎的 stageModel（2026-09-04 实测：Codex 评审事件写着 opus，看板与对照实验被误导）
+  const engineName = stage === 'ci' ? 'claude' : engineFor(repo, stage).name;
+  const modelLabel = engineName === 'claude' ? stageModel : `codex:${process.env.PIPELINE_CODEX_MODEL || '默认'}`;
   // 开工前预取历史知识提示（ci 是编排器原生阶段，没有会话读它）。曾经只有澄清/计划读——
   // 但知识多由 review/acceptance 产出，不回流给产出它的阶段，同类问题就会反复出现；
   // compound 也要读：标题是知识去重的键，看得到既有条目才不会换个说法重复记。
@@ -66,7 +71,7 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
     type: 'stage.start',
     stage,
     summary: `阶段 ${stage} 开始${run.extraArgs ? `（${run.extraArgs}）` : ''}`,
-    payload: { claudeMdSha, ...(stageModel ? { model: stageModel } : {}) },
+    payload: { claudeMdSha, ...(modelLabel ? { model: modelLabel } : {}) },
   });
   await port.notify(ticket, `运行阶段 ${stage}${run.extraArgs ? `（${run.extraArgs}）` : ''}…`);
 

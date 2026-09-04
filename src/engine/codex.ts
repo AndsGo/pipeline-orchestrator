@@ -152,16 +152,23 @@ export function sandboxFor(tools: string): 'read-only' | 'workspace-write' {
  * Claude 斜杠 skill 提示词 → Codex 桥接提示词：让它先完整读插件里的 SKILL.md 再照做。
  * `${CLAUDE_PLUGIN_ROOT}` 与 superpowers 引用在文里说明；非斜杠提示词原样返回。
  */
-export function bridgePrompt(prompt: string, pluginDir = PLUGIN_DIR): string {
+export function bridgePrompt(prompt: string, pluginDir = PLUGIN_DIR, cwd?: string): string {
   const m = /^\/([A-Za-z][\w-]*)\s*([\s\S]*)$/.exec(prompt.trim());
   if (!m) return prompt;
   const skillFile = path.join(pluginDir, 'skills', m[1], 'SKILL.md').replace(/\\/g, '/');
   const home = os.homedir().replace(/\\/g, '/');
+  const root = cwd?.replace(/\\/g, '/');
   return [
     `你是开发流水线的执行者，本次任务由 skill「${m[1]}」定义。先完整读取 ${skillFile}，然后严格按它执行。`,
     `读 skill 时的约定：文中 \${CLAUDE_PLUGIN_ROOT} 指 ${pluginDir.replace(/\\/g, '/')}；文中引用的 superpowers:<名字> skill，优先读 ${home}/.codex/superpowers 或 ${home}/.codex/skills 下同名目录的 SKILL.md，找不到就按其字面要求自行完成；文中提到的「子代理 / Agent 工具」在本环境不可用，由你在单一会话内顺序完成同等工作并在产物里如实说明。`,
+    // 工作根钉死（2026-09-04 实测：评审为跑 git diff 溜进主检出，把 30-review-r1.md 写去了主检出而非本工单 worktree）
+    ...(root
+      ? [
+          `**工作根目录是 ${root}（本工单的 git worktree）。所有产物文件写在这个目录下的相对路径；需要跨 worktree/主检出读信息可以，但绝不要 cd 过去写文件。** 若 base 指向的提交不在本 worktree 历史里，用 \`git -C ${root} ...\` 在本目录内比较，不要切换工作目录。`,
+        ]
+      : []),
     `参数：${m[2].trim() || '（无）'}`,
-    '最终回复必须是且仅是符合给定 JSON Schema 的对象；产物文件按 skill 要求写进仓库。',
+    `最终回复必须是且仅是符合给定 JSON Schema 的对象；产物文件按 skill 要求写进${root ? '上述工作根目录' : '仓库'}。`,
   ].join('\n');
 }
 
@@ -288,7 +295,7 @@ export const codexEngine: Engine = {
     const cfg = STAGES[stage];
     const r = await execCodex({
       cwd: repo,
-      prompt: bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`),
+      prompt: bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`, PLUGIN_DIR, repo),
       sandbox: sandboxFor(cfg.tools),
       model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : codexModel(),
       schema: toStrictSchema(JSON.parse(wireSchema())) as object,

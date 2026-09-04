@@ -116,12 +116,15 @@ describe('Codex 引擎的纯函数部分', () => {
     expect(sandboxFor('Read,Write,Edit')).toBe('workspace-write');
   });
 
-  it('桥接提示词：斜杠 skill → 先读插件里的 SKILL.md；非斜杠原样', () => {
-    const p = bridgePrompt('/pipeline-review OP-9 base=abc', 'D:/plug');
+  it('桥接提示词：斜杠 skill → 先读插件里的 SKILL.md；给了 cwd 时钉死工作根不许溜去别处写；非斜杠原样', () => {
+    const p = bridgePrompt('/pipeline-review OP-9 base=abc', 'D:/plug', 'D:/work/repo-OP-9');
     expect(p).toContain('D:/plug/skills/pipeline-review/SKILL.md');
     expect(p).toContain('参数：OP-9 base=abc');
     expect(p).toContain('子代理');
+    expect(p).toContain('D:/work/repo-OP-9');
+    expect(p).toContain('绝不要 cd 过去写文件');
     expect(bridgePrompt('帮我看下这个仓库', 'D:/plug')).toBe('帮我看下这个仓库');
+    expect(bridgePrompt('/pipeline-plan X', 'D:/plug')).not.toContain('绝不要 cd'); // 没给 cwd 就不加钉根这段
   });
 
   it('Envelope：失败 → is_error 带原话；成功 → 解析最终消息为结构化返回，未计价时在 result 注明', () => {
