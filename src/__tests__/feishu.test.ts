@@ -286,6 +286,20 @@ describe('引用/合并转发展开（renderQuotedItems）', () => {
     expect(renderQuotedItems([text('原始需求在这')])).toEqual({ text: '原始需求在这', resources: [] });
   });
 
+  it('引用卡片消息（interactive）：抽出卡片文字——人引用机器人的问题卡说「这是原来的回复」时，会话要能看到那几个问题（2026-09-04 实测）', () => {
+    const q: OpenQuestion = { id: 'Q1', question: '展示位置放哪里？', options: ['列表页', '详情页'], recommended: '列表页', why: '运营最常看' };
+    const card = questionCard('LS-9', q, 'k1');
+    const { text: out, resources } = renderQuotedItems([{ msg_type: 'interactive', message_id: 'om_c', body: { content: JSON.stringify(card) } }]);
+    expect(out).toContain('【引用的卡片内容】');
+    expect(out).toContain('展示位置放哪里');
+    expect(out).toContain('列表页');
+    expect(resources).toEqual([]);
+    // v2 卡片（schema 2.0 / body.elements）同样抽得出；坏 JSON 给占位而不是抛
+    const v2 = JSON.stringify({ schema: '2.0', header: { title: { tag: 'plain_text', content: '结果' } }, body: { elements: [{ tag: 'markdown', content: '1. 触发方式：自动' }] } });
+    expect(renderQuotedItems([{ msg_type: 'interactive', body: { content: v2 } }]).text).toContain('触发方式：自动');
+    expect(renderQuotedItems([{ msg_type: 'interactive', body: { content: '{oops' } }]).text).toContain('无可读文字');
+  });
+
   it('引用图片消息（非合并转发）：登记下载引用，文本占 marker 位', () => {
     const { text: out, resources } = renderQuotedItems([
       { msg_type: 'image', message_id: 'om_1', body: { content: JSON.stringify({ image_key: 'img_k1' }) } },

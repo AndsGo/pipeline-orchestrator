@@ -518,6 +518,34 @@ const MF_RES_PLACEHOLDER = (what: string): string =>
   `[${what}，未解析——合并转发内的${what}飞书不开放下载，如需分析请单独发]`;
 
 /**
+ * 卡片 JSON → 可读文字（纯逻辑，可单测）。兼容 v1（header/elements）与 v2（schema 2.0 的 body.elements）：
+ * 按文档顺序收集所有 `content` 字串（标题、div/markdown 正文、note、按钮文字），去掉 lark_md 的标签噱头不做，原样保留。
+ */
+export function renderCardText(content: string | undefined): string {
+  if (!content) return '';
+  let card: unknown;
+  try {
+    card = JSON.parse(content);
+  } catch {
+    return '';
+  }
+  const out: string[] = [];
+  const walk = (n: unknown, key?: string): void => {
+    if (Array.isArray(n)) return n.forEach((x) => walk(x));
+    if (!n || typeof n !== 'object') {
+      if (typeof n === 'string' && key === 'content' && n.trim()) out.push(n.trim());
+      return;
+    }
+    for (const [k, v] of Object.entries(n as Record<string, unknown>)) {
+      if (k === 'url' || k === 'value' || k === 'key' || k === 'template' || k === 'tag' || k === 'type') continue;
+      walk(v, k);
+    }
+  };
+  walk(card);
+  return [...new Set(out)].join('\n');
+}
+
+/**
  * 展开引用/合并转发的消息项为可读文本（纯逻辑，可单测）。
  * 合并转发的父项只有占位标题（"Merged and Forwarded Message"），跳过。
  * 可下载的资源（引用的图片/文件消息、群内富文本的图）登记进 resources，由调用方下载后替换 marker；
@@ -567,6 +595,11 @@ export function renderQuotedItems(items: QuotedItem[]): { text: string; resource
       }
     } else if (it.msg_type === 'merge_forward') {
       /* 父项占位标题，子消息随后逐条出现 */
+    } else if (it.msg_type === 'interactive') {
+      // 被引用的是卡片（多半是机器人自己发的问题卡/结果卡）：把卡片 JSON 里的文字抽出来，
+      // 否则人引用一张问题卡说「这是原来的回复」，会话只拿到「interactive 消息，未解析」（2026-09-04 实测）
+      const t = renderCardText(c);
+      lines.push(t ? `【引用的卡片内容】\n${t}` : '[卡片消息，无可读文字]');
     } else {
       lines.push(`[${it.msg_type ?? '未知类型'}消息，未解析]`);
     }
