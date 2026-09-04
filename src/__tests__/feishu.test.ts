@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gateCard, questionCard, statusCard, type CardAction } from '../feishu/card.js';
-import { FeishuPort, parseMessageText, renderQuotedItems, type QuotedItem } from '../feishu/port.js';
+import { FeishuPort, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
 import type { OpenQuestion } from '../types.js';
 
 const q: OpenQuestion = {
@@ -165,6 +165,18 @@ describe('FeishuPort 回调路由（不触网）', () => {
     await p;
   });
 
+  it('「全部通过，但是…新需求」：表决摘出、新诉求作为 tail 分出来（2026-09-04 实测：新需求被灌进 6 个 Q 的备注）', async () => {
+    const { port } = portWithSpy();
+    const mk = (id: string): OpenQuestion => ({ id, question: id, options: ['通过', '不通过'], recommended: '通过', why: 'w' });
+    const p = port.askQuestions('T-1', [mk('Q1'), mk('Q2')]);
+    const r = port.tryAnswerByText('全部通过，但是我希望在数据域tab页面就能看到哪些域有未设置权限的表，并提供一个小弹框');
+    expect(r).toMatchObject({ status: 'resolved-batch', labels: ['Q1', 'Q2'], answer: '通过' });
+    expect((r as { tail?: string }).tail).toContain('数据域tab页面');
+    port.tryAnswerByText('全部通过');
+    const answers = await p;
+    expect(answers.every((a) => !a.note)).toBe(true); // 新诉求没有污染任何一项的备注
+  });
+
   it('「全部通过」一次答完所有项；不匹配的项报告为仍待回答', async () => {
     const { port } = portWithSpy();
     const mk = (id: string, opts: string[]): OpenQuestion => ({ id, question: id, options: opts, recommended: opts[0], why: 'w' });
@@ -254,6 +266,22 @@ describe('群消息文本解析', () => {
         mentioned: false,
       });
     });
+  });
+});
+
+describe('splitTrailingRequest（表决 + 转折 + 新诉求）', () => {
+  it('短表决 + 转折 + 长诉求 → 拆出 tail', () => {
+    const r = splitTrailingRequest('通过，但是我希望在数据域tab页面就能看到哪些域有未设置权限的表');
+    expect(r.verdict).toBe('通过');
+    expect(r.tail).toContain('数据域tab页面');
+  });
+  it('给表决本身的短补充不拆；无转折词不拆', () => {
+    expect(splitTrailingRequest('通过，因为查过了').tail).toBeUndefined();
+    expect(splitTrailingRequest('通过').tail).toBeUndefined();
+    expect(splitTrailingRequest('无法验证 本环境没有 MCP 客户端').tail).toBeUndefined();
+  });
+  it('「另外/还有/我还想」等词同样触发', () => {
+    expect(splitTrailingRequest('无法验证，另外我还想加一个批量导出未覆盖清单的按钮').tail).toContain('批量导出');
   });
 });
 

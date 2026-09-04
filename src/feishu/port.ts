@@ -56,7 +56,7 @@ const REJECT = /^(驳回|不通过|拒绝|否决|reject|no|n)/i;
 
 export type TextAnswerResult =
   | { status: 'resolved'; label: string; answer: string; note?: string }
-  | { status: 'resolved-batch'; labels: string[]; answer: string; skipped: string[] }
+  | { status: 'resolved-batch'; labels: string[]; answer: string; skipped: string[]; tail?: string }
   | { status: 'ambiguous'; detail: string }
   | { status: 'none' };
 
@@ -239,7 +239,9 @@ export class FeishuPort implements InteractionPort {
     // 「全部通过」「都无法验证」：一次答完所有待答项
     const batch = /^(全部|都|所有|all)\s*[:：]?\s*(.+)$/i.exec(body0);
     if (batch) {
-      const want = batch[2].trim();
+      // 「全部通过，但是我还想…」：表决后跟一段明显是新诉求的长句，别塞进每一项的备注（2026-09-04 实测：
+      // 一句新交互需求被灌进 6 个 Q 的补充说明还触发验收重跑）。拆出来交给上层提示开新单
+      const { verdict: want, tail } = splitTrailingRequest(batch[2].trim());
       const done: string[] = [];
       const skipped: string[] = [];
       for (const [key, p] of entries) {
@@ -250,7 +252,7 @@ export class FeishuPort implements InteractionPort {
       if (!done.length) {
         return { status: 'ambiguous', detail: `没有哪一项的选项匹配「${want}」（待回答：${labels()}）` };
       }
-      return { status: 'resolved-batch', labels: done, answer: want, skipped };
+      return { status: 'resolved-batch', labels: done, answer: want, skipped, tail };
     }
 
     // 「Q1 Q3 通过」：指定一个或多个目标
@@ -522,6 +524,18 @@ const quotedDir = (): string => path.join(dataDir(), 'quoted');
 /** 合并转发子消息里的资源：飞书资源接口明确不开放（错误码 234043），只能占位说明 */
 const MF_RES_PLACEHOLDER = (what: string): string =>
   `[${what}，未解析——合并转发内的${what}飞书不开放下载，如需分析请单独发]`;
+
+/**
+ * 从「表决 + 转折 + 新诉求」里把表决摘出来（纯逻辑，可单测）。
+ * 只在「表决词很短 + 转折词 + 后半段明显更长」时才拆，避免误伤「通过，因为查过了」这种给表决本身的补充。
+ * 返回 tail 时，上层应把它当作可能的新工单来提示，而不是当补充说明灌进每一项。
+ */
+export function splitTrailingRequest(text: string): { verdict: string; tail?: string } {
+  const m = /^(.{1,12}?)\s*[，,。;；]?\s*(但是|但|不过|另外|另|顺便|额外|还有|以及|同时|接下来|下一步|我还想|我想再|再帮我)\s*(.{12,})$/s.exec(text.trim());
+  if (!m) return { verdict: text.trim() };
+  const verdict = m[1].trim().replace(/[，,。;；]$/, '');
+  return { verdict, tail: `${m[2]}${m[3]}`.trim() };
+}
 
 /**
  * 卡片 JSON → 可读文字（纯逻辑，可单测）。三种形状都要认：

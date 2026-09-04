@@ -142,6 +142,8 @@ async function handleCommand(c: Command, sender: string, chat?: string): Promise
 async function onMessage(m: IncomingMessage): Promise<void> {
   log(`收到消息 by ${m.sender}${m.mentioned ? '（@我）' : ''}: ${m.text.slice(0, 80)}`);
   const slash = parseSlash(m.text);
+  // 批量表决后跟着的新诉求：由下方待答卡片分支填进来，走完 answer 上报后当作新工单继续处理
+  let newFromBatchTail: string | undefined;
   if (!slash) {
     // 有待确认卡片时，先看这句话是不是在回答它（明确表决/选项才拦截，不劫持指令）
     const ans = port.tryAnswerByText(m.text);
@@ -156,15 +158,26 @@ async function onMessage(m: IncomingMessage): Promise<void> {
           (ans.skipped.length ? `\n未匹配、仍待回答：${ans.skipped.join('、')}` : ''),
         m.chatId,
       );
-      return;
-    }
-    if (ans.status === 'ambiguous') {
+      // 表决后跟着一段新诉求：不灌进备注，问一句要不要开新单（2026-09-04 实测缺陷）
+      if (!ans.tail) return;
+      const NEW = '开新工单';
+      const pick = await port.chooseOption(
+        '新需求',
+        `注意到你在通过之外还说了一段，像是新的需求，没有并进上面的验收：\n> ${ans.tail.slice(0, 160)}\n\n要为它开一个新工单吗？`,
+        [NEW, '只是补充说明，忽略'],
+        m.chatId,
+      );
+      if (pick !== NEW) return;
+      newFromBatchTail = ans.tail;
+    } else if (ans.status === 'ambiguous') {
       await port.notify('回答', ans.detail, m.chatId);
       return;
     }
   }
   let cmd: Command;
-  if (slash) {
+  if (newFromBatchTail) {
+    cmd = { kind: 'new', requirement: newFromBatchTail };
+  } else if (slash) {
     cmd = slash;
     // A 档语义体检：只在明显冲突时拦（如验收阶段用 /amend 报缺陷），保住"斜杠即明确"的效率
     const issue = slashSanityIssue(cmd, ticketContexts().find((c) => c.ticket === (cmd as { ticket?: string }).ticket));
