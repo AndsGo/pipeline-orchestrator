@@ -142,10 +142,27 @@ export async function draftRequirementFromChat(ctx: DaemonContext, project: Proj
 /** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
 export async function runFollowup(ctx: DaemonContext, reply: string, chat?: string): Promise<void> {
   const { port, projects, cfg, log } = ctx;
-  const last = readLastRun();
+  let last = readLastRun();
   if (!last) {
-    await port.notify('执行', '最近 24 小时内没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。', chat);
-    return;
+    // 24 小时 TTL 是为「隔天回个 1」这种含糊答复设的；人明确打了 /re 就该问一句而不是直接拒（2026-09-04 实测：
+    // 用户隔了两天带着三条答复回来，被一句「没有可继续的记录」挡住，又换自然语言重发一遍）
+    const stale = readLastRun(Date.now(), undefined, Number.POSITIVE_INFINITY);
+    if (!stale) {
+      await port.notify('执行', '最近没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。', chat);
+      return;
+    }
+    const CONT = '接着它';
+    const pick = await port.chooseOption(
+      '执行',
+      `最近 24 小时内没有可继续的单次执行；再往前一次是 ${describeLastRun(stale)}（项目 ${stale.project}）。你的这句要接在它后面吗？\n> ${reply.slice(0, 120)}`,
+      [CONT, '不是，我重新 /run'],
+      chat,
+    );
+    if (pick !== CONT) {
+      await port.notify('执行', '好，那请用 /run 把要做的事连同背景一起说清，我从头开始。', chat);
+      return;
+    }
+    last = stale;
   }
   const project = resolveProject(projects, last.project) ?? resolveProject(projects, cfg.defaultProject);
   if (!project) {

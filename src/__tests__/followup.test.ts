@@ -61,11 +61,12 @@ describe('saveLastRun / readLastRun', () => {
     expect(readLastRun(Date.now(), file)).toBeNull();
   });
 
-  it('超过 TTL 视同无记录——隔天回「1」大概率不是在回上次的问题', () => {
+  it('超过 TTL 视同无记录——隔天回「1」大概率不是在回上次的问题；显式 /re 可放宽 TTL 读到过期指针再问人', () => {
     const at = new Date().toISOString();
     saveLastRun(mkRun({ at }), file);
     expect(readLastRun(Date.parse(at) + FOLLOWUP_TTL_MS + 1, file)).toBeNull();
     expect(readLastRun(Date.parse(at) + FOLLOWUP_TTL_MS - 1, file)).not.toBeNull();
+    expect(readLastRun(Date.parse(at) + 3 * FOLLOWUP_TTL_MS, file, Number.POSITIVE_INFINITY)?.command).toBe('合并 LS-009 到 master');
   });
 });
 

@@ -117,11 +117,11 @@ export function saveLastRun(r: LastRun, file = lastRunFile()): void {
 }
 
 /** 读最近一次执行；无记录、损坏或超过 TTL 都返回 null（落盘是为了熬过看门狗重启 daemon） */
-export function readLastRun(now = Date.now(), file = lastRunFile()): LastRun | null {
+export function readLastRun(now = Date.now(), file = lastRunFile(), ttlMs = FOLLOWUP_TTL_MS): LastRun | null {
   try {
     const r = JSON.parse(fs.readFileSync(file, 'utf-8')) as LastRun;
     if (!r?.at || typeof r.output !== 'string' || typeof r.command !== 'string') return null;
-    if (now - Date.parse(r.at) > FOLLOWUP_TTL_MS) return null;
+    if (now - Date.parse(r.at) > ttlMs) return null;
     return r;
   } catch {
     return null;
