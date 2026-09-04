@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bridgePrompt, codexCostUsd, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { bridgePrompt, codexCommand, codexCostUsd, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
 import { validateResult, wireSchema } from '../schema.js';
 import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
@@ -98,6 +98,16 @@ describe('Codex 引擎的纯函数部分', () => {
     expect(cleaned).not.toHaveProperty('blocked_reason');
     expect((cleaned.axes as { spec: { worst: unknown } }).spec.worst).toBeNull();
     expect(validateResult(cleaned as never)).toEqual([]);
+  });
+
+  it('起进程不经 shell：优先 node + 全局 codex.js；PIPELINE_CODEX_BIN 可指定（LS-014 评审死于 shell 拆参数，2026-09-04）', () => {
+    const node = 'D:/nvm/v24/node.exe';
+    expect(codexCommand({} as NodeJS.ProcessEnv, node, (p) => p.endsWith('codex.js'))).toEqual({
+      cmd: node,
+      prefix: ['D:/nvm/v24/node_modules/@openai/codex/bin/codex.js'.replace(/\//g, path.sep)],
+    });
+    expect(codexCommand({ PIPELINE_CODEX_BIN: 'C:/x/codex.js' } as NodeJS.ProcessEnv, node, () => false)).toEqual({ cmd: node, prefix: ['C:/x/codex.js'] });
+    expect(codexCommand({ PIPELINE_CODEX_BIN: '/usr/bin/codex' } as NodeJS.ProcessEnv, node, () => false)).toEqual({ cmd: '/usr/bin/codex', prefix: [] });
   });
 
   it('沙箱映射：含 Write/Edit/Bash → workspace-write，否则 read-only', () => {

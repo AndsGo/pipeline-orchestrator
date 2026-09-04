@@ -186,6 +186,21 @@ function codexModel(): string | undefined {
   return process.env.PIPELINE_CODEX_MODEL || undefined; // 不配就用 ~/.codex/config.toml 的默认模型
 }
 
+/**
+ * 怎么起 codex：绝不能经 shell。首版用 spawn(..., { shell: true })，Node 在该模式下把参数直接空格拼接、不加引号，
+ * 带空格/换行/中文的提示词被 cmd 拆成一串参数，LS-014 的 Codex 评审第一秒就死于「unexpected argument」（2026-09-04）。
+ * Windows 上又不能无 shell 直接 spawn .cmd（Node 的 EINVAL 防护），所以找到 npm 全局装的 codex.js 用 node 直接跑。
+ * PIPELINE_CODEX_BIN 可显式指定（.js 用 node 跑，其它当可执行文件）。
+ */
+export function codexCommand(env = process.env, execPath = process.execPath, exists: (p: string) => boolean = fs.existsSync): { cmd: string; prefix: string[] } {
+  const bin = env.PIPELINE_CODEX_BIN;
+  if (bin) return bin.endsWith('.js') ? { cmd: execPath, prefix: [bin] } : { cmd: bin, prefix: [] };
+  const globalJs = path.join(path.dirname(execPath), 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  if (exists(globalJs)) return { cmd: execPath, prefix: [globalJs] };
+  // 找不到全局脚本：非 Windows 直接叫 codex；Windows 只能试 codex.cmd（大概率 EINVAL，错误会原样冒出来提示配 PIPELINE_CODEX_BIN）
+  return process.platform === 'win32' ? { cmd: 'codex.cmd', prefix: [] } : { cmd: 'codex', prefix: [] };
+}
+
 function execCodex(o: ExecOpts): Promise<ExecOutcome> {
   const tag = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const lastFile = path.join(os.tmpdir(), `pipeline-codex-last-${tag}.txt`);
@@ -204,8 +219,10 @@ function execCodex(o: ExecOpts): Promise<ExecOutcome> {
     lastFile,
   ];
   const args = o.resumeSessionId ? ['exec', 'resume', ...common, o.resumeSessionId, o.prompt] : ['exec', ...common, o.prompt];
+  const { cmd, prefix } = codexCommand();
   return new Promise((resolve, reject) => {
-    const child = spawn('codex', args, { cwd: o.cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
+    // 不经 shell：参数由 Node 逐个转义，提示词里的空格/换行/引号原样到达 codex
+    const child = spawn(cmd, [...prefix, ...args], { cwd: o.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const timer = setTimeout(() => child.kill(), o.timeoutMs);
