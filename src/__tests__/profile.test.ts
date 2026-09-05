@@ -93,6 +93,15 @@ describe('GitLab 上线动作（注入 fetch，不打真网）', () => {
       seen.push(`${init?.method ?? 'GET'} ${String(url)}`);
       return new Response(JSON.stringify(json), { status, headers: { 'Content-Type': 'application/json' } });
     }) as typeof fetch;
+  // 每次调用按序返回不同响应（测「合并 405 → 回查 MR 已 merged」这种两步交互）
+  const mkFetchSeq = (steps: Array<{ status: number; json: unknown }>, seen: string[]) => {
+    let i = 0;
+    return (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(`${init?.method ?? 'GET'} ${String(url)}`);
+      const s = steps[Math.min(i++, steps.length - 1)];
+      return new Response(JSON.stringify(s.json), { status: s.status, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+  };
 
   it('findOpenMr：按源分支查开着的 MR，项目路径 URL 编码；无结果 → null', async () => {
     const seen: string[] = [];
@@ -107,8 +116,18 @@ describe('GitLab 上线动作（注入 fetch，不打真网）', () => {
     const seen: string[] = [];
     expect(await mergeMr(api, 'g/p', 808, mkFetch(200, { merge_commit_sha: 'abc' }, seen))).toEqual({ ok: true, sha: 'abc' });
     expect(seen[0]).toBe('PUT http://git.x/api/v4/projects/g%2Fp/merge_requests/808/merge');
-    const bad = await mergeMr(api, 'g/p', 808, mkFetch(406, { message: 'Branch cannot be merged' }, []));
-    expect(bad).toEqual({ ok: false, message: 'HTTP 406：Branch cannot be merged' });
+    // 真失败：PUT 406 + 回查 MR 仍 opened → 失败，带原话与状态
+    const bad = await mergeMr(api, 'g/p', 808, mkFetchSeq([{ status: 406, json: { message: 'Branch cannot be merged' } }, { status: 200, json: { state: 'opened' } }], []));
+    expect(bad).toEqual({ ok: false, message: 'HTTP 406：Branch cannot be merged（MR 状态：opened）' });
+  });
+
+  it('mergeMr：PUT 返回 405 但 MR 其实已 merged（GitLab 异步合并，LS-015 实测）→ 判成功不误报', async () => {
+    const seen: string[] = [];
+    // 405 响应体自带 state:merged
+    expect(await mergeMr(api, 'g/p', 19, mkFetch(405, { state: 'merged', merge_commit_sha: 'm1' }, seen))).toEqual({ ok: true, sha: 'm1' });
+    // 405 响应体没说，回查 MR 得知已 merged
+    const r = await mergeMr(api, 'g/p', 19, mkFetchSeq([{ status: 405, json: { message: 'Method Not Allowed' } }, { status: 200, json: { state: 'merged', merge_commit_sha: 'm2' } }], seen));
+    expect(r).toEqual({ ok: true, sha: 'm2' });
   });
 
   it('gitlabApiFromEnv：缺 URL 或 token → null（上线卡仍发，只是没有自动合并）', () => {

@@ -44,21 +44,33 @@ export async function findOpenMr(api: GitlabApi, projectPath: string, sourceBran
   }
 }
 
-/** 合并 MR。GitLab 返回 405/406 时通常是冲突/流水线未过/被保护分支规则挡住——原话回传给人 */
+/**
+ * 合并 MR。GitLab 的合并 API 会异步返回：合并其实成功了，PUT 却可能回 405 Method Not Allowed
+ * （2026-09-05 LS-015 实测：405 之下 MR 已是 merged）。所以非 2xx 不直接判失败——回查一次 MR 状态，
+ * 已 merged 就当成功。真失败（冲突/流水线未过/保护分支）时 MR 停在 opened，把原话回传给人。
+ */
 export async function mergeMr(
   api: GitlabApi,
   projectPath: string,
   iid: number,
   fetchFn: Fetch = fetch,
 ): Promise<{ ok: true; sha: string } | { ok: false; message: string }> {
+  const proj = encodeURIComponent(projectPath);
   try {
-    const res = await call(api, fetchFn, `/projects/${encodeURIComponent(projectPath)}/merge_requests/${iid}/merge`, {
+    const res = await call(api, fetchFn, `/projects/${proj}/merge_requests/${iid}/merge`, {
       method: 'PUT',
       body: JSON.stringify({ should_remove_source_branch: false }),
     });
-    const body = (await res.json().catch(() => ({}))) as { merge_commit_sha?: string; sha?: string; message?: string };
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status}${body.message ? `：${body.message}` : ''}` };
-    return { ok: true, sha: body.merge_commit_sha ?? body.sha ?? '' };
+    const body = (await res.json().catch(() => ({}))) as { merge_commit_sha?: string; sha?: string; state?: string; message?: string };
+    if (res.ok) return { ok: true, sha: body.merge_commit_sha ?? body.sha ?? '' };
+    if (body.state === 'merged') return { ok: true, sha: body.merge_commit_sha ?? body.sha ?? '' };
+    // 非 2xx 且响应没说 merged：回查一次真状态，别被 405 骗（异步合并已成功仍会回 405）
+    const check = await call(api, fetchFn, `/projects/${proj}/merge_requests/${iid}`).then((r) => r.json().catch(() => ({}))) as {
+      state?: string;
+      merge_commit_sha?: string;
+    };
+    if (check.state === 'merged') return { ok: true, sha: check.merge_commit_sha ?? '' };
+    return { ok: false, message: `HTTP ${res.status}${body.message ? `：${body.message}` : ''}（MR 状态：${check.state ?? '未知'}）` };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
