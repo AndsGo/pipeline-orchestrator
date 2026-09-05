@@ -51,6 +51,7 @@ testEnv: http://10.0.0.5:8080   # 没有测试环境就写 none：人工验收�
 testEnvNote: 用运营账号登录        # 会原样出现在验收卡上
 acceptor: ops                    # ops 运营验收 / dev 研发验收
 release: merge-develop           # merge-develop / merge-master 审批后自动合并；manual 人工上线后点确认；none 不设上线环节
+e2e: playwright                  # 可选：验收/评审阶段带浏览器，页面类验收项先自动实测，只有真需要人的才弹卡（需 testEnv 在跑）
 ```
 
 还有一个可选开关 `engine: claude | codex`（按阶段覆盖写 `engine.review: codex`）：同一条流水线可以让某个阶段换 Codex 跑，比如用另一家模型做独立评审来对冲评审的非确定性。选了 codex 的机器要先 `codex login`，`doctor` 会查。

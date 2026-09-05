@@ -28,6 +28,8 @@ export interface PipelineProfile {
   release: ReleaseMode;
   /** 执行引擎：`engine:` 全项目默认，`engine.<stage>:` 按阶段覆盖；缺省 claude（见 src/engine/） */
   engine: { default: string | null; byStage: Record<string, string> };
+  /** 浏览器 e2e：`e2e: playwright` 时验收/评审阶段带 Playwright MCP（见 src/engine/e2e.ts）；缺省无 */
+  e2e: 'playwright' | null;
   /** 正文分节：小写标题 → 正文 */
   sections: Record<string, string>;
 }
@@ -76,6 +78,7 @@ export function parseProfile(md: string): PipelineProfile {
     acceptor: fm.acceptor?.trim() === 'ops' ? 'ops' : 'dev',
     release: RELEASE_MODES.includes(release) ? release : 'none',
     engine: { default: fm.engine ? fm.engine.toLowerCase() : null, byStage },
+    e2e: /^playwright$/i.test(fm.e2e ?? '') ? 'playwright' : null,
     sections,
   };
 }
@@ -101,6 +104,9 @@ export function stageBrief(p: PipelineProfile, stage: string): string | null {
     `- 测试环境：${p.testEnv ? `${p.testEnv.url}${p.testEnv.note ? `（${p.testEnv.note}）` : ''}` : '无（人工验收项将转上线后补验，不要假装可验）'}`,
     `- 验收人：${p.acceptor === 'ops' ? '运营（措辞面向业务，不要出现分支/模块版本等研发词）' : '研发'}`,
     `- 上线方式：${describeRelease(p.release)}`,
+    ...(p.e2e && (stage === 'acceptance' || stage === 'review')
+      ? [`- 浏览器 e2e：可用（Playwright MCP）。页面类检查项先在${p.testEnv ? ` ${p.testEnv.url} ` : '测试环境'}实测并记录证据，判不了的才留给人`]
+      : []),
     ...(all ? ['', '## 全阶段', all] : []),
     ...(own ? ['', `## ${stage}`, own] : []),
     '',
@@ -139,6 +145,7 @@ testEnvNote:             # 可选：登录方式、账号在哪、注意事项�
 acceptor: dev            # ops = 运营验收（卡片用业务措辞）/ dev = 研发验收
 release: none            # merge-develop / merge-master = 审批后自动合并 MR；manual = 人上线后点确认；none = 不设上线环节
 # engine: claude         # 执行引擎：claude（默认）/ codex；按阶段覆盖写 engine.review: codex（异构评审对冲非确定性）
+# e2e: playwright        # 验收/评审阶段带浏览器（Playwright MCP），页面类验收项先实测再留人工；需 testEnv 在跑
 ---
 # ${alias} 流水线项目约定
 

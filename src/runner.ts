@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PLUGIN_DIR, RUNNER_SETTINGS, STAGE_EFFORT, STAGES } from './config.js';
+import { e2eEnabledFor, writeClaudeMcpConfig } from './engine/e2e.js';
 import { wireSchema } from './schema.js';
 import type { Envelope, Stage } from './types.js';
 
@@ -23,6 +24,8 @@ export interface ClaudeJsonOpts {
   schema: object;
   /** 可选：加载 plugin（阶段 skill 需要） */
   pluginDir?: string;
+  /** 可选：MCP 配置文件（浏览器 e2e 用）；给了就 --strict-mcp-config，只挂这一份 */
+  mcpConfigFile?: string;
 }
 
 /** 通用：跑一次 headless claude 并拿结构化 JSON（供 runStage / 分诊 / 快车道复用） */
@@ -37,6 +40,8 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     '-p',
     shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
+    // 浏览器 e2e：只挂我们给的 MCP，不继承用户全局的（2026-09-05 探针配方）
+    ...(opts.mcpConfigFile ? ['--mcp-config', shq(opts.mcpConfigFile.replace(/\\/g, '/')), '--strict-mcp-config'] : []),
     // 禁用会抢流控的插件层（engineering-workflow 等）：消除双流控串线，每会话省下 13.6KB 元技能注入
     '--settings',
     shq(RUNNER_SETTINGS.replace(/\\/g, '/')),
@@ -174,7 +179,7 @@ export function runClaudeText(
   });
 }
 
-export function runStage(
+export async function runStage(
   repo: string,
   ticket: string,
   stage: Exclude<Stage, 'ci'>,
@@ -183,14 +188,28 @@ export function runStage(
   modelOverride?: string,
 ): Promise<RunOutcome> {
   const cfg = STAGES[stage];
-  return runClaudeJson({
-    cwd: repo,
-    prompt: `/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`,
-    pluginDir: PLUGIN_DIR,
-    tools: cfg.tools,
-    model: modelOverride ?? cfg.model,
-    maxTurns: cfg.maxTurns,
-    budgetUsd: cfg.budgetUsd,
-    schema: JSON.parse(wireSchema()) as object,
-  });
+  // 项目约定 e2e: playwright → 验收/评审带浏览器：MCP 配置临时落盘，白名单放行 mcp__playwright（该 server 的全部工具）
+  const e2e = e2eEnabledFor(repo, stage);
+  const mcpConfigFile = e2e ? writeClaudeMcpConfig() : undefined;
+  try {
+    return await runClaudeJson({
+      cwd: repo,
+      prompt: `/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`,
+      pluginDir: PLUGIN_DIR,
+      tools: e2e ? `${cfg.tools},mcp__playwright` : cfg.tools,
+      model: modelOverride ?? cfg.model,
+      maxTurns: cfg.maxTurns,
+      budgetUsd: cfg.budgetUsd,
+      schema: JSON.parse(wireSchema()) as object,
+      mcpConfigFile,
+    });
+  } finally {
+    if (mcpConfigFile) {
+      try {
+        fs.unlinkSync(mcpConfigFile);
+      } catch {
+        /* 已删 */
+      }
+    }
+  }
 }

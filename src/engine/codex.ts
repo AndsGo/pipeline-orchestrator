@@ -5,7 +5,9 @@ import path from 'node:path';
 import { PLUGIN_DIR, STAGES } from '../config.js';
 import type { RunOutcome, TextRunOpts } from '../runner.js';
 import { wireSchema } from '../schema.js';
+import { readProfile } from '../profile.js';
 import type { Envelope, Stage, StageResult } from '../types.js';
+import { codexE2eArgs, e2eBriefLine, e2eEnabledFor } from './e2e.js';
 import type { Engine, TextResult } from './types.js';
 
 /**
@@ -180,6 +182,8 @@ interface ExecOpts {
   schema?: object;
   resumeSessionId?: string;
   timeoutMs: number;
+  /** 追加的 codex 参数（浏览器 e2e 的 MCP 声明与自动审批） */
+  extraArgs?: string[];
 }
 
 interface ExecOutcome {
@@ -192,6 +196,9 @@ interface ExecOutcome {
 function codexModel(): string | undefined {
   return process.env.PIPELINE_CODEX_MODEL || undefined; // 不配就用 ~/.codex/config.toml 的默认模型
 }
+
+/** e2e 会话忽略用户配置时的模型兜底：2026-09-05 真机可用的那个 */
+const CODEX_FALLBACK_MODEL = 'gpt-5.6-sol';
 
 /**
  * 怎么起 codex：绝不能经 shell。首版用 spawn(..., { shell: true })，Node 在该模式下把参数直接空格拼接、不加引号，
@@ -224,6 +231,7 @@ function execCodex(o: ExecOpts): Promise<ExecOutcome> {
     ...(schemaFile ? ['--output-schema', schemaFile] : []),
     '-o',
     lastFile,
+    ...(o.extraArgs ?? []),
   ];
   const args = o.resumeSessionId ? ['exec', 'resume', ...common, o.resumeSessionId, o.prompt] : ['exec', ...common, o.prompt];
   const { cmd, prefix } = codexCommand();
@@ -325,13 +333,18 @@ export const codexEngine: Engine = {
   name: 'codex',
   async runStage(repo, ticket, stage: Exclude<Stage, 'ci'>, extraArgs = '', modelOverride?: string): Promise<RunOutcome> {
     const cfg = STAGES[stage];
+    const e2e = e2eEnabledFor(repo, stage);
+    const testEnv = e2e ? readProfile(repo)?.testEnv?.url : undefined;
+    const base = bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`, PLUGIN_DIR, repo);
     const r = await execCodex({
       cwd: repo,
-      prompt: bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`, PLUGIN_DIR, repo),
+      prompt: e2e ? `${base}\n${e2eBriefLine(testEnv)}` : base,
       sandbox: sandboxFor(cfg.tools),
-      model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : codexModel(),
+      // e2e 走 --ignore-user-config，模型必须显式给：没钉就用最后实测可用的那个（2026-09-05：全局默认曾漂到 CLI 不认的模型）
+      model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : (codexModel() ?? (e2e ? CODEX_FALLBACK_MODEL : undefined)),
       schema: toStrictSchema(JSON.parse(wireSchema())) as object,
       timeoutMs: STAGE_TIMEOUT_MS,
+      extraArgs: e2e ? codexE2eArgs() : undefined,
     });
     reconcileWorktreeArtifacts(repo, ticket, (m) => console.log(`[codex] ${new Date().toISOString()} ${m}`));
     return { envelope: toEnvelope(r, true), rawStdout: r.lastMessage };
