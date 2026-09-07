@@ -25,7 +25,25 @@ function RestartDaemon([string]$reason) {
   WdLog "RESTART ($reason)"
   & (Join-Path $PSScriptRoot 'start-daemon.ps1') -Stop | Out-Null
   Start-Sleep -Seconds 3
-  & (Join-Path $PSScriptRoot 'start-daemon.ps1') | Out-Null
+  # 把启动脚本的第一行结论留进时间线：2026-09-07 重启机器后 14:50 那次 RESTART 之后 daemon.log 一个字没写、
+  # watchdog.log 也没有 START-FAILED，11 分钟后第二次才起来——启动脚本在哪一步返回的完全查不到
+  $out = (& (Join-Path $PSScriptRoot 'start-daemon.ps1') 2>&1 | Out-String).Trim()
+  $first = ($out -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+  WdLog "start-daemon → $first"
+}
+
+# pid 文件里的进程是不是我们那个 daemon 启动器：机器重启后旧 pid 可能被别的进程占用，
+# 光看 Get-Process 会把陌生进程当活 daemon（2026-09-07 重启后 14:41～14:49 五轮没拉起）。
+# 判据：进程名是 cmd（start-daemon 用 cmd /c npm run daemon 起的），且启动时间不晚于 pid 文件写入时间 + 10 秒
+function IsOurDaemon([string]$daemonPid) {
+  if (-not $daemonPid) { return $false }
+  $p = Get-Process -Id $daemonPid -ErrorAction SilentlyContinue
+  if (-not $p) { return $false }
+  try {
+    if ($p.ProcessName -ne 'cmd') { WdLog "pid $daemonPid 是 $($p.ProcessName) 不是 daemon 启动器，视为已死"; return $false }
+    if ($p.StartTime -gt (Get-Item $pidFile).LastWriteTime.AddSeconds(10)) { WdLog "pid $daemonPid 的进程晚于 pid 文件启动（pid 被复用），视为已死"; return $false }
+  } catch { return $false }
+  return $true
 }
 
 # ⓪ 家务：watchdog 自身日志防膨胀（>4000 行截到最后 1000）；data/ 每日备份，保留 14 天
@@ -67,7 +85,7 @@ if (Test-Path $whPidFile) {
 
 # ① 进程存活
 $daemonPid = if (Test-Path $pidFile) { Get-Content $pidFile } else { $null }
-$alive = $daemonPid -and (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue)
+$alive = IsOurDaemon $daemonPid
 if (-not $alive) {
   RestartDaemon 'dead'
   return
