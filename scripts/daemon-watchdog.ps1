@@ -27,7 +27,7 @@ function RestartDaemon([string]$reason) {
   Start-Sleep -Seconds 3
   # 把启动脚本的第一行结论留进时间线：2026-09-07 重启机器后 14:50 那次 RESTART 之后 daemon.log 一个字没写、
   # watchdog.log 也没有 START-FAILED，11 分钟后第二次才起来——启动脚本在哪一步返回的完全查不到
-  $out = (& (Join-Path $PSScriptRoot 'start-daemon.ps1') 2>&1 | Out-String).Trim()
+  $out = (& (Join-Path $PSScriptRoot 'start-daemon.ps1') *>&1 | Out-String).Trim()
   $first = ($out -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
   WdLog "start-daemon → $first"
 }
