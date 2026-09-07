@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bridgePrompt, codexCommand, codexCostUsd, reconcileWorktreeArtifacts, sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
+import { bridgePrompt, codexCommand, codexCostUsd, reconcileWorktreeArtifacts, sandboxArgs,
+  sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
 import { execSync } from 'node:child_process';
 import fsMod from 'node:fs';
 import osMod from 'node:os';
@@ -174,5 +175,15 @@ describe('Codex 引擎的纯函数部分', () => {
     expect(good.structured_output).toMatchObject({ stage: 'review', status: 'DONE' });
     expect(good.session_id).toBe('t-1');
     expect(good.result).toContain('未配价格表');
+  });
+});
+
+describe('codex 沙箱参数与 --approve-for-me 互斥（2026-09-07 LS-016：review 配 codex + e2e 整轮失败）', () => {
+  it('无 e2e：给 -s <级别>', () => {
+    expect(sandboxArgs('read-only')).toEqual(['-s', 'read-only']);
+    expect(sandboxArgs('workspace-write', ['-c', 'x'])).toEqual(['-s', 'workspace-write']);
+  });
+  it('e2e（extraArgs 含 --approve-for-me）：不给 -s，交给 --approve-for-me 治沙箱', () => {
+    expect(sandboxArgs('read-only', ['--ignore-user-config', '--approve-for-me', '-c', 'y'])).toEqual([]);
   });
 });

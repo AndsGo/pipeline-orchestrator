@@ -151,6 +151,15 @@ export function sandboxFor(tools: string): 'read-only' | 'workspace-write' {
 }
 
 /**
+ * codex exec 的沙箱参数：默认 `-s <级别>`；但 extraArgs 里若已有 `--approve-for-me`（e2e 路径用它治沙箱）
+ * 就不能再给 -s——CLI 判二者互斥（2026-09-07 LS-016 实测：review 配 codex + e2e 时两者同传，
+ * 报 "the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'"，review 阶段整轮失败）。
+ */
+export function sandboxArgs(sandbox: 'read-only' | 'workspace-write', extraArgs?: string[]): string[] {
+  return (extraArgs ?? []).includes('--approve-for-me') ? [] : ['-s', sandbox];
+}
+
+/**
  * Claude 斜杠 skill 提示词 → Codex 桥接提示词：让它先完整读插件里的 SKILL.md 再照做。
  * `${CLAUDE_PLUGIN_ROOT}` 与 superpowers 引用在文里说明；非斜杠提示词原样返回。
  */
@@ -225,8 +234,7 @@ function execCodex(o: ExecOpts): Promise<ExecOutcome> {
     '--skip-git-repo-check',
     '-C',
     o.cwd,
-    '-s',
-    o.sandbox,
+    ...sandboxArgs(o.sandbox, o.extraArgs),
     ...(o.model ? ['-m', o.model] : []),
     ...(schemaFile ? ['--output-schema', schemaFile] : []),
     '-o',
