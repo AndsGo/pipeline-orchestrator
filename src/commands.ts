@@ -1,3 +1,4 @@
+import { describeLastRun, type LastRun } from './followup.js';
 import { osaDistance } from './projects.js';
 import { runClaudeJson } from './runner.js';
 import type { Stage } from './types.js';
@@ -270,7 +271,7 @@ export const COMMAND_SCHEMA = {
       type: 'string',
       enum: [
         'status', 'list', 'dashboard', 'pause', 'resume', 'rewind',
-        'amend', 'note', 'new', 'answer', 'run', 'help', 'unknown',
+        'amend', 'note', 'new', 'answer', 'run', 'followup', 'help', 'unknown',
       ],
     },
     ticket: { type: ['string', 'null'] },
@@ -293,20 +294,39 @@ export const COMMAND_SCHEMA = {
  * 关键在于分类器要知道"工单跑到哪、在等什么"——同一句"不通过，报 500"
  * 在有待答卡片时是回答，在没有时是缺陷说明。
  */
-export function buildClassifyPrompt(text: string, contexts: TicketContext[]): string {
+export function buildClassifyPrompt(text: string, contexts: TicketContext[], lastRun: LastRun | null = null): string {
   const ctxLines = contexts.length
     ? contexts.map(
         (c) =>
           `- ${c.ticket}：阶段=${c.stage}，状态=${c.runState}${c.pending.length ? `，**正在等回答：${c.pending.join('、')}**` : ''}${c.halted ? `，挂起原因=${c.halted.slice(0, 60)}` : ''}`,
       )
     : ['（暂无工单）'];
+  // 本群最近一次 /run 也是现场：没有它，分类器看不出「我觉得问题在分页，请你深入」是在回应上一条结论
+  // （2026-09-07 实测：同一话题连发三条，只有打了 /re 的那条续上了会话，另两条各开新会话重读代码）
+  const lastRunLines = lastRun
+    ? [
+        '',
+        '## 本群最近一次单次执行（可续聊）',
+        `- ${describeLastRun(lastRun)}，项目 ${lastRun.project}`,
+        `- 其输出末尾：${lastRun.output.slice(-400).replace(/\s+/g, ' ')}`,
+      ]
+    : [];
+  const followupOption = lastRun
+    ? [
+        'followup：接着上面那次单次执行续聊——这句话在**回应、反驳、追问或延续**它的话题：提到「你说的/之前/上面/刚才」、',
+        '  对它的结论表态（「我不想改…」「你判断错了」「对，就是这个」）、要求在它的基础上「深入/再看/换个角度」、或回答它结尾提的问题。',
+        '  会话复用，比新开便宜也不丢上下文。**换了话题的新问题仍是 run**；有工单号或现场正在等回答时优先 answer/note。',
+      ]
+    : [];
   return [
     '你是开发流水线的指令路由器。把用户这句话映射成一个意图。',
     '',
     '## 当前现场',
     ...ctxLines,
+    ...lastRunLines,
     '',
     '## 可选意图',
+    ...followupOption,
     'answer：回答某张待确认卡片（**只有现场显示"正在等回答"时才可用**）。target 填 Q 编号或卡点名，text 填答案本身（如"不通过 页面报500"）。',
     'note：给**某个工单**追加一条说明/缺陷现象，不改需求、不回退。text 填说明内容，ticket 必填。',
     '  线上出故障、但没指明是哪个工单 → **run（先诊断）**，不要 note——挂不到工单上的 note 没有意义。',
@@ -369,6 +389,8 @@ export async function classifyCommand(
   contexts: TicketContext[],
   cwd = process.cwd(),
   model = process.env.PIPELINE_CLASSIFY_MODEL ?? 'sonnet',
+  /** 本群最近一次 /run（在续聊 TTL 内）；有它才给分类器 followup 这个选项 */
+  lastRun: LastRun | null = null,
 ): Promise<Classified> {
   let lastError = '';
   // 分类只读且幂等，失败重试一次：实测这个环境的 API 会偶发断流，
@@ -377,7 +399,7 @@ export async function classifyCommand(
     try {
       const { envelope } = await runClaudeJson({
         cwd,
-        prompt: buildClassifyPrompt(text, contexts),
+        prompt: buildClassifyPrompt(text, contexts, lastRun),
         tools: 'Read',
         model,
         maxTurns: 3,
@@ -399,7 +421,9 @@ export async function classifyCommand(
         lastError = `无结构化返回：${(envelope.result ?? '空').slice(0, 120)}`;
         continue;
       }
-      const command = normalize(so, text, contexts.map((c) => c.ticket));
+      let command = normalize(so, text, contexts.map((c) => c.ticket));
+      // 没有可续的会话却判了 followup（选项根本没给它）→ 按新执行处理，不能让这句话落空
+      if (command.kind === 'followup' && !lastRun) command = { kind: 'run', text, sideEffect: so.side_effect === true };
       const needsTicket = so.kind === 'note' || so.kind === 'amend';
       return {
         command,
@@ -437,6 +461,8 @@ export function normalize(
       // 一律用原话，不用分类器的 text：实测模型会把 text 填成自己的判断理由
       // （"…属于只读诊断操作"），于是用户的现象描述和 URL 全丢了，执行会话拿到一段推理当需求
       return { kind: 'run', text: original, sideEffect: so.side_effect === true };
+    case 'followup':
+      return { kind: 'followup', text: original };
     case 'help':
       return { kind: 'help' };
     case 'list':

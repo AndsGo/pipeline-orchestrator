@@ -379,3 +379,29 @@ describe('并发闸门', () => {
     expect(third).toBe(true);
   });
 });
+
+// 2026-09-07 实测：同一话题连发三条 @ 消息（分析同步逻辑 → /re 2 → 「我觉得问题在分页，请你深入」），
+// 只有打了 /re 的那条续上了会话，另两条各被判 run 开新会话重读代码（$0.45 + $1.10）。分类器根本不知道本群刚跑过什么。
+describe('意图识别带上本群最近一次 /run，回应它的话判 followup 续会话', () => {
+  const last = {
+    at: new Date().toISOString(),
+    project: 'lakeghost',
+    command: '分析下现在的同步用户的逻辑',
+    output: '…根因：31 名在职员工 dd_userid 为空被跳过。顺带发现本地把映射改成了 oa_userid，方向是错的。',
+    chain: 0,
+  };
+
+  it('有最近执行 → 提示词含其指令、输出末尾与 followup 选项；没有 → 不给 followup 选项', () => {
+    const p = buildClassifyPrompt('我不想改之前的逻辑，我觉得问题在分页，请你深入', [], last);
+    expect(p).toContain('本群最近一次单次执行');
+    expect(p).toContain('分析下现在的同步用户的逻辑');
+    expect(p).toContain('oa_userid');
+    expect(p).toContain('followup：');
+    expect(p).toContain('换了话题的新问题仍是 run');
+    expect(buildClassifyPrompt('鉴权在哪', [])).not.toContain('followup：');
+  });
+
+  it('followup 归一化：一律用用户原话', () => {
+    expect(normalize({ kind: 'followup', text: '模型改写的话' }, '原话', [])).toEqual({ kind: 'followup', text: '原话' });
+  });
+});

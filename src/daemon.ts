@@ -16,7 +16,7 @@ import { initBitableSync } from './bitable/sync.js';
 import { appendEvent, listTickets } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
-import { runByCard } from './followup.js';
+import { readLastRunFor, runByCard } from './followup.js';
 import { dataDir } from './paths.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
@@ -194,7 +194,8 @@ async function onMessage(m: IncomingMessage): Promise<void> {
     // @了机器人 → 一定回应；没 @ → 只在像指令时才花钱分类，避免打扰群聊
     if (!m.mentioned && !looksLikeCommand(m.text)) return;
     const contexts = ticketContexts();
-    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts);
+    // 带上本群最近一次 /run：回应它的话判 followup 续会话，而不是开新会话重读代码
+    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts, undefined, undefined, readLastRunFor(m.chatId));
     cmd = command;
     // 识别服务炸了 ≠ 没听懂：前者回"重发一次"，后者才是"我不明白你的意思"
     if (error) {
