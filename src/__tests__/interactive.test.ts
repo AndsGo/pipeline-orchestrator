@@ -3,7 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  asksToCreateTicket,
   buildClassifyPrompt,
+  DRAFT_FROM_CHAT,
   describeCommand,
   helpText,
   isProjectSlashCommand,
@@ -403,5 +405,18 @@ describe('意图识别带上本群最近一次 /run，回应它的话判 followu
 
   it('followup 归一化：一律用用户原话', () => {
     expect(normalize({ kind: 'followup', text: '模型改写的话' }, '原话', [])).toEqual({ kind: 'followup', text: '原话' });
+  });
+});
+
+// 2026-09-07 实测：「现在就发，两条一起写进一个工单」被判 followup@88%，/run 会话答「我没有能力直接建工单」，人只能复制粘贴 /new
+describe('续聊里要求建单 → new（按对话草拟需求），不是 followup', () => {
+  it('分类提示词写明例外：建成工单 → new，text 固定填草拟哨兵', () => {
+    const p = buildClassifyPrompt('现在就发，两条一起写进一个工单', [], { at: new Date().toISOString(), project: 'lakeghost', command: 'x', output: 'y', chain: 2 });
+    expect(p).toContain('建成工单');
+    expect(p).toContain(DRAFT_FROM_CHAT);
+  });
+  it('词面兜底：建/开/写进工单的句子认；业务词「提单」「发单量」「工单里的字段」不认', () => {
+    for (const t of ['现在就发，两条一起写进一个工单', '建个单吧', '把这两条建单', '开一张新工单', '整理成一个工单']) expect(asksToCreateTicket(t)).toBe(true);
+    for (const t of ['查一下提单号的字段', '发单量为什么掉了', '工单里的字段是啥', '继续深入分析', '2']) expect(asksToCreateTicket(t)).toBe(false);
   });
 });

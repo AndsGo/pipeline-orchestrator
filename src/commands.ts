@@ -40,6 +40,17 @@ export type Command =
   | { kind: 'unknown'; text: string };
 
 /** 分类器需要的工单现场：知道跑到哪、在等什么，同一句话才能路由对 */
+/** 分类器/兜底给 new 填的固定正文：followup.isDraftFromChatRequest 认它，/new 处理器据此把对话整理成需求 */
+export const DRAFT_FROM_CHAT = '按刚才聊的建单';
+
+/**
+ * 续聊句里明确要求把结论建成工单：建/开/发/创建/写进/写成/整理成 + （一个/一张/一条/新）+ 工单，或「建单/开单/建个单」。
+ * 故意不认光秃秃的「发单」「提单」：odoo 项目里「提单」是业务词（bill of lading），「发单量」是指标
+ */
+export function asksToCreateTicket(text: string): boolean {
+  return /(建|开|发|创建|写进|写成|整理成)(一?个|一张|一条|新)?(新?工单|单子)/.test(text) || /建单|开单|[建开发](一?个|一张)单(?!据|量|号)/.test(text);
+}
+
 export interface TicketContext {
   ticket: string;
   stage: string;
@@ -316,6 +327,8 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
         'followup：接着上面那次单次执行续聊——这句话在**回应、反驳、追问或延续**它的话题：提到「你说的/之前/上面/刚才」、',
         '  对它的结论表态（「我不想改…」「你判断错了」「对，就是这个」）、要求在它的基础上「深入/再看/换个角度」、或回答它结尾提的问题。',
         '  会话复用，比新开便宜也不丢上下文。**换了话题的新问题仍是 run**；有工单号或现场正在等回答时优先 answer/note。',
+        `  例外：要把这次执行聊出来的结论**建成工单**（「建个单」「写进一个工单」「现在就发单」「按刚才聊的建单」）→ **new**，text 固定填「${DRAFT_FROM_CHAT}」`,
+        '  （编排器会把整段对话整理成需求原文弹卡确认）。/run 会话自己没有建单能力，判成 followup 只会让它回一句「我建不了」。',
       ]
     : [];
   return [
@@ -424,6 +437,9 @@ export async function classifyCommand(
       let command = normalize(so, text, contexts.map((c) => c.ticket));
       // 没有可续的会话却判了 followup（选项根本没给它）→ 按新执行处理，不能让这句话落空
       if (command.kind === 'followup' && !lastRun) command = { kind: 'run', text, sideEffect: so.side_effect === true };
+      // 「现在就发，两条一起写进一个工单」被判 followup@88%（2026-09-07 实测）：/run 会话答「我建不了工单」，人只能复制粘贴 /new。
+      // 词面兜底：明确说要建/开/发/写进工单的续聊句 → new（按对话草拟需求）
+      if (command.kind === 'followup' && lastRun && asksToCreateTicket(text)) command = { kind: 'new', requirement: DRAFT_FROM_CHAT };
       const needsTicket = so.kind === 'note' || so.kind === 'amend';
       return {
         command,
