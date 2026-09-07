@@ -13,6 +13,31 @@ export interface RunOutcome {
   rawStdout: string;
 }
 
+/** shell 单引号包裹 */
+const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * 提示词落临时文件、由 bash 重定向进 claude 的标准输入（`claude -p … < file`），不再拼进命令行。
+ * 2026-09-07 实测：bash -c 的命令串在本机约 8190 字符处被截断，尾巴的闭合引号没了 →
+ * "unexpected EOF while looking for matching `''"。建单草拟把五轮对话拼进提示词（10670 字符）就炸了；
+ * 续聊降级拼接、注入知识多的 /run 同样会撞。stdin 读提示词对新会话与 --resume 都验证过，session_id 不变。
+ */
+function promptFile(prompt: string): string {
+  const f = path
+    .join(os.tmpdir(), `pipeline-prompt-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.txt`)
+    .replace(/\\/g, '/');
+  fs.writeFileSync(f, prompt, 'utf-8');
+  return f;
+}
+
+function unlinkQuiet(f: string): void {
+  try {
+    fs.unlinkSync(f);
+  } catch {
+    /* 已删或被占用 */
+  }
+}
+
 export interface ClaudeJsonOpts {
   cwd: string;
   prompt: string;
@@ -34,11 +59,10 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     .join(os.tmpdir(), `pipeline-schema-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`)
     .replace(/\\/g, '/');
   fs.writeFileSync(schemaFile, JSON.stringify(opts.schema), 'utf-8');
-  const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+  const pf = promptFile(opts.prompt);
   const cmd = [
     'claude',
     '-p',
-    shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
     // 浏览器 e2e：只挂我们给的 MCP，不继承用户全局的（2026-09-05 探针配方）
     ...(opts.mcpConfigFile ? ['--mcp-config', shq(opts.mcpConfigFile.replace(/\\/g, '/')), '--strict-mcp-config'] : []),
@@ -60,6 +84,8 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     String(opts.budgetUsd),
     '--json-schema',
     `"$(cat ${shq(schemaFile)})"`,
+    '<',
+    shq(pf),
   ].join(' ');
 
   return new Promise((resolve, reject) => {
@@ -74,11 +100,8 @@ export function runClaudeJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
     child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf-8')));
     child.on('error', reject);
     child.on('close', (code) => {
-      try {
-        fs.unlinkSync(schemaFile);
-      } catch {
-        /* 已删或被占用 */
-      }
+      unlinkQuiet(schemaFile);
+      unlinkQuiet(pf);
       const start = stdout.indexOf('{"');
       if (start < 0) {
         reject(new Error(`claude 无 JSON 输出（exit ${code}）：${stderr.slice(0, 500) || stdout.slice(0, 500)}`));
@@ -120,12 +143,11 @@ export interface TextRunOpts {
 export function runClaudeText(
   opts: TextRunOpts,
 ): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; sessionId?: string }> {
-  const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+  const pf = promptFile(opts.prompt);
   const cmd = [
     'claude',
     '-p',
     ...(opts.resumeSessionId ? ['--resume', shq(opts.resumeSessionId)] : []),
-    shq(opts.prompt),
     ...(opts.pluginDir ? ['--plugin-dir', shq(opts.pluginDir)] : []),
     // 禁用会抢流控的插件层（engineering-workflow 等）：消除双流控串线，每会话省下 13.6KB 元技能注入
     '--settings',
@@ -142,6 +164,8 @@ export function runClaudeText(
     String(opts.maxTurns),
     '--max-budget-usd',
     String(opts.budgetUsd),
+    '<',
+    shq(pf),
   ].join(' ');
 
   return new Promise((resolve, reject) => {
@@ -156,6 +180,7 @@ export function runClaudeText(
     child.stderr.on('data', (d: Buffer) => (err += d.toString('utf-8')));
     child.on('error', reject);
     child.on('close', (code) => {
+      unlinkQuiet(pf);
       const start = out.indexOf('{"');
       if (start < 0) {
         reject(new Error(`claude 无输出（exit ${code}）：${(err || out).slice(0, 300)}`));
