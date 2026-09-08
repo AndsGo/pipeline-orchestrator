@@ -420,3 +420,15 @@ describe('续聊里要求建单 → new（按对话草拟需求），不是 foll
     for (const t of ['查一下提单号的字段', '发单量为什么掉了', '工单里的字段是啥', '继续深入分析', '2']) expect(asksToCreateTicket(t)).toBe(false);
   });
 });
+
+// 2026-09-08 实测回归：LS-016 验收卡开着，「这些人工号重了」被判 followup@70%，复活了无关的早间 /run 链，卡没人答、工单停摆
+describe('followup 被开着的卡片抢答的回归防护', () => {
+  const last = { at: new Date().toISOString(), project: 'lakeghost', command: '分析同步', output: '…', chain: 3 };
+  it('有工单正在等回答 → 提示词不给 followup 选项（也不贴最近 /run）', () => {
+    const withCard = buildClassifyPrompt('这些人工号重了', [{ ticket: 'LS-016', stage: 'acceptance', runState: '等人工', pending: ['Q1'] }], last);
+    expect(withCard).not.toContain('followup：');
+    expect(withCard).not.toContain('本群最近一次单次执行');
+    const noCard = buildClassifyPrompt('这些人工号重了', [{ ticket: 'LS-016', stage: 'acceptance', runState: '等人工', pending: [] }], last);
+    expect(noCard).toContain('followup：');
+  });
+});

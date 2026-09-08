@@ -312,9 +312,14 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
           `- ${c.ticket}：阶段=${c.stage}，状态=${c.runState}${c.pending.length ? `，**正在等回答：${c.pending.join('、')}**` : ''}${c.halted ? `，挂起原因=${c.halted.slice(0, 60)}` : ''}`,
       )
     : ['（暂无工单）'];
+  // 有工单正等着卡片答复时，绝不提供 followup——一张开着的卡是比几小时前的 /run 指针强得多的「用户正在
+  // 跟流水线对话」信号（2026-09-08 实测：LS-016 验收卡开着，「这些人工号重了」被判 followup@70%，
+  // 复活了早上那条无关的 /run 链，卡却没人答、工单停摆）。这种情况下这句话该走 answer/note/unknown → 卡。
+  const anyPending = contexts.some((c) => c.pending.length > 0);
+  const offerFollowup = lastRun && !anyPending;
   // 本群最近一次 /run 也是现场：没有它，分类器看不出「我觉得问题在分页，请你深入」是在回应上一条结论
   // （2026-09-07 实测：同一话题连发三条，只有打了 /re 的那条续上了会话，另两条各开新会话重读代码）
-  const lastRunLines = lastRun
+  const lastRunLines = offerFollowup
     ? [
         '',
         '## 本群最近一次单次执行（可续聊）',
@@ -322,7 +327,7 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
         `- 其输出末尾：${lastRun.output.slice(-400).replace(/\s+/g, ' ')}`,
       ]
     : [];
-  const followupOption = lastRun
+  const followupOption = offerFollowup
     ? [
         'followup：接着上面那次单次执行续聊——这句话在**回应、反驳、追问或延续**它的话题：提到「你说的/之前/上面/刚才」、',
         '  对它的结论表态（「我不想改…」「你判断错了」「对，就是这个」）、要求在它的基础上「深入/再看/换个角度」、或回答它结尾提的问题。',
@@ -435,6 +440,9 @@ export async function classifyCommand(
         continue;
       }
       let command = normalize(so, text, contexts.map((c) => c.ticket));
+      // 有卡片正等着答：followup 的提示词选项已被 buildClassifyPrompt 抽掉，这里再兜一层——
+      // 万一模型仍判 followup，降级 unknown，交给 daemon 的「没听懂但有待答卡片 → 当自由文本答案」路由到卡
+      if (command.kind === 'followup' && contexts.some((c) => c.pending.length > 0)) command = { kind: 'unknown', text };
       // 没有可续的会话却判了 followup（选项根本没给它）→ 按新执行处理，不能让这句话落空
       if (command.kind === 'followup' && !lastRun) command = { kind: 'run', text, sideEffect: so.side_effect === true };
       // 「现在就发，两条一起写进一个工单」被判 followup@88%（2026-09-07 实测）：/run 会话答「我建不了工单」，人只能复制粘贴 /new。
