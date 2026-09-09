@@ -6,6 +6,7 @@ import { checkMergeAgainstTarget, describeMergeCheck } from '../mergeCheck.js';
 import { describeRelease, type PipelineProfile, releaseTargetBranch } from '../profile.js';
 import { readSnapshot, saveTicket } from '../ticket.js';
 import type { OpenQuestion } from '../types.js';
+import { audienceOf, releaseLine } from '../voice.js';
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
 
@@ -75,7 +76,10 @@ export async function runRelease(run: TicketRun, profile: PipelineProfile): Prom
         return 'halt';
       }
       appendEvent({ ticket, type: 'release', summary: `已合并 MR !${mr.iid} → ${target}（${r.sha.slice(0, 8)}）` });
-      await port.notify(ticket, `已合并 MR !${mr.iid} → ${target}：${mr.webUrl}`);
+      await port.notify(
+        ticket,
+        audienceOf(profile) === 'business' ? releaseLine(target, mr.webUrl) : `已合并 MR !${mr.iid} → ${target}：${mr.webUrl}`,
+      );
     } else {
       appendEvent({ ticket, type: 'release', summary: `人工合并 ${branch ?? '工单分支'} → ${target}（无可用 MR 或未配 GitLab API）` });
       await port.notify(

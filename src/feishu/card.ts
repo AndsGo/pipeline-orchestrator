@@ -1,4 +1,5 @@
 import type { OpenQuestion } from '../types.js';
+import { GATE_CN } from '../voice.js';
 
 /**
  * 飞书互动卡片构建器（纯函数，可单测）。
@@ -128,7 +129,9 @@ export function gateCard(
     ],
   });
   elements.push(typeHint('「驳回 计划漏了限流」——理由会直接驱动重跑'));
-  return { config: { wide_screen_mode: true }, header: header(`${ticket} 卡点：${gate}`, 'orange'), elements };
+  // 卡点名用业务叫法：`prd-confirm` 对审批人不是信息，「需求确认」才是（英文名留括号里，研发对得上事件流）
+  const gateLabel = GATE_CN[gate] ? `${GATE_CN[gate]}（${gate}）` : gate;
+  return { config: { wide_screen_mode: true }, header: header(`${ticket} 卡点：${gateLabel}`, 'orange'), elements };
 }
 
 /** 点击后的替换卡片：保留原始上下文 + 结果 + 人的补充说明 */

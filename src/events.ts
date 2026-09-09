@@ -170,6 +170,36 @@ export function totalCost(ticket: string): number {
  * 必须按内容判定而不是按扩展名——data/ 里还有 bitable-index.json 这类基础设施文件，
  * 只看 .json 会把它们当成工单混进 /list。
  */
+/**
+ * 某阶段历史耗时中位数（分钟）：扫全部工单的 stage.start→stage.end 配对。给业务口吻的「通常 N～M 分钟」用——
+ * 业务方最焦虑的是「20 分钟没动静是不是死了」。样本 <2 返回 null（宁可不说）。结果缓存 10 分钟
+ */
+const typicalCache = new Map<string, { at: number; v: number | null }>();
+export function typicalStageMinutes(stage: string, now = Date.now()): number | null {
+  const hit = typicalCache.get(stage);
+  if (hit && now - hit.at < 10 * 60_000) return hit.v;
+  const durations: number[] = [];
+  for (const t of listTickets()) {
+    let startTs: string | null = null;
+    for (const e of readEvents(t)) {
+      if (e.stage !== stage) continue;
+      // implement 的进度行也记成 stage.start（summary 以「进度：」开头），不是开工
+      if (e.type === 'stage.start' && e.summary.startsWith('阶段 ')) startTs = e.ts;
+      else if (e.type === 'stage.end' && startTs) {
+        durations.push((Date.parse(e.ts) - Date.parse(startTs)) / 60_000);
+        startTs = null;
+      }
+    }
+  }
+  let v: number | null = null;
+  if (durations.length >= 2) {
+    durations.sort((a, b) => a - b);
+    v = durations[Math.floor(durations.length / 2)];
+  }
+  typicalCache.set(stage, { at: now, v });
+  return v;
+}
+
 export function listTickets(): string[] {
   const dir = dataDir();
   if (!fs.existsSync(dir)) return [];

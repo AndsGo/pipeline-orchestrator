@@ -26,6 +26,7 @@ import { validateResult } from './schema.js';
 import { loadTicket, readSnapshot, saveTicket } from './ticket.js';
 import { isTransientApiError } from './transient.js';
 import type { Envelope, Stage, StageResult, TicketState } from './types.js';
+import { type Audience, audienceOf, endLine as bizEndLine, errorLine, progressLine, staleBlockWarning } from './voice.js';
 
 export { ensureRejectionEvidence } from './run/actions.js';
 
@@ -103,7 +104,7 @@ export function ensureIntake(repo: string, ticket: string, requirement?: string,
  * 台账可能在 worktree 里（见 implementProgress.ts），开工时解析一次；
  * 本批次自己新建 worktree 的那次仍会漏推，下一批就跟上了。
  */
-function watchLedger(repo: string, ticket: string, port: InteractionPort): { stop: () => void } {
+function watchLedger(repo: string, ticket: string, port: InteractionPort, audience: Audience = 'it'): { stop: () => void } {
   const file = resolveLedgerFile(repo, ticket);
   let seen = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8').split('\n').length : 0;
   const timer = setInterval(() => {
@@ -114,7 +115,9 @@ function watchLedger(repo: string, ticket: string, port: InteractionPort): { sto
         if (/complete|fix round|BLOCKED|parked/i.test(line)) {
           const text = line.trim().slice(0, 200);
           appendEvent({ ticket, type: 'stage.start', stage: 'implement', summary: `进度：${text}` });
-          void port.notify(ticket, `进度：${text}`);
+          // 业务口吻：台账行是研发术语（parked/BLOCKED/子代理模型），只把认得出的「第 N 项完成」翻成人话
+          const said = audience === 'business' ? progressLine(text) : `进度：${text}`;
+          if (said) void port.notify(ticket, said);
         }
       }
       seen = lines.length;
@@ -254,7 +257,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
 
     const stageModel = await prepareStage(run, stage, profile);
-    const ledgerWatch = stage === 'implement' ? watchLedger(repo, ticket, port) : null;
+    const ledgerWatch = stage === 'implement' ? watchLedger(repo, ticket, port, audienceOf(profile)) : null;
     let envelope: Envelope;
     try {
       envelope = await run.withGate(() =>
@@ -290,14 +293,24 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         run.retriedTransient.add(stage);
         const minutes = Math.round(run.transientRetryDelayMs / 60_000);
         appendEvent({ ticket, type: 'error', stage, summary: `${msg.slice(0, 200)}｜疑似瞬时故障，${minutes} 分钟后自动重试一次` });
-        await port.notify(ticket, `${msg}\n疑似 API 瞬时故障，${minutes} 分钟后自动从 ${stage} 阶段重跑一次（不用说「继续」）；再失败才转人工。`);
+        await port.notify(
+          ticket,
+          audienceOf(profile) === 'business'
+            ? errorLine(stage, msg, ticket, minutes)
+            : `${msg}\n疑似 API 瞬时故障，${minutes} 分钟后自动从 ${stage} 阶段重跑一次（不用说「继续」）；再失败才转人工。`,
+        );
         await new Promise((r) => setTimeout(r, run.transientRetryDelayMs));
         run.extraArgs = usedExtraArgs; // 带着同样的参数（fix=/feedback=）重跑
         continue;
       }
       appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300) });
       // 挂起消息教人怎么恢复，异常消息也必须教——否则人只看到一句 API Error，不知道下一步说什么
-      await port.notify(ticket, `${msg}\n本阶段未产生结果（通常是瞬时故障）。在群里说「继续 ${ticket}」即可从 ${stage} 阶段重跑`);
+      await port.notify(
+        ticket,
+        audienceOf(profile) === 'business'
+          ? errorLine(stage, msg, ticket, null)
+          : `${msg}\n本阶段未产生结果（通常是瞬时故障）。在群里说「继续 ${ticket}」即可从 ${stage} 阶段重跑`,
+      );
       return;
     }
     const res = envelope.structured_output;
@@ -328,7 +341,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       summary: endLine,
       payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
     });
-    await port.notify(ticket, endLine);
+    // 事件流永远记研发版（看板/复盘要状态码）；群里按受众：业务口吻带步骤锚 + 结尾「接下来谁做什么」
+    await port.notify(ticket, audienceOf(profile) === 'business' ? bizEndLine(res, envelope.total_cost_usd, action) : endLine);
     // 阶段判某条历史知识与现状矛盾：当刻标「待复核」停注入，累计进状态，闭环时一张卡定夺（run/compound.ts）
     if (res.stale_hints?.length) {
       const flagged = await flagStaleHints(ticket, stage, res.stale_hints, port);
@@ -345,7 +359,9 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       if (stale.length) {
         await port.notify(
           ticket,
-          `⚠ 本轮 review 通过，但第 ${stale.join('、')} 轮 BLOCK 的阻断项之后未跑过修复轮——通过可能是漏检。放行前请对照 30-review-r${stale[stale.length - 1]}.md 核实阻断项确已消失`,
+          audienceOf(profile) === 'business'
+            ? staleBlockWarning()
+            : `⚠ 本轮 review 通过，但第 ${stale.join('、')} 轮 BLOCK 的阻断项之后未跑过修复轮——通过可能是漏检。放行前请对照 30-review-r${stale[stale.length - 1]}.md 核实阻断项确已消失`,
         );
       }
     }

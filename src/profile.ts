@@ -30,6 +30,8 @@ export interface PipelineProfile {
   engine: { default: string | null; byStage: Record<string, string> };
   /** 浏览器 e2e：`e2e: playwright` 时验收/评审阶段带 Playwright MCP（见 src/engine/e2e.ts）；缺省无 */
   e2e: 'playwright' | null;
+  /** 群消息受众：`audience: business` 时编排器模板说人话、带步骤锚与下一步动作（见 src/voice.ts）；缺省 it = 现状 */
+  audience: 'business' | 'it';
   /** 正文分节：小写标题 → 正文 */
   sections: Record<string, string>;
 }
@@ -79,6 +81,7 @@ export function parseProfile(md: string): PipelineProfile {
     release: RELEASE_MODES.includes(release) ? release : 'none',
     engine: { default: fm.engine ? fm.engine.toLowerCase() : null, byStage },
     e2e: /^playwright$/i.test(fm.e2e ?? '') ? 'playwright' : null,
+    audience: /^(business|业务)$/i.test((fm.audience ?? '').trim()) ? 'business' : 'it',
     sections,
   };
 }
@@ -146,6 +149,7 @@ acceptor: dev            # ops = 运营验收（卡片用业务措辞）/ dev = 
 release: none            # merge-develop / merge-master = 审批后自动合并 MR；manual = 人上线后点确认；none = 不设上线环节
 # engine: claude         # 执行引擎：claude（默认）/ codex；按阶段覆盖写 engine.review: codex（异构评审对冲非确定性）
 # e2e: playwright        # 验收/评审阶段带浏览器（Playwright MCP），页面类验收项先实测再留人工；需 testEnv 在跑
+# audience: business     # 群消息受众：business = 说人话、带步骤锚与下一步动作，不出现状态码/路径/分支；缺省 it = 研发版
 ---
 # ${alias} 流水线项目约定
 

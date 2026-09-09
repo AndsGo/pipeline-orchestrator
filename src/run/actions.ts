@@ -8,6 +8,7 @@ import type { InteractionPort } from '../ports.js';
 import type { PipelineProfile } from '../profile.js';
 import { previewUrl } from '../prototype.js';
 import type { Action, OpenQuestion, Stage, StageResult } from '../types.js';
+import { audienceOf, closeoutLine } from '../voice.js';
 import { deliverAndCompound, reviewKnowledge, reviewStaleHints, reviewSuggestions, reviewTerms } from './compound.js';
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
@@ -46,10 +47,11 @@ export async function ensureRejectionEvidence(
 }
 
 /** done：沉淀收尾（建议人审 → 交付文档 + 知识投影 → 知识/术语人审）并宣告闭环 */
-async function actDone(run: TicketRun, res: StageResult): Promise<void> {
+async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfile | null): Promise<void> {
   const { repo, ticket, port, project } = run;
+  const biz = audienceOf(profile) === 'business';
   // compound 的结论此前被通知逻辑丢弃（只有卡点阶段消费 summary_for_card），人根本不知道有教训沉淀
-  if (res.summary_for_card) await port.notify(ticket, `沉淀结论：${res.summary_for_card}`);
+  if (res.summary_for_card) await port.notify(ticket, `${biz ? '本单总结' : '沉淀结论'}：${res.summary_for_card}`);
   await reviewSuggestions(repo, ticket, port);
   const kb = await deliverAndCompound(repo, ticket, port, project);
   await reviewKnowledge(repo, ticket, port, kb.createdKnowledge, kb.updatedKnowledge);
@@ -62,7 +64,10 @@ async function actDone(run: TicketRun, res: StageResult): Promise<void> {
   }
   const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0);
   appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，$${total.toFixed(2)}` });
-  await port.notify(ticket, `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`);
+  await port.notify(
+    ticket,
+    biz ? closeoutLine(run.state.runs.length, total) : `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`,
+  );
 }
 
 /** gate：prd-confirm 先生成结果预览；先落盘 pendingGate 再弹卡 */
@@ -182,7 +187,7 @@ export async function dispatchAction(
 ): Promise<'continue' | 'return'> {
   switch (action.kind) {
     case 'done':
-      await actDone(run, res);
+      await actDone(run, res, profile);
       return 'return';
     case 'halt':
       run.state = { ...run.state, haltedReason: action.reason };
