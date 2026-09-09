@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
-import { activateKnowledge, activateTerms, publishKnowledge, publishTerms, setDeliveryDocLink } from '../bitable/sync.js';
+import { activateKnowledge, activateTerms, markKnowledge, publishKnowledge, publishTerms, setDeliveryDocLink } from '../bitable/sync.js';
 import { ticketDir } from '../config.js';
 import { appendEvent } from '../events.js';
 import { moveDocToWiki, publishMarkdownDoc } from '../feishu/docs.js';
@@ -104,6 +104,81 @@ export async function reviewKnowledge(
   await port.notify(
     ticket,
     ok === created.length ? `${ok} 条知识已生效，开始参与后续工单的提示` : `${ok}/${created.length} 条已生效，其余仍为待审（可在知识表手工处理）`,
+  );
+}
+
+/** 合并阶段回报的过时知识标题：去重、去空白（同一条可能被 clarify 与 review 各报一次） */
+export function mergeStaleHints(existing: string[] | undefined, incoming: string[] | undefined): string[] {
+  const out = [...(existing ?? [])];
+  for (const raw of incoming ?? []) {
+    const t = raw.trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * 阶段回报 stale_hints 的当刻处理：在知识表标「待复核」（activeOnly 不放行 → 立即停注入），记事件、告知群。
+ * 模型判「记忆已过时」准确率约 55%，所以这里只停不删——定夺留给闭环时 reviewStaleHints 的人审卡。
+ * 返回真正改成功的标题；表里找不到的（模型抄错标题）另行提示，不进待复核清单
+ */
+export async function flagStaleHints(
+  ticket: string,
+  stage: string,
+  titles: string[],
+  port: InteractionPort,
+): Promise<string[]> {
+  if (!titles.length) return [];
+  const flagged = await markKnowledge(titles, '待复核');
+  const missed = titles.filter((t) => !flagged.includes(t));
+  appendEvent({
+    ticket,
+    type: 'knowledge.stale',
+    stage,
+    summary: `${stage} 判 ${titles.length} 条历史知识与现状不符，${flagged.length} 条已标待复核：${titles.map((t) => t.slice(0, 40)).join('、')}`,
+  });
+  await port.notify(
+    ticket,
+    [
+      `🧹 ${stage} 阶段判断 ${titles.length} 条历史知识与代码现状不符：`,
+      ...titles.map((t) => `- ${t}${flagged.includes(t) ? '' : '（知识表里没找到这个标题，未处理）'}`),
+      flagged.length ? `已标「待复核」暂停注入；闭环时发卡定夺是失效还是恢复。` : '',
+      missed.length ? `找不到的 ${missed.length} 条请到 30-review/20-plan 正文核对原标题。` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
+  return flagged;
+}
+
+/**
+ * 闭环时对本单累计标「待复核」的知识发一张卡：通过 → 「已失效」；驳回 → 恢复「生效」。
+ * 不发卡就直接下线是把 55% 准确率的判断当真理；不发卡也不恢复则条目永远卡在待复核——两头都要有人拍板
+ */
+export async function reviewStaleHints(ticket: string, port: InteractionPort, titles: string[] | undefined): Promise<void> {
+  if (!titles?.length) return;
+  const detail = titles.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  appendEvent({ ticket, type: 'gate.asked', stage: 'compound', summary: `过时知识复核：${titles.length} 条待定夺` });
+  const d = await port.confirmGate(
+    ticket,
+    '过时知识复核',
+    `本单执行中有 ${titles.length} 条历史知识被判与代码现状不符，已暂停注入。通过 → 全部标「已失效」（保留历史）；驳回 → 恢复「生效」继续注入。拿不准就驳回，再到知识表逐条改。`,
+    [],
+    detail,
+  );
+  const status = d.approved ? '已失效' : '生效';
+  const ok = await markKnowledge(titles, status);
+  appendEvent({
+    ticket,
+    type: 'gate.answered',
+    stage: 'compound',
+    summary: `过时知识复核 → ${status} ${ok.length}/${titles.length}${d.note ? `（${d.note.slice(0, 80)}）` : ''}`,
+  });
+  await port.notify(
+    ticket,
+    ok.length === titles.length
+      ? `${ok.length} 条知识已标「${status}」`
+      : `${ok.length}/${titles.length} 条已标「${status}」，其余仍为待复核（可在知识表手工处理）`,
   );
 }
 

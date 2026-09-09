@@ -234,19 +234,24 @@ export async function activateTerms(names: string[]): Promise<number> {
   return ok;
 }
 
-/** 人审通过后把新条目从「待审」翻到「生效」。返回成功条数（best-effort，单条失败不阻塞） */
-export async function activateKnowledge(titles: string[]): Promise<number> {
+/** 批量改知识状态。返回改成功的标题（best-effort：找不到/改失败的跳过，可在表里手工翻） */
+export async function markKnowledge(titles: string[], status: string): Promise<string[]> {
   const board = BitableBoard.fromEnv();
-  if (!board) return 0;
-  let ok = 0;
+  if (!board) return [];
+  const ok: string[] = [];
   for (const t of titles) {
     try {
-      if (await board.setKnowledgeStatus(t, '生效')) ok++;
+      if (await board.setKnowledgeStatus(t, status)) ok.push(t);
     } catch {
-      /* 留在待审，可在表里手工翻 */
+      /* 见上 */
     }
   }
   return ok;
+}
+
+/** 人审通过后把新条目从「待审」翻到「生效」。返回成功条数 */
+export async function activateKnowledge(titles: string[]): Promise<number> {
+  return (await markKnowledge(titles, '生效')).length;
 }
 
 export async function setDeliveryDocLink(ticket: string, url: string, wikiUrl?: string | null): Promise<void> {

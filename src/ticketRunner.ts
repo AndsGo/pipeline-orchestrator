@@ -14,6 +14,7 @@ import { readProfile } from './profile.js';
 import { ciJobFor, type Project } from './projects.js';
 import type { generatePrototype } from './prototype.js';
 import { dispatchAction } from './run/actions.js';
+import { flagStaleHints, mergeStaleHints } from './run/compound.js';
 import { TicketRun } from './run/context.js';
 import { reaskPendingGate } from './run/gates.js';
 import { handleHalted } from './run/halt.js';
@@ -328,6 +329,14 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
     });
     await port.notify(ticket, endLine);
+    // 阶段判某条历史知识与现状矛盾：当刻标「待复核」停注入，累计进状态，闭环时一张卡定夺（run/compound.ts）
+    if (res.stale_hints?.length) {
+      const flagged = await flagStaleHints(ticket, stage, res.stale_hints, port);
+      if (flagged.length) {
+        run.state = { ...run.state, staleHints: mergeStaleHints(run.state.staleHints, flagged) };
+        run.save();
+      }
+    }
 
     // 评审通过但既往 BLOCK 未经修复轮：单独在群里喊一声，不能只藏在放行卡的 concerns 里
     // （未配 CI 时根本没有放行卡，这条就是唯一的警示通道）

@@ -8,7 +8,7 @@ import type { InteractionPort } from '../ports.js';
 import type { PipelineProfile } from '../profile.js';
 import { previewUrl } from '../prototype.js';
 import type { Action, OpenQuestion, Stage, StageResult } from '../types.js';
-import { deliverAndCompound, reviewKnowledge, reviewSuggestions, reviewTerms } from './compound.js';
+import { deliverAndCompound, reviewKnowledge, reviewStaleHints, reviewSuggestions, reviewTerms } from './compound.js';
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
 
@@ -54,6 +54,12 @@ async function actDone(run: TicketRun, res: StageResult): Promise<void> {
   const kb = await deliverAndCompound(repo, ticket, port, project);
   await reviewKnowledge(repo, ticket, port, kb.createdKnowledge, kb.updatedKnowledge);
   await reviewTerms(repo, ticket, port);
+  // 本单各阶段标「待复核」的历史知识：闭环时一张卡定夺失效/恢复，答完即清（否则重进 runner 会再问一遍）
+  await reviewStaleHints(ticket, port, run.state.staleHints);
+  if (run.state.staleHints?.length) {
+    run.state = { ...run.state, staleHints: undefined };
+    run.save();
+  }
   const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0);
   appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，$${total.toFixed(2)}` });
   await port.notify(ticket, `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`);

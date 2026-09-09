@@ -87,9 +87,10 @@ export const KB_KINDS = ['踩坑', '项目常识', '流程改进', '决策先例
 export const KB_SCOPES = ['本项目', '技术栈', '执行环境', '流程'];
 /**
  * 状态门：新条目「待审」，人审通过才「生效」参与注入，纠错走「已失效」（保留历史，不删）。
+ * 「待复核」：某阶段回报该条与代码现状矛盾（stale_hints），先停注入，闭环人审卡定夺是失效还是恢复生效。
  * 没有人审门的自动写入记忆，最终都会变成提示词污染源。
  */
-export const KB_STATUSES = ['待审', '生效', '已失效'];
+export const KB_STATUSES = ['待审', '生效', '待复核', '已失效'];
 export const KB_FIELDS: FieldDef[] = [
   text('标题'), // 主字段
   text('项目'),

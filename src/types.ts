@@ -20,6 +20,8 @@ export interface StageResult {
   summary_for_card: string;
   open_questions?: OpenQuestion[];
   concerns?: string[];
+  /** 05-knowledge-hints.md 中与代码/环境现状矛盾的条目标题（阶段的提议；编排器标「待复核」，闭环人审） */
+  stale_hints?: string[];
   blocked_reason?: string | null;
   verdict?: Verdict;
   /** review 定稿的双轴清点（Spec 轴 + 质量轴，两轴永不合并排序） */
@@ -108,6 +110,11 @@ export interface TicketState {
    * releaseApproved：上线审批已通过（自动合并失败时据此重试合并而不重发审批卡）；released：上线动作已完成。
    */
   postReleaseChecks?: OpenQuestion[];
+  /**
+   * 本单各阶段回报的过时知识标题（去重累计）。回报当刻即在知识表标「待复核」停注入，
+   * 闭环时一张卡定夺：通过 → 已失效，驳回 → 恢复生效。落盘是为了 runner 重启后卡不丢
+   */
+  staleHints?: string[];
   releaseApproved?: boolean;
   released?: boolean;
   runs: RunRecord[];
