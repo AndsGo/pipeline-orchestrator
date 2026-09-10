@@ -61,6 +61,17 @@ process.on('uncaughtException', (err) => {
   log(`未捕获异常，进程退出交由看门狗拉起：${err.message.slice(0, 300)}`);
   process.exit(1);
 });
+// 退出留痕：2026-09-10 20:44～20:51 daemon 在写回在线表期间无声消失——没有停止信号、没有异常、没有 FATAL，
+// 只有看门狗一句 dead。再发生时至少要知道是谁调的 exit、退出码多少、当时占了多少内存
+process.on('exit', (code) => {
+  console.log(`[daemon] ${new Date().toISOString()} 进程退出 code=${code} rss=${Math.round(process.memoryUsage().rss / 1048576)}MB`);
+});
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
+  process.on(sig, () => {
+    log(`收到 ${sig}，退出`);
+    process.exit(0);
+  });
+}
 
 /** 已有工单的项目归属：优先快照里固化的，其次按工单号前缀推断 */
 function projectOf(ticket: string): Project | null {

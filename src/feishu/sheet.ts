@@ -179,12 +179,20 @@ export class SheetService {
    */
   async embedImages(ref: SheetRef, sheetId: string, rows: string[][], assetsDir: string, names: Set<string>): Promise<Set<string>> {
     const done = new Set<string>();
+    let tried = 0;
     for (let r = 0; r < rows.length; r++) {
       for (let c = 0; c < rows[r].length; c++) {
         const name = rows[r][c].trim();
         if (!names.has(name)) continue;
         const file = path.join(assetsDir, name);
         if (!fs.existsSync(file)) continue;
+        // 单张 >5MB 不嵌（base64 后请求体太大），留文件名走附件兜底
+        if (fs.statSync(file).size > 5 * 1024 * 1024) {
+          console.warn(`[sheet] 跳过嵌图 ${name}：超过 5MB`);
+          continue;
+        }
+        // 进度与内存留痕：2026-09-10 一轮 282 张嵌图期间 daemon 无声退出、无任何报错，下次要看得见走到哪
+        if (++tried % 25 === 1) console.log(`[sheet] 嵌图进度 ${tried}/${names.size}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB`);
         try {
           await this.client.request({
             method: 'POST',

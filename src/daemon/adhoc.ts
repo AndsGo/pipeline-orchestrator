@@ -115,6 +115,14 @@ export async function execAdhoc(
         opts?.chat,
       );
     } else {
+      // 结果卡先发：写回在线表可能要几分钟（282 张嵌图 ≈ 6 分钟），人不该盲等；
+      // 2026-09-10 真机：daemon 在写回中途无声退出，结果卡没发出去，人只能问「完成情况」
+      const mid = await port.sendResult(
+        `执行结果 · ${project.alias}`,
+        r.text,
+        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里直接回复即可继续这次任务）`,
+        opts?.chat,
+      );
       // 在线表：已绑 → 会话改了 sheet.csv 就写回；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
       // 任一步失败都退回「按附件发」：文件留在出件箱，下面照常发出
       let sheet = boundSheet;
@@ -181,12 +189,6 @@ export async function execAdhoc(
       saveLastRunFor(chatId, rec);
       // 话题 = 会话：在话题里跑的这轮记到话题上，下一句不用引用卡、不用 /re 就能续（src/threads.ts）
       if (rootId && chatId) rememberThreadRun(rootId, chatId, rec);
-      const mid = await port.sendResult(
-        `执行结果 · ${project.alias}`,
-        r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里直接回复即可继续这次任务）`,
-        opts?.chat,
-      );
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
       if (sheetNote) {
