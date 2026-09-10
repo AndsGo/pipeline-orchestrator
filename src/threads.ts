@@ -130,8 +130,10 @@ export function routeInThread(cmd: Command, th: ThreadRec | null, text: string, 
     }
   }
   if ((th?.run || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown')) {
-    // 话题里人习惯照旧打 /run、/re（真机 2026-09-10）：续聊正文不该带着指令前缀
-    return { kind: 'followup', text: text.replace(/^\/(re|run)\s*/i, '').trim() || '继续' };
+    // 话题里人习惯照旧打 /run、/re（真机 2026-09-10）：续聊正文不该带着指令前缀。
+    // 分类器判出的对外副作用要带过去：run 变成 followup 不能把部署/推送的确认闸门一起变没
+    const sideEffect = cmd.kind === 'run' || cmd.kind === 'followup' ? cmd.sideEffect : undefined;
+    return { kind: 'followup', text: text.replace(/^\/(re|run)\s*/i, '').trim() || '继续', ...(sideEffect ? { sideEffect } : {}) };
   }
   return cmd;
 }

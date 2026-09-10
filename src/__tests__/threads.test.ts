@@ -92,6 +92,8 @@ describe('threads：话题 = 会话（设计稿 2026-09-09-thread-context）', (
       expect(routeInThread({ kind: 'run', text: '再看看 B 方案' }, runTh, '再看看 B 方案', false)).toEqual({ kind: 'followup', text: '再看看 B 方案' });
       expect(routeInThread({ kind: 'unknown', text: '/re 1' }, null, '/re 1', true)).toEqual({ kind: 'followup', text: '1' });
       expect(routeInThread({ kind: 'run', text: '再看 B' }, runTh, '/run 再看 B', false)).toEqual({ kind: 'followup', text: '再看 B' });
+      // 分类器标了对外副作用：run 变 followup 不能把确认闸门变没
+      expect(routeInThread({ kind: 'run', text: '推一下', sideEffect: true }, runTh, '推一下', false)).toEqual({ kind: 'followup', text: '推一下', sideEffect: true });
       const status: Command = { kind: 'status', ticket: 'LS-1' };
       expect(routeInThread(status, runTh, '', false)).toBe(status);
     });

@@ -29,7 +29,7 @@ export type Command =
    */
   | { kind: 'run'; project?: string; text: string; sideEffect?: boolean }
   /** 续聊：回复上一次 /run 的收尾问题，新会话拼上次输出接着办（见 followup.ts） */
-  | { kind: 'followup'; text: string; quotedMessageId?: string }
+  | { kind: 'followup'; text: string; quotedMessageId?: string; /** 续聊也可能要求部署/推送：闸门同 run */ sideEffect?: boolean }
   /** 群内接入新项目（2026-08-31 用户在群里问「可以在对话中添加吗」——此前只有终端向导） */
   | { kind: 'addproject'; alias: string; repo: string; prefix: string; gitlab?: string; jenkins?: string; wiki?: string }
   /** 项目粘性：本群后续消息默认按该项目处理（不带别名 = 查看当前）；见 sticky.ts 头注 */
@@ -487,7 +487,7 @@ export function normalize(
       // （"…属于只读诊断操作"），于是用户的现象描述和 URL 全丢了，执行会话拿到一段推理当需求
       return { kind: 'run', text: original, sideEffect: so.side_effect === true };
     case 'followup':
-      return { kind: 'followup', text: original };
+      return { kind: 'followup', text: original, sideEffect: so.side_effect === true };
     case 'help':
       return { kind: 'help' };
     case 'list':
