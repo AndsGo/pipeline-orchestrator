@@ -39,7 +39,7 @@ export interface LastRun {
   /** 本链条第一轮的用户原话：拼接降级时防止原始任务在第 2 轮后丢失 */
   origin?: string;
   /** 这次会话绑定的在线电子表格（会话产出表格 → 机器人建表，之后原地写回；见 feishu/sheet.ts）。跟着会话走，续法无关 */
-  sheet?: { token: string; url: string; sheetId: string };
+  sheet?: { token: string; url: string; sheetId: string; title?: string; /** 附件夹（图片传这里、表里放链接），首次用到时建 */ assetsFolder?: string };
   /**
    * 整段对话（首轮到本轮，按序）。建单要带走的是全部结论，不是最后一轮——续聊时 output 逐轮覆盖，
    * 中间轮次聊出来的东西以前只存在于 data/adhoc/ 留痕里。会话本身仍靠 sessionId --resume 复用，不重放。

@@ -62,7 +62,7 @@ export async function execAdhoc(
   const pages = sheetBefore ? Object.keys(sheetBefore).map((n) => n.replace(/\.csv$/i, '')) : [];
   const sheetLine =
     boundSheet && sheetBefore
-      ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
+      ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。**图片等附件放到 ${outbox}/sheet/assets/ 下，单元格里只写文件名**——我会把它们传到这张表的附件夹并把文件名替换成可点开的链接，不会刷进群。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
   const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑）`;
   try {
@@ -121,9 +121,21 @@ export async function execAdhoc(
       if (port.sheets) {
         try {
           if (sheet && sheetBefore) {
+            // 附件：sheet/assets/ 里的图片传到这张表的附件夹，表里的文件名换成链接（不刷进群）
+            const assetsDir = path.join(sheetDir, 'assets');
+            let assetNote = '';
+            if (fs.existsSync(assetsDir) && fs.readdirSync(assetsDir).length) {
+              if (!sheet.assetsFolder) sheet = { ...sheet, assetsFolder: await port.sheets().ensureAssetsFolder(sheet.title ?? sheet.token.slice(-8)) };
+              const a = await port.sheets().uploadAssetsAndLinkify(sheetDir, sheet.assetsFolder!);
+              const n = Object.keys(a.links).length;
+              assetNote = `${n ? `，${n} 个附件已入附件夹并在表中挂链接` : ''}${a.failed.length ? `，${a.failed.length} 个附件上传失败（${a.failed.join('、')}）` : ''}`;
+              // 上传成功的附件不再作为群附件发；失败的留给下面的出件箱兜底
+              for (const name of Object.keys(a.links)) fs.rmSync(path.join(assetsDir, name), { force: true });
+              for (const name of a.failed) fs.renameSync(path.join(assetsDir, name), path.join(outbox, name));
+            }
             const w = await port.sheets().importDir(sheet, sheetDir, sheetBefore);
-            if (w.updated.length || w.added.length) {
-              sheetNote = `📊 在线表已更新${w.updated.length ? `（改了：${w.updated.join('、')}）` : ''}${w.added.length ? `（新增页：${w.added.join('、')}）` : ''}：${sheet.url}`;
+            if (w.updated.length || w.added.length || assetNote) {
+              sheetNote = `📊 在线表已更新${w.updated.length ? `（改了：${w.updated.join('、')}）` : ''}${w.added.length ? `（新增页：${w.added.join('、')}）` : ''}${assetNote}：${sheet.url}`;
             }
           } else if (!sheet) {
             const table = collectOutbox(outbox).files.find((f) => /\.(csv|xlsx)$/i.test(f));

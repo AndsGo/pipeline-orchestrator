@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colLetter, coverRange, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 describe('sheetCsv：在线表 ↔ CSV 往返', () => {
   it('parse：引号包裹的逗号/换行/双引号，CRLF，BOM，尾行无换行', () => {
@@ -34,6 +34,16 @@ describe('sheetCsv：在线表 ↔ CSV 往返', () => {
     expect(sheetFileName('两步生成测试结果')).toBe('两步生成测试结果.csv');
     expect(sheetFileName('a/b:c*d?e"f<g>h|i')).toBe('a_b_c_d_e_f_g_h_i.csv');
     expect(sheetFileName('  ')).toBe('Sheet.csv');
+  });
+
+  it('linkifyCells：整格等于文件名换成链接；格内提到文件名补「（链接）」；已含链接不重复；无映射原样返回', () => {
+    const links = { 'a.png': 'https://x/a', 'a.png.bak': 'https://x/b' };
+    const rows = [['类目', 'a.png', '见 a.png 与 a.png.bak'], ['已挂 a.png（https://x/a）', 'none']];
+    expect(linkifyCells(rows, links)).toEqual([
+      ['类目', 'https://x/a', '见 a.png（https://x/a） 与 a.png.bak（https://x/b）'],
+      ['已挂 a.png（https://x/a）', 'none'],
+    ]);
+    expect(linkifyCells(rows, {})).toBe(rows);
   });
 
   it('coverRange：范围盖住新旧内容的最大行列，缩短的部分写空串清掉', () => {

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type * as lark from '@larksuiteoapi/node-sdk';
-import { colLetter, coverRange, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 /**
  * 在线电子表格（会话产出的表格类文件不再来回传 xlsx，而是「机器人建表、人和会话都往同一张表里写」）。
@@ -14,6 +14,8 @@ export interface SheetRef {
   url: string;
   /** 第一个工作表的 id（values 接口的 range 前缀） */
   sheetId: string;
+  /** 表名（建附件夹时用） */
+  title?: string;
 }
 
 /** SDK 对部分接口把 data 拆开直接返回（2026-09-10 实测 im.file.create），统一取法 */
@@ -76,7 +78,7 @@ export class SheetService {
     } catch (e) {
       console.warn(`[sheet] 设置链接共享失败（表已建好，需手动共享）：${(e as Error).message.slice(0, 160)}`);
     }
-    return { token, url, sheetId: await this.firstSheetId(token) };
+    return { token, url, sheetId: await this.firstSheetId(token), title };
   }
 
   private rootToken?: string;
@@ -95,6 +97,40 @@ export class SheetService {
     const id = res?.sheets?.[0]?.sheet_id;
     if (!id) throw new Error('查不到工作表 id');
     return id;
+  }
+
+  /**
+   * 附件夹：每张在线表配一个云空间文件夹（<表名>-附件，组织内可读），会话产出的图片传进去、表格单元格放链接——
+   * 图片不再刷进群（2026-09-10 真机：一轮 30 张图发进话题，用户要求「追加到在线表格中即可」）
+   */
+  async ensureAssetsFolder(title: string): Promise<string> {
+    const root = await this.rootFolderToken();
+    const res = unwrap<{ token?: string }>(
+      await this.client.request({ method: 'POST', url: '/open-apis/drive/v1/files/create_folder', data: { name: `${title}-附件`, folder_token: root } }),
+    );
+    if (!res?.token) throw new Error('建附件夹未返回 token');
+    // 文件夹的公开权限接口对 folder 恒「field validation failed」（2026-09-10 实测三种字段组合），共享放到每个文件上做
+    return res.token;
+  }
+
+  /** 上传一个附件到附件夹并设为组织内可读，返回可点开的链接 */
+  async uploadAsset(folderToken: string, file: string): Promise<string> {
+    const up = unwrap<{ file_token?: string; url?: string }>(
+      await this.client.drive.file.uploadAll({
+        data: { file_name: path.basename(file), parent_type: 'explorer', parent_node: folderToken, size: fs.statSync(file).size, file: fs.createReadStream(file) },
+      }),
+    );
+    if (!up?.file_token) throw new Error(`上传 ${path.basename(file)} 未返回 file_token`);
+    try {
+      await this.client.drive.permissionPublic.patch({
+        path: { token: up.file_token },
+        params: { type: 'file' },
+        data: { external_access: false, link_share_entity: 'tenant_readable', share_entity: 'anyone' },
+      });
+    } catch (e) {
+      console.warn(`[sheet] 附件共享设置失败 ${path.basename(file)}（已上传，链接可能打不开）：${(e as Error).message.slice(0, 120)}`);
+    }
+    return up.url ?? `https://open.feishu.cn/open-apis/drive/v1/files/${up.file_token}`;
   }
 
   /** 全部工作表（导入的 xlsx 常有多个 sheet 页；2026-09-10 首个真机文件就有 3 页） */
@@ -160,6 +196,36 @@ export class SheetService {
       out[name] = csv;
     }
     return out;
+  }
+
+  /**
+   * 把 assets/ 里的附件上传到附件夹，并把各 csv 里的文件名替换成链接。返回 {文件名 → 链接}。
+   * 单个上传失败跳过（文件名留在表里，附件本身随后按普通出件箱附件发出）
+   */
+  async uploadAssetsAndLinkify(sheetDir: string, folderToken: string): Promise<{ links: Record<string, string>; failed: string[] }> {
+    const assetsDir = path.join(sheetDir, 'assets');
+    const links: Record<string, string> = {};
+    const failed: string[] = [];
+    if (!fs.existsSync(assetsDir)) return { links, failed };
+    for (const name of fs.readdirSync(assetsDir).sort()) {
+      const f = path.join(assetsDir, name);
+      if (!fs.statSync(f).isFile()) continue;
+      try {
+        links[name] = await this.uploadAsset(folderToken, f);
+      } catch (e) {
+        console.warn(`[sheet] 附件上传失败 ${name}：${(e as Error).message.slice(0, 120)}`);
+        failed.push(name);
+      }
+    }
+    if (Object.keys(links).length) {
+      for (const csvName of fs.readdirSync(sheetDir).filter((n) => n.toLowerCase().endsWith('.csv'))) {
+        const p = path.join(sheetDir, csvName);
+        const rows = parseCsv(fs.readFileSync(p, 'utf-8'));
+        const linked = linkifyCells(rows, links);
+        if (JSON.stringify(linked) !== JSON.stringify(rows)) fs.writeFileSync(p, toCsv(linked), 'utf-8');
+      }
+    }
+    return { links, failed };
   }
 
   /**

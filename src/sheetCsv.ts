@@ -64,6 +64,26 @@ export function sheetFileName(title: string): string {
   return `${title.replace(/[\\/:*?"<>|]/g, '_').trim() || 'Sheet'}.csv`;
 }
 
+/**
+ * 把单元格里的附件文件名换成链接：整格等于文件名 → 链接；格内提到文件名 → 原文后接「（链接）」。
+ * 会话在表里只写文件名（它拿不到 URL），编排器上传后再替换
+ */
+export function linkifyCells(rows: string[][], links: Record<string, string>): string[][] {
+  const names = Object.keys(links).sort((a, b) => b.length - a.length);
+  if (!names.length) return rows;
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 整词匹配：a.png 不能命中 a.png.bak 里的前缀；已跟着「（」的（上一轮挂过链接）不重复
+  const res = names.map((n) => [n, new RegExp(`(?<![\\w.\\-])${esc(n)}(?![\\w.\\-（])`, 'g')] as const);
+  return rows.map((r) =>
+    r.map((cell) => {
+      if (links[cell.trim()]) return links[cell.trim()];
+      let out = cell;
+      for (const [n, re] of res) out = out.replace(re, `${n}（${links[n]}）`);
+      return out;
+    }),
+  );
+}
+
 /** 补齐成矩形（电子表格写入要求每行等长），空位用空串 */
 export function rectangular(rows: string[][]): string[][] {
   const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
