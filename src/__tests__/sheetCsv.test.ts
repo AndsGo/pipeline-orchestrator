@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colLetter, coverRange, parseCsv, rectangular, toCsv } from '../sheetCsv.js';
+import { colLetter, coverRange, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 describe('sheetCsv：在线表 ↔ CSV 往返', () => {
   it('parse：引号包裹的逗号/换行/双引号，CRLF，BOM，尾行无换行', () => {
@@ -23,6 +23,17 @@ describe('sheetCsv：在线表 ↔ CSV 往返', () => {
   it('rectangular 补齐；colLetter：1→A、26→Z、27→AA、702→ZZ', () => {
     expect(rectangular([['a'], ['b', 'c', 'd']])).toEqual([['a', '', ''], ['b', 'c', 'd']]);
     expect([1, 26, 27, 702].map(colLetter)).toEqual(['A', 'Z', 'AA', 'ZZ']);
+  });
+
+  it('trimEmpty：去掉尾部空行与每行尾部空格子（导入默认 200×20 网格全是空串）', () => {
+    expect(trimEmpty([['a', '', ''], ['', 'b', ''], ['', '', ''], ['', '', '']])).toEqual([['a'], ['', 'b']]);
+    expect(trimEmpty([['', ''], ['', '']])).toEqual([]);
+  });
+
+  it('sheetFileName：工作表标题去掉禁用字符后作 csv 文件名；空标题回落 Sheet', () => {
+    expect(sheetFileName('两步生成测试结果')).toBe('两步生成测试结果.csv');
+    expect(sheetFileName('a/b:c*d?e"f<g>h|i')).toBe('a_b_c_d_e_f_g_h_i.csv');
+    expect(sheetFileName('  ')).toBe('Sheet.csv');
   });
 
   it('coverRange：范围盖住新旧内容的最大行列，缩短的部分写空串清掉', () => {

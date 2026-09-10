@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type * as lark from '@larksuiteoapi/node-sdk';
-import { colLetter, coverRange, parseCsv, rectangular, toCsv } from '../sheetCsv.js';
+import { colLetter, coverRange, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 /**
  * 在线电子表格（会话产出的表格类文件不再来回传 xlsx，而是「机器人建表、人和会话都往同一张表里写」）。
@@ -97,55 +97,102 @@ export class SheetService {
     return id;
   }
 
-  /** 首表当前的行列数（values 接口对超大范围直接不返回数据，所以按实际网格读） */
-  private async gridSize(ref: SheetRef): Promise<{ rows: number; cols: number }> {
-    const res = unwrap<{ sheets?: Array<{ sheet_id?: string; grid_properties?: { row_count?: number; column_count?: number } }> }>(
+  /** 全部工作表（导入的 xlsx 常有多个 sheet 页；2026-09-10 首个真机文件就有 3 页） */
+  async listSheets(ref: SheetRef): Promise<Worksheet[]> {
+    const res = unwrap<{ sheets?: Array<{ sheet_id?: string; title?: string; grid_properties?: { row_count?: number; column_count?: number } }> }>(
       await this.client.request({ method: 'GET', url: `/open-apis/sheets/v3/spreadsheets/${ref.token}/sheets/query` }),
     );
-    const g = res?.sheets?.find((s) => s.sheet_id === ref.sheetId)?.grid_properties;
-    return { rows: g?.row_count ?? 0, cols: g?.column_count ?? 0 };
+    return (res?.sheets ?? [])
+      .filter((s) => s.sheet_id)
+      .map((s) => ({ id: s.sheet_id!, title: s.title ?? s.sheet_id!, rows: s.grid_properties?.row_count ?? 0, cols: s.grid_properties?.column_count ?? 0 }));
   }
 
-  /** 读整张首表（按网格实际大小）；空表返回 [] */
-  async readAll(ref: SheetRef): Promise<string[][]> {
-    const { rows: nRows, cols: nCols } = await this.gridSize(ref);
-    if (!nRows || !nCols) return [];
+  /** 读一张工作表（按网格实际大小；values 接口对超大范围静默返回空）；去掉尾部空行空列 */
+  async readAll(ref: SheetRef, ws?: Worksheet): Promise<string[][]> {
+    const sheet = ws ?? (await this.listSheets(ref)).find((s) => s.id === ref.sheetId);
+    if (!sheet || !sheet.rows || !sheet.cols) return [];
     const res = unwrap<{ valueRange?: { values?: unknown[][] } }>(
       await this.client.request({
         method: 'GET',
-        url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${ref.sheetId}!A1:${colLetter(nCols)}${nRows}`,
+        url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values/${sheet.id}!A1:${colLetter(sheet.cols)}${sheet.rows}`,
         params: { valueRenderOption: 'ToString' },
       }),
     );
     const values = res?.valueRange?.values ?? [];
-    const rows = values.map((r) => r.map((c) => (c === null || c === undefined ? '' : String(c))));
-    // 去掉尾部全空行
-    while (rows.length && rows[rows.length - 1].every((c) => c === '')) rows.pop();
-    return rows;
+    return trimEmpty(values.map((r) => r.map((c) => (c === null || c === undefined ? '' : String(c)))));
   }
 
-  /** 用 rows 覆盖首表（旧内容多出来的格子写空清掉） */
-  async writeAll(ref: SheetRef, rows: string[][], oldRows: string[][]): Promise<void> {
+  /** 用 rows 覆盖某工作表（旧内容多出来的格子写空清掉） */
+  async writeAll(ref: SheetRef, rows: string[][], oldRows: string[][], sheetId = ref.sheetId): Promise<void> {
     const { range, values } = coverRange(rectangular(rows), oldRows);
     await this.client.request({
       method: 'PUT',
       url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values`,
-      data: { valueRange: { range: `${ref.sheetId}!${range}`, values } },
+      data: { valueRange: { range: `${sheetId}!${range}`, values } },
     });
   }
 
-  /** 表 → 本地 csv（给会话读）。返回落盘内容，供事后比对会话有没有改 */
-  async exportCsv(ref: SheetRef, file: string): Promise<string> {
-    const csv = toCsv(await this.readAll(ref));
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, csv, 'utf-8');
-    return csv;
+  /** 新增一个工作表，返回其 id */
+  async addSheet(ref: SheetRef, title: string): Promise<string> {
+    const res = unwrap<{ replies?: Array<{ addSheet?: { properties?: { sheetId?: string } } }> }>(
+      await this.client.request({
+        method: 'POST',
+        url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/sheets_batch_update`,
+        data: { requests: [{ addSheet: { properties: { title } } }] },
+      }),
+    );
+    const id = res?.replies?.[0]?.addSheet?.properties?.sheetId;
+    if (!id) throw new Error(`新增工作表「${title}」未返回 id`);
+    return id;
   }
 
-  /** 本地 csv → 表（会话改完写回）。返回写了多少行 */
-  async importCsvInto(ref: SheetRef, file: string): Promise<number> {
-    const rows = parseCsv(fs.readFileSync(file, 'utf-8'));
-    await this.writeAll(ref, rows, await this.readAll(ref));
-    return rows.length;
+  /**
+   * 整本表 → 目录下每页一个 csv（文件名 = 工作表标题），给会话读。
+   * 返回 {文件名 → csv 内容}，供事后比对会话改了哪几页
+   */
+  async exportDir(ref: SheetRef, dir: string): Promise<Record<string, string>> {
+    fs.mkdirSync(dir, { recursive: true });
+    const out: Record<string, string> = {};
+    for (const ws of await this.listSheets(ref)) {
+      const name = sheetFileName(ws.title);
+      const csv = toCsv(await this.readAll(ref, ws));
+      fs.writeFileSync(path.join(dir, name), csv, 'utf-8');
+      out[name] = csv;
+    }
+    return out;
   }
+
+  /**
+   * 目录 → 整本表：改过的页覆盖写回，新出现的 csv 新建工作表；目录里没有的页不动（会话没提到 ≠ 要删）。
+   * 返回写回/新建的页名
+   */
+  async importDir(ref: SheetRef, dir: string, before: Record<string, string>): Promise<{ updated: string[]; added: string[] }> {
+    const updated: string[] = [];
+    const added: string[] = [];
+    if (!fs.existsSync(dir)) return { updated, added };
+    const sheets = await this.listSheets(ref);
+    for (const name of fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.csv')).sort()) {
+      const csv = fs.readFileSync(path.join(dir, name), 'utf-8');
+      if (before[name] !== undefined && before[name] === csv) continue; // 没改
+      const rows = parseCsv(csv);
+      const ws = sheets.find((s) => sheetFileName(s.title) === name);
+      if (ws) {
+        await this.writeAll(ref, rows, await this.readAll(ref, ws), ws.id);
+        updated.push(ws.title);
+      } else {
+        const title = name.replace(/\.csv$/i, '');
+        const id = await this.addSheet(ref, title);
+        await this.writeAll(ref, rows, [], id);
+        added.push(title);
+      }
+    }
+    return { updated, added };
+  }
+}
+
+export interface Worksheet {
+  id: string;
+  title: string;
+  rows: number;
+  cols: number;
 }

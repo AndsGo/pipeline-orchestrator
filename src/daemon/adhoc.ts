@@ -50,18 +50,19 @@ export async function execAdhoc(
   let keepOutbox = false;
   // 在线表（feishu/sheet.ts）：会话绑了表就把最新内容导成 outbox/sheet.csv 给它读——人可能在网页里改过
   const boundSheet = opts?.prev?.sheet;
-  const sheetCsvFile = path.join(outbox, 'sheet.csv');
-  let sheetCsvBefore: string | null = null;
+  const sheetDir = path.join(outbox, 'sheet');
+  let sheetBefore: Record<string, string> | null = null;
   if (boundSheet && port.sheets) {
     try {
-      sheetCsvBefore = await port.sheets().exportCsv(boundSheet, sheetCsvFile);
+      sheetBefore = await port.sheets().exportDir(boundSheet, sheetDir);
     } catch (e) {
       log(`  在线表导出失败（本轮不带表）：${(e as Error).message.slice(0, 160)}`);
     }
   }
+  const pages = sheetBefore ? Object.keys(sheetBefore).map((n) => n.replace(/\.csv$/i, '')) : [];
   const sheetLine =
-    boundSheet && sheetCsvBefore !== null
-      ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，最新内容已导出到 ${outbox}/sheet.csv——人可能在网页里改过，以它为准。要更新这张表就直接改写这个文件（保持 CSV 格式、不要另存新文件），结束后我会写回同一张表；不要把 sheet.csv 当作要发给用户的附件。）\n\n`
+    boundSheet && sheetBefore
+      ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
   const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑）`;
   try {
@@ -119,13 +120,11 @@ export async function execAdhoc(
       let sheetNote = '';
       if (port.sheets) {
         try {
-          if (sheet && sheetCsvBefore !== null) {
-            const after = fs.existsSync(sheetCsvFile) ? fs.readFileSync(sheetCsvFile, 'utf-8') : null;
-            if (after !== null && after !== sheetCsvBefore) {
-              const n = await port.sheets().importCsvInto(sheet, sheetCsvFile);
-              sheetNote = `📊 在线表已更新（${n} 行）：${sheet.url}`;
+          if (sheet && sheetBefore) {
+            const w = await port.sheets().importDir(sheet, sheetDir, sheetBefore);
+            if (w.updated.length || w.added.length) {
+              sheetNote = `📊 在线表已更新${w.updated.length ? `（改了：${w.updated.join('、')}）` : ''}${w.added.length ? `（新增页：${w.added.join('、')}）` : ''}：${sheet.url}`;
             }
-            fs.rmSync(sheetCsvFile, { force: true }); // 会话没改或已写回，都不作为附件发
           } else if (!sheet) {
             const table = collectOutbox(outbox).files.find((f) => /\.(csv|xlsx)$/i.test(f));
             if (table) {

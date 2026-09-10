@@ -48,6 +48,22 @@ export function toCsv(rows: ReadonlyArray<ReadonlyArray<unknown>>): string {
   return rows.map((r) => r.map(esc).join(',')).join('\n') + (rows.length ? '\n' : '');
 }
 
+/** 去掉尾部全空的行与每行尾部的空格子（导入产生的 200×20 默认网格读出来全是空串） */
+export function trimEmpty(rows: string[][]): string[][] {
+  const out = rows.map((r) => {
+    let end = r.length;
+    while (end > 0 && r[end - 1] === '') end--;
+    return r.slice(0, end);
+  });
+  while (out.length && out[out.length - 1].length === 0) out.pop();
+  return out;
+}
+
+/** 工作表标题 → 文件名（去掉路径分隔符与 Windows 禁用字符） */
+export function sheetFileName(title: string): string {
+  return `${title.replace(/[\\/:*?"<>|]/g, '_').trim() || 'Sheet'}.csv`;
+}
+
 /** 补齐成矩形（电子表格写入要求每行等长），空位用空串 */
 export function rectangular(rows: string[][]): string[][] {
   const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
