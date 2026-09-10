@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colLetter, coverRange, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, planAssets, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 describe('sheetCsv：在线表 ↔ CSV 往返', () => {
   it('parse：引号包裹的逗号/换行/双引号，CRLF，BOM，尾行无换行', () => {
@@ -44,6 +44,26 @@ describe('sheetCsv：在线表 ↔ CSV 往返', () => {
       ['已挂 a.png（https://x/a）', 'none'],
     ]);
     expect(linkifyCells(rows, {})).toBe(rows);
+  });
+
+  it('diffRanges：只写改动的格子，按行分连续段；嵌图占位未变不碰；缩短部分写空清掉', () => {
+    const old = [['a', IMAGE_PLACEHOLDER, 'c', 'd'], ['e', 'f'], ['g']];
+    const cur = [['a', IMAGE_PLACEHOLDER, 'C', 'D'], ['e', 'f', 'x'], []];
+    expect(diffRanges(cur, old)).toEqual([
+      { range: 'C1:D1', values: [['C', 'D']] },
+      { range: 'C2:C2', values: [['x']] },
+      { range: 'A3:A3', values: [['']] },
+    ]);
+    expect(diffRanges([['same']], [['same']])).toEqual([]);
+    // 整格从图片改成文字：算改动（人明确要换掉）
+    expect(diffRanges([['t']], [[IMAGE_PLACEHOLDER]])).toEqual([{ range: 'A1:A1', values: [['t']] }]);
+  });
+
+  it('planAssets：整格等于图片文件名 → 嵌入；文字里提到 / 非图片 / 没提到 → 链接', () => {
+    const rows = [[['类目', 'a.png', '见 b.png'], ['x', 'c.pdf', '']]];
+    const p = planAssets(rows, ['a.png', 'b.png', 'c.pdf', 'd.jpg']);
+    expect([...p.embed]).toEqual(['a.png']);
+    expect([...p.link].sort()).toEqual(['b.png', 'c.pdf', 'd.jpg']);
   });
 
   it('coverRange：范围盖住新旧内容的最大行列，缩短的部分写空串清掉', () => {

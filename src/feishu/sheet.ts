@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type * as lark from '@larksuiteoapi/node-sdk';
-import { colLetter, coverRange, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
 
 /**
  * 在线电子表格（会话产出的表格类文件不再来回传 xlsx，而是「机器人建表、人和会话都往同一张表里写」）。
@@ -155,7 +155,49 @@ export class SheetService {
       }),
     );
     const values = res?.valueRange?.values ?? [];
-    return trimEmpty(values.map((r) => r.map((c) => (c === null || c === undefined ? '' : String(c)))));
+    // 嵌图格读出来是对象/数组（ToString 下为 [{type:'embed-image'}]），统一成占位；写回时占位未变就不碰那格
+    const cellText = (c: unknown): string => (c === null || c === undefined ? '' : typeof c === 'object' ? IMAGE_PLACEHOLDER : String(c));
+    return trimEmpty(values.map((r) => r.map(cellText)));
+  }
+
+  /** 差量写回：只写改动的格子（见 sheetCsv.diffRanges），每次最多 100 段 */
+  async writeDiff(ref: SheetRef, sheetId: string, rows: string[][], oldRows: string[][]): Promise<number> {
+    const segs = diffRanges(rectangular(rows), oldRows).map((s) => ({ range: `${sheetId}!${s.range}`, values: s.values }));
+    for (let i = 0; i < segs.length; i += 100) {
+      await this.client.request({
+        method: 'POST',
+        url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values_batch_update`,
+        data: { valueRanges: segs.slice(i, i + 100) },
+      });
+    }
+    return segs.length;
+  }
+
+  /**
+   * 把整格等于图片文件名的单元格换成嵌入图片（values_image，一格一次调用）。
+   * 返回嵌成功的文件名；失败的留着文件名不动（随后走链接兜底）
+   */
+  async embedImages(ref: SheetRef, sheetId: string, rows: string[][], assetsDir: string, names: Set<string>): Promise<Set<string>> {
+    const done = new Set<string>();
+    for (let r = 0; r < rows.length; r++) {
+      for (let c = 0; c < rows[r].length; c++) {
+        const name = rows[r][c].trim();
+        if (!names.has(name)) continue;
+        const file = path.join(assetsDir, name);
+        if (!fs.existsSync(file)) continue;
+        try {
+          await this.client.request({
+            method: 'POST',
+            url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values_image`,
+            data: { range: `${sheetId}!${colLetter(c + 1)}${r + 1}:${colLetter(c + 1)}${r + 1}`, image: fs.readFileSync(file).toString('base64'), name },
+          });
+          done.add(name);
+        } catch (e) {
+          console.warn(`[sheet] 嵌图失败 ${name} @${colLetter(c + 1)}${r + 1}：${(e as Error).message.slice(0, 120)}`);
+        }
+      }
+    }
+    return done;
   }
 
   /** 用 rows 覆盖某工作表（旧内容多出来的格子写空清掉） */
@@ -202,14 +244,14 @@ export class SheetService {
    * 把 assets/ 里的附件上传到附件夹，并把各 csv 里的文件名替换成链接。返回 {文件名 → 链接}。
    * 单个上传失败跳过（文件名留在表里，附件本身随后按普通出件箱附件发出）
    */
-  async uploadAssetsAndLinkify(sheetDir: string, folderToken: string): Promise<{ links: Record<string, string>; failed: string[] }> {
+  async uploadAssetsAndLinkify(sheetDir: string, folderToken: string, only?: Set<string>): Promise<{ links: Record<string, string>; failed: string[] }> {
     const assetsDir = path.join(sheetDir, 'assets');
     const links: Record<string, string> = {};
     const failed: string[] = [];
     if (!fs.existsSync(assetsDir)) return { links, failed };
     for (const name of fs.readdirSync(assetsDir).sort()) {
       const f = path.join(assetsDir, name);
-      if (!fs.statSync(f).isFile()) continue;
+      if (!fs.statSync(f).isFile() || (only && !only.has(name))) continue;
       try {
         links[name] = await this.uploadAsset(folderToken, f);
       } catch (e) {
@@ -232,27 +274,39 @@ export class SheetService {
    * 目录 → 整本表：改过的页覆盖写回，新出现的 csv 新建工作表；目录里没有的页不动（会话没提到 ≠ 要删）。
    * 返回写回/新建的页名
    */
-  async importDir(ref: SheetRef, dir: string, before: Record<string, string>): Promise<{ updated: string[]; added: string[] }> {
+  async importDir(
+    ref: SheetRef,
+    dir: string,
+    before: Record<string, string>,
+    /** 要嵌进单元格的图片（整格等于文件名的那些），文件在 dir/assets/ */
+    embed: Set<string> = new Set(),
+  ): Promise<{ updated: string[]; added: string[]; embedded: Set<string> }> {
     const updated: string[] = [];
     const added: string[] = [];
-    if (!fs.existsSync(dir)) return { updated, added };
+    const embedded = new Set<string>();
+    if (!fs.existsSync(dir)) return { updated, added, embedded };
     const sheets = await this.listSheets(ref);
+    const assetsDir = path.join(dir, 'assets');
     for (const name of fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.csv')).sort()) {
       const csv = fs.readFileSync(path.join(dir, name), 'utf-8');
       if (before[name] !== undefined && before[name] === csv) continue; // 没改
       const rows = parseCsv(csv);
       const ws = sheets.find((s) => sheetFileName(s.title) === name);
+      let sheetId: string;
       if (ws) {
-        await this.writeAll(ref, rows, await this.readAll(ref, ws), ws.id);
+        // 差量写：没改的格子——尤其已嵌的图片——不碰
+        await this.writeDiff(ref, ws.id, rows, await this.readAll(ref, ws));
+        sheetId = ws.id;
         updated.push(ws.title);
       } else {
         const title = name.replace(/\.csv$/i, '');
-        const id = await this.addSheet(ref, title);
-        await this.writeAll(ref, rows, [], id);
+        sheetId = await this.addSheet(ref, title);
+        await this.writeAll(ref, rows, [], sheetId);
         added.push(title);
       }
+      if (embed.size) for (const n of await this.embedImages(ref, sheetId, rows, assetsDir, embed)) embedded.add(n);
     }
-    return { updated, added };
+    return { updated, added, embedded };
   }
 }
 

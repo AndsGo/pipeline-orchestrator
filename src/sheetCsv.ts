@@ -84,6 +84,54 @@ export function linkifyCells(rows: string[][], links: Record<string, string>): s
   );
 }
 
+/** 单元格里嵌着图片时读出来的占位（读接口给的是对象；写回时占位不变就不碰那一格，图片才不会被冲掉） */
+export const IMAGE_PLACEHOLDER = '[图片]';
+
+/**
+ * 差量写回：只写改动的格子（按行分成连续段），没改的——尤其是嵌图格——一个字节都不碰。
+ * 新表比旧表短的部分写空串清掉。返回 values_batch_update 用的段列表
+ */
+export function diffRanges(newRows: string[][], oldRows: string[][]): Array<{ range: string; values: string[][] }> {
+  const rows = Math.max(newRows.length, oldRows.length);
+  const out: Array<{ range: string; values: string[][] }> = [];
+  for (let r = 0; r < rows; r++) {
+    const nr = newRows[r] ?? [];
+    const or = oldRows[r] ?? [];
+    const cols = Math.max(nr.length, or.length);
+    let start = -1;
+    let seg: string[] = [];
+    const flush = (end: number): void => {
+      if (start >= 0) out.push({ range: `${colLetter(start + 1)}${r + 1}:${colLetter(end)}${r + 1}`, values: [seg] });
+      start = -1;
+      seg = [];
+    };
+    for (let c = 0; c < cols; c++) {
+      const nv = nr[c] ?? '';
+      const ov = or[c] ?? '';
+      if (nv === ov) {
+        flush(c);
+        continue;
+      }
+      if (start < 0) start = c;
+      seg.push(nv);
+    }
+    flush(cols);
+  }
+  return out;
+}
+
+/**
+ * 附件去向：整格等于图片文件名 → 嵌进单元格（embed）；只在文字里提到、或不是图片 → 上传附件夹挂链接（link）。
+ * 没被任何格子提到的附件也走 link（至少人能在附件夹里找到）
+ */
+export function planAssets(rowsByCsv: string[][][], assetNames: string[]): { embed: Set<string>; link: Set<string> } {
+  const embed = new Set<string>();
+  const cells = new Set<string>();
+  for (const rows of rowsByCsv) for (const r of rows) for (const cell of r) cells.add(cell.trim());
+  for (const n of assetNames) if (/\.(png|jpe?g|gif|bmp|heic|tiff?)$/i.test(n) && cells.has(n)) embed.add(n);
+  return { embed, link: new Set(assetNames.filter((n) => !embed.has(n))) };
+}
+
 /** 补齐成矩形（电子表格写入要求每行等长），空位用空串 */
 export function rectangular(rows: string[][]): string[][] {
   const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
