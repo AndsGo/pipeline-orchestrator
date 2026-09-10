@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { claudeMdIgnored, pipelineDocsIgnored, projectsJsonWith, validateNewProject } from '../../onboarding.js';
 import { ensureProfileTemplate } from '../../profile.js';
+import type { ChatRef } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 import { commitProjectsEnv, readProjectsEnv } from '../projectsEnv.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'addproject'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'addproject'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port, projects, log } = ctx;
   // 群内接入新项目（2026-08-31）：复用终端向导的全部校验与剥壳；写 .env 前整份备份进 backups/
   const cand = { alias: c.alias, repo: c.repo.replace(/\\/g, '/'), prefix: c.prefix, gitlab: c.gitlab, jenkins: c.jenkins, wikiArchive: c.wiki };

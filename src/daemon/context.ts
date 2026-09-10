@@ -1,6 +1,7 @@
 import type { Command } from '../commands.js';
 import type { FeishuPort } from '../feishu/port.js';
 import type { LastRun } from '../followup.js';
+import type { ChatRef } from '../ports.js';
 import type { Project } from '../projects.js';
 import type { Semaphore } from '../semaphore.js';
 
@@ -52,10 +53,10 @@ export interface DaemonContext {
     corePrompt: string,
     slashRisks: string[],
     chain: number,
-    opts?: { resumeSessionId?: string; origin?: string; chat?: string },
+    opts?: { resumeSessionId?: string; origin?: string; chat?: ChatRef },
   ): Promise<boolean>;
   /** 续聊：把答复接回上一次单次执行 */
-  runFollowup(reply: string, chat?: string, quotedMessageId?: string): Promise<void>;
+  runFollowup(reply: string, chat?: ChatRef, quotedMessageId?: string): Promise<void>;
   /** 零输入建单的草拟：整段 /run 对话 → 一段需求原文；失败返回 null */
   draftRequirementFromChat(project: Project, last: LastRun): Promise<string | null>;
 }

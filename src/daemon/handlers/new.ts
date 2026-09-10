@@ -2,9 +2,10 @@ import { listTickets } from '../../events.js';
 import { describeLastRun, intakeContextFromLastRun, isDraftFromChatRequest, readLastRun } from '../../followup.js';
 import { mentionedProject, nextTicketId, projectOfTicket, resolveProject, type Project } from '../../projects.js';
 import { readSticky, writeSticky } from '../../sticky.js';
+import { type ChatRef, chatIdOf } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'new'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'new'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port, projects } = ctx;
   let requirement = c.requirement;
   let ticketPick = c.ticket;
@@ -18,7 +19,7 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'new'>, _sender: s
       return;
     }
     const lp = projects.find((p) => p.alias === last.project) ?? null;
-    const bound = chat ? projects.find((p) => p.chatId === chat) : undefined;
+    const bound = chat ? projects.find((p) => p.chatId === chatIdOf(chat)) : undefined;
     if (!lp || (bound && bound.alias !== lp.alias)) {
       await port.notify(
         '新工单',
@@ -53,10 +54,10 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'new'>, _sender: s
   project ??=
     resolveProject(projects, c.repo) ?? (ticketPick ? projectOfTicket(projects, ticketPick) : null) ??
     (mention?.exact ? mention.project : null) ??
-    (chat ? (projects.find((p) => p.chatId === chat) ?? null) : null) ??
+    (chat ? (projects.find((p) => p.chatId === chatIdOf(chat)) ?? null) : null) ??
     (projects.length === 1 ? projects[0] : null);
   if (!project) {
-    const sticky = chat ? readSticky(chat, projects) : null;
+    const sticky = chat ? readSticky(chatIdOf(chat)!, projects) : null;
     const options = [...projects].sort((a, b) => (a.alias === sticky?.alias ? -1 : b.alias === sticky?.alias ? 1 : 0));
     const pick = await port.chooseOption(
       '新工单',
@@ -70,7 +71,7 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'new'>, _sender: s
       return;
     }
   }
-  if (chat && !projects.some((p) => p.chatId === chat)) writeSticky(chat, project.alias);
+  if (chat && !projects.some((p) => p.chatId === chatIdOf(chat))) writeSticky(chatIdOf(chat)!, project.alias);
   const ticket = ticketPick ?? nextTicketId(project, listTickets());
   // 建单自动附带最近一次 /run 的整段对话（LS-013 教训：结论留在续聊里，工单只带走一句话）
   const context = intakeContextFromLastRun(readLastRun(), project.alias);

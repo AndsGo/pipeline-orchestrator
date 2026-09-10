@@ -1,8 +1,9 @@
 import { helpText, nearestSlash } from '../../commands.js';
 import { describeLastRun, readLastRunFor } from '../../followup.js';
+import { type ChatRef, chatIdOf } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'unknown'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'unknown'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port } = ctx;
   // 斜杠命令拼错：给最接近的候选，把「名字打错」和「真没这个命令」区分开（/dashborad 实测，2026-09-01）
   if (c.text.trim().startsWith('/')) {
@@ -15,7 +16,7 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'unknown'>, _sende
   }
   // 落空兜底：这句可能是在回复上一次 /run 的收尾问题（实测被判成 answer 后因无待答卡石沉大海）。
   // 以斜杠开头的不算——那是命令格式打错了，不是在回话
-  const last = c.text.trim().startsWith('/') ? null : readLastRunFor(chat);
+  const last = c.text.trim().startsWith('/') ? null : readLastRunFor(chatIdOf(chat));
   if (last) {
     const CONT = '是，接着办';
     const pick = await port.chooseOption(

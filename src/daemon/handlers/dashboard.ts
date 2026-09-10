@@ -2,9 +2,10 @@ import { buildDashboard, renderDashboard, type TicketRow } from '../../dashboard
 import { listTickets, readEvents, totalCost } from '../../events.js';
 import { computeMetrics, metricsDashItems, readAllSnapshots } from '../../metrics.js';
 import { readSnapshot } from '../../ticket.js';
+import type { ChatRef } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, _c: CommandOf<'dashboard'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, _c: CommandOf<'dashboard'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port, active, sem, cfg, adhoc } = ctx;
   const rows: TicketRow[] = listTickets().map((t) => {
     const st = readSnapshot(t);

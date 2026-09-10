@@ -1,8 +1,9 @@
 import { listTickets, timeline, totalCost } from '../../events.js';
 import { loadTicket, peekTicketRepo } from '../../ticket.js';
+import type { ChatRef } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'status'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'status'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port, active } = ctx;
   const t = c.ticket ?? [...active.keys()][0] ?? listTickets().at(-1);
   if (!t) {

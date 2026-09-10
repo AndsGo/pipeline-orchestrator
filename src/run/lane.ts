@@ -4,6 +4,7 @@ import { prefetchKnowledgeHints } from '../bitable/sync.js';
 import { ticketDir } from '../config.js';
 import { appendEvent } from '../events.js';
 import { FASTLANE_MODEL, runFastlane, runTriage } from '../lanes.js';
+import { broadcast } from '../ports.js';
 import { readProfile } from '../profile.js';
 import { audienceOf, triageLine } from '../voice.js';
 import type { TicketRun } from './context.js';
@@ -24,7 +25,8 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
       const t = await run.withGate(() => runTriage(repo, ticket));
       run.state = { ...run.state, lane: t.lane };
       appendEvent({ ticket, type: 'triage', summary: `分诊 ${t.lane}：${t.reason}`, payload: { costUsd: t.costUsd } });
-      await port.notify(
+      await broadcast(
+        port,
         ticket,
         audienceOf(readProfile(repo)) === 'business'
           ? triageLine(t.lane, t.reason, t.costUsd)

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Answer } from '../backfill.js';
 import { dataDir } from '../paths.js';
-import type { GateDecision, InteractionPort } from '../ports.js';
+import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
 import {
   chooseCard,
@@ -51,6 +51,13 @@ interface Pending {
   strictOptions?: boolean;
 }
 
+/** 调用方给的目标可以是群 id / Origin / 已解析的 {chatId, rootId}：统一成后者 */
+function asTarget(to?: ChatRef | { chatId?: string; rootId?: string }): { chatId?: string; rootId?: string } {
+  if (to === undefined) return {};
+  if (typeof to === 'string') return { chatId: to };
+  return { chatId: to.chatId, rootId: to.rootId };
+}
+
 const APPROVE = /^(通过|同意|批准|可以|没问题|ok|approve|yes|y)/i;
 const REJECT = /^(驳回|不通过|拒绝|否决|reject|no|n)/i;
 
@@ -70,6 +77,10 @@ export interface IncomingMessage {
   mentioned: boolean;
   /** 引用回复时被引用消息的 ID：引用的是机器人发过的结果卡 → 精确续那次会话（见 followup.runByCard） */
   quotedMessageId?: string;
+  /** 话题根消息 id（message.root_id）。只有 inThread 为真时才是话题——普通引用回复也带 root_id */
+  rootId?: string;
+  /** 消息在话题里（message.thread_id 非空）。话题 = 会话：见 src/threads.ts */
+  inThread: boolean;
 }
 
 /**
@@ -113,12 +124,21 @@ export class FeishuPort implements InteractionPort {
           message_type?: string;
           /** 引用回复时带上被引用消息的 ID——内容要另调 API 拉（需 im:message.group_msg 权限） */
           parent_id?: string;
+          /** 回复链的根消息；话题里的消息 root_id 就是话题根。普通引用回复也有，所以话题判定看 thread_id */
+          root_id?: string;
+          /** 消息属于某个话题时非空 */
+          thread_id?: string;
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
         const parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
         if (parsed) {
           let text = parsed.text;
+          const inThread = !!data.message?.thread_id;
+          // 真机字段取值留痕（话题回复 / 引用回复 / 话题内引用 三种形态要对得上设计稿 §3.3 的假设）
+          if (data.message?.root_id || data.message?.thread_id) {
+            console.log(`[feishu] 消息 ${data.message?.message_id} root=${data.message?.root_id ?? '-'} thread=${data.message?.thread_id ?? '-'} parent=${data.message?.parent_id ?? '-'}`);
+          }
           if (data.message?.parent_id) {
             const quoted = await port.fetchQuoted(data.message.parent_id);
             if (quoted) {
@@ -135,6 +155,8 @@ export class FeishuPort implements InteractionPort {
             sender: data.sender?.sender_id?.open_id ?? 'unknown',
             messageId: data.message?.message_id ?? '',
             quotedMessageId: data.message?.parent_id,
+            rootId: data.message?.root_id,
+            inThread,
           });
         }
         return { code: 0 };
@@ -151,9 +173,41 @@ export class FeishuPort implements InteractionPort {
    * 工单生命周期通知（阶段结果/卡点/验收问题）没有"来源消息"，全靠本钩子路由到项目群。
    */
   routeChat?: (ticketOrAlias: string) => string | undefined;
+  /** 工单话题钩子（daemon 注入）：工单绑了话题就把它的卡片/进度投进话题（src/threads.ts） */
+  routeThread?: (ticket: string) => string | undefined;
 
-  private chatFor(ticketOrAlias: string, explicit?: string): string | undefined {
-    return explicit ?? this.routeChat?.(ticketOrAlias);
+  private chatFor(ticketOrAlias: string, explicit?: ChatRef): string | undefined {
+    return chatIdOf(explicit) ?? this.routeChat?.(ticketOrAlias);
+  }
+
+  /**
+   * 投递目标：调用方给了来源（Origin）就回到来源——话题里问的答进话题；
+   * 没给来源的是工单生命周期消息，按工单绑定的群 + 工单话题路由
+   */
+  private targetFor(ticketOrAlias: string, explicit?: ChatRef): { chatId?: string; rootId?: string } {
+    if (explicit !== undefined) return { chatId: chatIdOf(explicit), rootId: rootIdOf(explicit) };
+    return { chatId: this.routeChat?.(ticketOrAlias), rootId: this.routeThread?.(ticketOrAlias) };
+  }
+
+  /** 发到群或话题：有 rootId 走 reply + reply_in_thread（回到话题），否则 create 到群 */
+  private async post(msgType: 'text' | 'interactive', content: string, to: { chatId?: string; rootId?: string }): Promise<string | undefined> {
+    if (to.rootId) {
+      try {
+        const res = (await this.client.im.message.reply({
+          path: { message_id: to.rootId },
+          data: { msg_type: msgType, content, reply_in_thread: true },
+        })) as { data?: { message_id?: string } } | undefined;
+        return res?.data?.message_id;
+      } catch (e) {
+        // 话题根被删/过期：退回群主线，不能让一条消息发不出去
+        console.warn(`[feishu] 话题回复失败，改发群主线：${(e as Error).message.slice(0, 120)}`);
+      }
+    }
+    const res = (await this.client.im.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: { receive_id: to.chatId ?? this.cfg.chatId, msg_type: msgType, content },
+    })) as { data?: { message_id?: string } } | undefined;
+    return res?.data?.message_id;
   }
 
   /** 回调核心（纯逻辑，可单测）：按 key 归位 pending，返回更新后的卡片；未命中返回 null */
@@ -182,16 +236,8 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发送卡片，返回 message_id（用于后续原位更新） */
-  private async postCard(card: Record<string, unknown>, chatId?: string): Promise<string | undefined> {
-    const res = (await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: chatId ?? this.cfg.chatId,
-        msg_type: 'interactive',
-        content: JSON.stringify(card),
-      },
-    })) as { data?: { message_id?: string } } | undefined;
-    return res?.data?.message_id;
+  private postCard(card: Record<string, unknown>, to?: ChatRef | { chatId?: string; rootId?: string }): Promise<string | undefined> {
+    return this.post('interactive', JSON.stringify(card), asTarget(to));
   }
 
   /** 原位更新已发出的卡片（打字回答时用——回调窗口更新只在点按钮时可用） */
@@ -230,8 +276,9 @@ export class FeishuPort implements InteractionPort {
    * allowFreeText=false 时只接受明确表决/选项匹配，避免把指令误当成答案；
    * 支持 "Q2 不通过 页面报500" 形式指定目标并附带说明。
    */
-  tryAnswerByText(text: string, allowFreeText = false): TextAnswerResult {
-    const entries = [...this.pending.entries()];
+  tryAnswerByText(text: string, allowFreeText = false, onlyTicket?: string): TextAnswerResult {
+    // 工单话题里的话只可能在答这张单的卡：别让别的单的 Q1 抢答
+    const entries = [...this.pending.entries()].filter(([, p]) => !onlyTicket || p.ticket === onlyTicket);
     if (!entries.length) return { status: 'none' };
     const labels = () => entries.map(([, p]) => p.label).join('、');
     const body0 = text.trim();
@@ -348,7 +395,7 @@ export class FeishuPort implements InteractionPort {
         ticket,
       }).then(({ value, note }) => ({ id: it.q.id, question: it.q.question, answer: value, note })),
     );
-    group.messageId = await this.postCard(questionsCard(ticket, group.items), this.chatFor(ticket));
+    group.messageId = await this.postCard(questionsCard(ticket, group.items), this.targetFor(ticket));
     return Promise.all(waits);
   }
 
@@ -361,26 +408,39 @@ export class FeishuPort implements InteractionPort {
   ): Promise<GateDecision> {
     const key = this.nextKey(`gate:${ticket}:${gate}`);
     const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket });
-    await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.chatFor(ticket));
+    await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.targetFor(ticket));
     const { value, note } = await wait;
     return { approved: value === 'approve', note };
   }
 
-  async notify(ticket: string, message: string, chatId?: string): Promise<void> {
-    await this.postText(ticket, message, chatId);
+  async notify(ticket: string, message: string, to?: ChatRef): Promise<void> {
+    await this.postText(ticket, message, to);
+  }
+
+  /**
+   * 广播：工单绑了话题时主线与话题各一份（开工/收尾/上线/闭环/挂起这类别人也要看的）；
+   * 主线那份点明详情在话题里——卡片都进了话题，只盯主线的人得知道去哪找
+   */
+  async broadcast(ticket: string, message: string): Promise<void> {
+    const rootId = this.routeThread?.(ticket);
+    if (!rootId) return this.notify(ticket, message);
+    await Promise.all([
+      this.post('text', JSON.stringify({ text: `[${ticket}] ${message}\n（卡片与详情在 ${ticket} 的话题里）` }), { chatId: this.routeChat?.(ticket) }),
+      this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), { rootId }),
+    ]);
+  }
+
+  /**
+   * 开工单话题：在主线发一条根消息并返回它的 message_id；此后该工单的卡片/进度都 reply_in_thread 到它。
+   * 第一条话题回复才真正建出话题（飞书没有「空话题」）
+   */
+  async openTicketThread(ticket: string, headline: string): Promise<string | undefined> {
+    return this.post('text', JSON.stringify({ text: `[${ticket}] ${headline}` }), { chatId: this.routeChat?.(ticket) });
   }
 
   /** 发纯文本，返回 message_id（结果卡要记「这条消息 ↔ 哪次会话」，引用它就能精确续聊） */
-  private async postText(ticket: string, message: string, chatId?: string): Promise<string | undefined> {
-    const res = (await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: this.chatFor(ticket, chatId) ?? this.cfg.chatId,
-        msg_type: 'text',
-        content: JSON.stringify({ text: `[${ticket}] ${message}` }),
-      },
-    })) as { data?: { message_id?: string } } | undefined;
-    return res?.data?.message_id;
+  private postText(ticket: string, message: string, to?: ChatRef): Promise<string | undefined> {
+    return this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), this.targetFor(ticket, to));
   }
 
   /** 结构化报告（验收 AC 结果表等）：复用结果卡的长文渲染 */
@@ -453,24 +513,24 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发送单次执行结果：短的走消息，长的走卡片（消息读长文很难受） */
-  async sendResult(title: string, body: string, footer?: string, chatId?: string): Promise<string | undefined> {
-    if (body.length <= 600) return this.postText(title, `${body}${footer ? `\n\n${footer}` : ''}`, chatId);
+  async sendResult(title: string, body: string, footer?: string, to?: ChatRef): Promise<string | undefined> {
+    if (body.length <= 600) return this.postText(title, `${body}${footer ? `\n\n${footer}` : ''}`, to);
     const clipped = body.length > 8000 ? body.slice(0, 8000) + '\n\n…（输出过长已截断）' : body;
-    return this.postCard(resultCard(title, clipped, footer), chatId);
+    return this.postCard(resultCard(title, clipped, footer), this.targetFor(title, to));
   }
 
   /** 发送运行面板卡片（/dashboard 指令） */
-  async sendDashboard(config: string, runtime: string, tickets: string, chatId?: string): Promise<void> {
-    await this.postCard(dashboardCard(config, runtime, tickets), chatId);
+  async sendDashboard(config: string, runtime: string, tickets: string, to?: ChatRef): Promise<void> {
+    await this.postCard(dashboardCard(config, runtime, tickets), to);
   }
 
   /** 发送状态卡片（/status 指令） */
-  async sendStatus(ticket: string, cursor: string, extra: string, timelineMd: string, chatId?: string): Promise<void> {
-    await this.postCard(statusCard(ticket, cursor, extra, timelineMd), this.chatFor(ticket, chatId));
+  async sendStatus(ticket: string, cursor: string, extra: string, timelineMd: string, to?: ChatRef): Promise<void> {
+    await this.postCard(statusCard(ticket, cursor, extra, timelineMd), this.targetFor(ticket, to));
   }
 
   /** 让人从候选里选一个（识别不确定时用，比"没听懂"友好） */
-  async chooseOption(ticket: string, question: string, options: string[], chatId?: string): Promise<string> {
+  async chooseOption(ticket: string, question: string, options: string[], to?: ChatRef): Promise<string> {
     const key = this.nextKey(`choose:${ticket}`);
     const wait = this.waitFor(key, `${ticket} 已选择`, question, {
       kind: 'answer',
@@ -479,15 +539,15 @@ export class FeishuPort implements InteractionPort {
       ticket,
       strictOptions: true,
     });
-    await this.postCard(chooseCard(ticket, question, options, key), this.chatFor(ticket, chatId));
+    await this.postCard(chooseCard(ticket, question, options, key), this.targetFor(ticket, to));
     return (await wait).value;
   }
 
   /** 破坏性指令确认：返回是否执行 */
-  async confirmCommand(ticket: string, what: string, chatId?: string): Promise<boolean> {
+  async confirmCommand(ticket: string, what: string, to?: ChatRef): Promise<boolean> {
     const key = this.nextKey(`cmd:${ticket}`);
     const wait = this.waitFor(key, `${ticket} 操作已处理`, what, { kind: 'gate', label: '确认操作' });
-    await this.postCard(confirmCard(ticket, what, key), this.chatFor(ticket, chatId));
+    await this.postCard(confirmCard(ticket, what, key), this.targetFor(ticket, to));
     return (await wait).value === 'approve';
   }
 

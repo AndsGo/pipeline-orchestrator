@@ -12,8 +12,10 @@ import {
   saveLastRunFor,
   withRound,
 } from '../followup.js';
+import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
+import { expiredSessionBrief, getThread, rememberThreadRun, sessionFresh } from '../threads.js';
 import type { DaemonContext } from './context.js';
 
 /**
@@ -28,8 +30,10 @@ export async function execAdhoc(
   corePrompt: string,
   slashRisks: string[],
   chain: number,
-  opts?: { resumeSessionId?: string; origin?: string; chat?: string; /** 被续的那条记录（按卡续时不是本群指针） */ prev?: LastRun },
+  opts?: { resumeSessionId?: string; origin?: string; chat?: ChatRef; /** 被续的那条记录（按卡续时不是本群指针） */ prev?: LastRun },
 ): Promise<boolean> {
+  const chatId = chatIdOf(opts?.chat);
+  const rootId = rootIdOf(opts?.chat);
   const { port, log } = ctx;
   const release = await ctx.sem.acquire();
   const t0 = Date.now();
@@ -97,14 +101,16 @@ export async function execAdhoc(
         sessionId: r.sessionId,
         origin: opts?.origin ?? commandText,
         // 整段对话随指针累积：续轮接在被续的那条记录后面（按卡续时是那张卡的记录，否则是本群指针）
-        transcript: withRound(chain > 0 ? (opts?.prev ?? readLastRunFor(opts?.chat)) : null, { command: commandText, output: r.text }),
+        transcript: withRound(chain > 0 ? (opts?.prev ?? readLastRunFor(chatId)) : null, { command: commandText, output: r.text }),
       };
       // 指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
-      saveLastRunFor(opts?.chat, rec);
+      saveLastRunFor(chatId, rec);
+      // 话题 = 会话：在话题里跑的这轮记到话题上，下一句不用引用卡、不用 /re 就能续（src/threads.ts）
+      if (rootId && chatId) rememberThreadRun(rootId, chatId, rec);
       const mid = await port.sendResult(
         `执行结果 · ${project.alias}`,
         r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，引用这张卡回复或 \`/re 答复\` 可继续这次任务）`,
+        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里直接回复即可继续这次任务）`,
         opts?.chat,
       );
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
@@ -147,16 +153,25 @@ export async function draftRequirementFromChat(ctx: DaemonContext, project: Proj
 }
 
 /** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
-export async function runFollowup(ctx: DaemonContext, reply: string, chat?: string, quotedMessageId?: string): Promise<void> {
+export async function runFollowup(ctx: DaemonContext, reply: string, chat?: ChatRef, quotedMessageId?: string): Promise<void> {
   const { port, projects, cfg, log } = ctx;
-  // 引用了哪张结果卡就续哪次会话；没引用才看本群指针（再退全局）
+  const chatId = chatIdOf(chat);
+  const rootId = rootIdOf(chat);
+  // 续谁（设计稿 §3.4）：引用的结果卡 > 话题自己的会话 > 话题根就是一张结果卡 > 本群指针（再退全局）
   const byCard = runByCard(quotedMessageId);
   if (byCard) log(`按引用的结果卡续会话：${describeLastRun(byCard)}（项目 ${byCard.project}）`);
-  let last = byCard ?? readLastRunFor(chat);
+  const th = getThread(rootId);
+  let last = byCard ?? th?.run ?? runByCard(rootId) ?? readLastRunFor(chatId);
+  // 会话寿命（30 轮 / 7 天）：到期就不 --resume 了，新会话第一句带上旧会话的摘要
+  if (th?.run && last === th.run && !sessionFresh(th)) {
+    log(`话题会话到期（${th.turns} 轮，最近 ${th.lastAt}），重开新会话并带摘要`);
+    await port.notify('执行', '这个话题的会话已到期（超 30 轮或 7 天没动），我重开一个新会话接着聊，带上之前的摘要。', chat);
+    last = { ...th.run, sessionId: undefined, output: expiredSessionBrief(th) ?? th.run.output.slice(0, 600) };
+  }
   if (!last) {
     // 24 小时 TTL 是为「隔天回个 1」这种含糊答复设的；人明确打了 /re 就该问一句而不是直接拒（2026-09-04 实测：
     // 用户隔了两天带着三条答复回来，被一句「没有可继续的记录」挡住，又换自然语言重发一遍）
-    const stale = readLastRunFor(chat, Date.now(), Number.POSITIVE_INFINITY);
+    const stale = readLastRunFor(chatId, Date.now(), Number.POSITIVE_INFINITY);
     if (!stale) {
       await port.notify('执行', '最近没有可继续的单次执行记录。直接用 /run 重新说清要做的事即可。', chat);
       return;

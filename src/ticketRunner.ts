@@ -26,6 +26,7 @@ import { validateResult } from './schema.js';
 import { loadTicket, readSnapshot, saveTicket } from './ticket.js';
 import { isTransientApiError } from './transient.js';
 import type { Envelope, Stage, StageResult, TicketState } from './types.js';
+import { broadcast } from './ports.js';
 import { type Audience, audienceOf, endLine as bizEndLine, errorLine, progressLine, staleBlockWarning } from './voice.js';
 
 export { ensureRejectionEvidence } from './run/actions.js';
@@ -342,7 +343,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
     });
     // 事件流永远记研发版（看板/复盘要状态码）；群里按受众：业务口吻带步骤锚 + 结尾「接下来谁做什么」
-    await port.notify(ticket, audienceOf(profile) === 'business' ? bizEndLine(res, envelope.total_cost_usd, action) : endLine);
+    await broadcast(port, ticket, audienceOf(profile) === 'business' ? bizEndLine(res, envelope.total_cost_usd, action) : endLine);
     // 阶段判某条历史知识与现状矛盾：当刻标「待复核」停注入，累计进状态，闭环时一张卡定夺（run/compound.ts）
     if (res.stale_hints?.length) {
       const flagged = await flagStaleHints(ticket, stage, res.stale_hints, port);

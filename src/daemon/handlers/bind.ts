@@ -1,8 +1,10 @@
 import { describeProjects, resolveProject } from '../../projects.js';
+import { type ChatRef, chatIdOf } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 import { commitProjectsEnv, readProjectsEnv } from '../projectsEnv.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'bind'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'bind'>, _sender: string, ref?: ChatRef): Promise<void> {
+  const chat = chatIdOf(ref);
   const { port, projects, log } = ctx;
   if (!chat) return;
   if (chat === ctx.MAIN_CHAT) {

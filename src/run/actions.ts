@@ -4,7 +4,7 @@ import { appendAnswers, type Answer } from '../backfill.js';
 import { ticketDir } from '../config.js';
 import { appendEvent } from '../events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from '../feedback.js';
-import type { InteractionPort } from '../ports.js';
+import { broadcast, type InteractionPort } from '../ports.js';
 import type { PipelineProfile } from '../profile.js';
 import { previewUrl } from '../prototype.js';
 import type { Action, OpenQuestion, Stage, StageResult } from '../types.js';
@@ -64,7 +64,8 @@ async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfil
   }
   const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0);
   appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，$${total.toFixed(2)}` });
-  await port.notify(
+  await broadcast(
+    port,
     ticket,
     biz ? closeoutLine(run.state.runs.length, total) : `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`,
   );

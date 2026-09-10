@@ -18,6 +18,8 @@ import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
 import { readLastRunFor, runByCard } from './followup.js';
 import { dataDir } from './paths.js';
+import type { ChatRef, Origin } from './ports.js';
+import { bindTicketThread, getThread, routeInThread, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
 import { describeProjects, loadProjects, projectOfTicket, resolveProject, type Project } from './projects.js';
@@ -113,6 +115,18 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
   clearPaused(ticket);
   log(`${ticket} 归属项目 ${project.alias}（仓库 ${project.repo}${project.jenkins ? `，CI ${project.jenkins}` : ''}）`);
 
+  // 工单话题（默认开，拍板 2026-09-10）：首次建单在主线发一条根消息并绑定，此后卡片/进度进话题、广播两边各一份。
+  // 续跑的单已有话题就沿用；没有（老单）就不补——半截话题比没有更乱
+  if (requirement && !threadOfTicket(ticket)) {
+    try {
+      const chatId = port.routeChat?.(ticket) ?? MAIN_CHAT;
+      const root = await port.openTicketThread(ticket, `🆕 工单建立：${requirement.slice(0, 120)}\n（这张单的问答与进度都在这条消息的话题里；主线只留关键节点）`);
+      if (root) bindTicketThread(root, ticket, chatId, project.alias);
+    } catch (e) {
+      log(`${ticket} 开工单话题失败（改走主线）：${(e as Error).message.slice(0, 120)}`);
+    }
+  }
+
   void (async () => {
     try {
       await runTicket({ repo: workdir, ticket, port, project, requirement, intakeContext, acquire: () => sem.acquire() });
@@ -134,21 +148,48 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
   return `${ticket} 已启动${isWorktree ? '（并行隔离工作区）' : ''}`;
 }
 
-async function handleCommand(c: Command, sender: string, chat?: string): Promise<void> {
-  // chat = 消息来源群：通用指令答复回到来源群；工单类通知不带它，由 routeChat 按项目绑定群路由
+async function handleCommand(c: Command, sender: string, chat?: ChatRef): Promise<void> {
+  // chat = 消息来源（群 + 话题）：通用指令答复回到来源；工单类通知不带它，由 routeChat/routeThread 按工单路由
   await dispatch(ctx, c, sender, chat);
 }
 
+/**
+ * 话题内串行：一个 /run 会话不能被两句话同时 --resume；话题之间并行（仍受全局闸门）。
+ * 工单话题不排队——那里的话是答卡/备注，处理是瞬时的，而工单本身在 runner 里跑
+ */
+const threadQueue = new Map<string, Promise<void>>();
 async function onMessage(m: IncomingMessage): Promise<void> {
-  log(`收到消息 by ${m.sender}${m.mentioned ? '（@我）' : ''}: ${m.text.slice(0, 80)}`);
+  const th = m.inThread ? getThread(m.rootId) : null;
+  const key = m.inThread && m.rootId && !th?.ticket ? m.rootId : null;
+  if (!key) return handleMessage(m, th);
+  const prev = threadQueue.get(key);
+  const p = (async () => {
+    if (prev) {
+      await port.notify('执行', '上一句还在处理，这句排在它后面…', { chatId: m.chatId, rootId: m.rootId });
+      await prev.catch(() => {});
+    }
+    await handleMessage(m, th);
+  })();
+  threadQueue.set(key, p);
+  try {
+    await p;
+  } finally {
+    if (threadQueue.get(key) === p) threadQueue.delete(key);
+  }
+}
+
+async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<void> {
+  log(`收到消息 by ${m.sender}${m.mentioned ? '（@我）' : ''}${m.inThread ? `［话题 ${m.rootId?.slice(-8)}${th?.ticket ? `→${th.ticket}` : th?.run ? '→会话' : ''}］` : ''}: ${m.text.slice(0, 80)}`);
+  // 回应回到发问的地方：话题里问的答进话题（设计稿 §3.5）
+  const origin: Origin = { chatId: m.chatId, rootId: m.inThread ? m.rootId : undefined };
   const slash = parseSlash(m.text);
   // 批量表决后跟着的新诉求：由下方待答卡片分支填进来，走完 answer 上报后当作新工单继续处理
   let newFromBatchTail: string | undefined;
   if (!slash) {
     // 有待确认卡片时，先看这句话是不是在回答它（明确表决/选项才拦截，不劫持指令）
-    const ans = port.tryAnswerByText(m.text);
+    const ans = port.tryAnswerByText(m.text, false, th?.ticket);
     if (ans.status === 'resolved') {
-      await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`, m.chatId);
+      await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`, origin);
       return;
     }
     if (ans.status === 'resolved-batch') {
@@ -156,7 +197,7 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         '回答',
         `已记录 ${ans.labels.length} 项 → ${ans.answer}（${ans.labels.join('、')}）` +
           (ans.skipped.length ? `\n未匹配、仍待回答：${ans.skipped.join('、')}` : ''),
-        m.chatId,
+        origin,
       );
       // 表决后跟着一段新诉求：不灌进备注，问一句要不要开新单（2026-09-04 实测缺陷）
       if (!ans.tail) return;
@@ -165,12 +206,12 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         '新需求',
         `注意到你在通过之外还说了一段，像是新的需求，没有并进上面的验收：\n> ${ans.tail.slice(0, 160)}\n\n要为它开一个新工单吗？`,
         [NEW, '只是补充说明，忽略'],
-        m.chatId,
+        origin,
       );
       if (pick !== NEW) return;
       newFromBatchTail = ans.tail;
     } else if (ans.status === 'ambiguous') {
-      await port.notify('回答', ans.detail, m.chatId);
+      await port.notify('回答', ans.detail, origin);
       return;
     }
   }
@@ -183,19 +224,21 @@ async function onMessage(m: IncomingMessage): Promise<void> {
     const issue = slashSanityIssue(cmd, ticketContexts().find((c) => c.ticket === (cmd as { ticket?: string }).ticket));
     if (issue) {
       const t = (cmd as { ticket: string }).ticket;
-      const pick = await port.chooseOption(t, `${issue}\n\n你想要哪一个？`, ['记为说明（不回退）', '确实要改需求（回退到澄清）'], m.chatId);
+      const pick = await port.chooseOption(t, `${issue}\n\n你想要哪一个？`, ['记为说明（不回退）', '确实要改需求（回退到澄清）'], origin);
       if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: t, text: (cmd as { text: string }).text };
       else if (!pick.startsWith('确实')) {
-        await port.notify(t, '已取消', m.chatId);
+        await port.notify(t, '已取消', origin);
         return;
       }
     }
   } else {
-    // @了机器人 → 一定回应；没 @ → 只在像指令时才花钱分类，避免打扰群聊
-    if (!m.mentioned && !looksLikeCommand(m.text)) return;
-    const contexts = ticketContexts();
-    // 带上本群最近一次 /run：回应它的话判 followup 续会话，而不是开新会话重读代码
-    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts, undefined, undefined, readLastRunFor(m.chatId));
+    // @了机器人 → 一定回应；没 @ → 只在像指令时才花钱分类，避免打扰群聊。
+    // 绑定了工单/会话的话题里例外：那本来就是与机器人的对话，不用每句 @
+    if (!m.mentioned && !looksLikeCommand(m.text) && !th) return;
+    // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
+    const contexts = th?.ticket ? ticketContexts().filter((c) => c.ticket === th.ticket) : ticketContexts();
+    const lastRun = th ? (th.run ?? null) : readLastRunFor(m.chatId);
+    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts, undefined, undefined, lastRun);
     cmd = command;
     // 识别服务炸了 ≠ 没听懂：前者回"重发一次"，后者才是"我不明白你的意思"
     if (error) {
@@ -203,15 +246,17 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       await port.notify(
         '指令',
         `识别服务异常，这条消息没能读懂：${error.slice(0, 120)}\n请重发一次；或直接用斜杠指令（\`/run\`、\`/new\`、\`/note LS-00X 内容\`）绕过识别。`,
-        m.chatId,
+        origin,
       );
       return;
     }
     const namedTicket = (cmd as { ticket?: string }).ticket;
     log(`意图识别：${cmd.kind}（把握 ${(confidence * 100).toFixed(0)}%）${namedTicket ? ` → ${namedTicket}` : ''}`);
 
-    // 听懂了但缺工单号：问一句，别把人家的缺陷描述丢进 unknown
-    if (missingTicket) {
+    // 听懂了但缺工单号：工单话题里不用问——话题就是工单（设计稿 §3.4 第 2 条）；主线才问一句
+    if (missingTicket && th?.ticket) {
+      cmd = { kind: missingTicket.kind, ticket: th.ticket, text: missingTicket.text };
+    } else if (missingTicket) {
       const cands = contexts.map((c) => c.ticket).slice(0, 3);
       log(`意图识别：${missingTicket.kind} 但未指明工单，转人工选择`);
       const DIAG = '先诊断一次（不建工单）';
@@ -219,12 +264,12 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         '指令',
         `我听懂了这是一条${missingTicket.kind === 'amend' ? '需求修改' : '说明/缺陷'}，但没说是哪个工单：\n> ${m.text.slice(0, 120)}\n\n怎么处理？`,
         [DIAG, ...cands],
-        m.chatId,
+        origin,
       );
       if (pick === DIAG) cmd = { kind: 'run', text: m.text };
       else if (cands.includes(pick)) cmd = { kind: missingTicket.kind, ticket: pick, text: missingTicket.text };
       else {
-        await port.notify('指令', '已取消', m.chatId);
+        await port.notify('指令', '已取消', origin);
         return;
       }
     }
@@ -238,12 +283,12 @@ async function onMessage(m: IncomingMessage): Promise<void> {
           am.ticket,
           `${issue}\n\n> ${am.text.slice(0, 120)}\n\n你想怎么处理？`,
           ['开一个新工单', '记为说明（不回退）', '取消'],
-          m.chatId,
+          origin,
         );
         if (pick.startsWith('开一个新工单')) cmd = { kind: 'new', requirement: am.text };
         else if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: am.ticket, text: am.text };
         else {
-          await port.notify(am.ticket, '已取消', m.chatId);
+          await port.notify(am.ticket, '已取消', origin);
           return;
         }
       }
@@ -254,7 +299,7 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       const c = cmd;
       const composed = c.target ? `${c.target} ${c.text}` : c.text;
       const r = port.tryAnswerByText(composed, true);
-      if (await reportAnswer(r, m.chatId)) return;
+      if (await reportAnswer(r, origin)) return;
       cmd = { kind: 'note', ticket: c.ticket ?? '', text: c.text }; // 卡片已过期 → 退化为说明
       if (!cmd.ticket) cmd = { kind: 'unknown', text: m.text };
     }
@@ -266,20 +311,28 @@ async function onMessage(m: IncomingMessage): Promise<void> {
         t,
         `我不太确定你的意思（识别为 **${cmd.kind}**，把握 ${(confidence * 100).toFixed(0)}%）：\n> ${m.text.slice(0, 120)}`,
         [`按 ${cmd.kind} 执行`, '记为说明（/note）', '取消'],
-        m.chatId,
+        origin,
       );
       if (pick.startsWith('记为说明')) cmd = { kind: 'note', ticket: t, text: m.text };
       else if (pick === '取消') {
-        await port.notify(t, '已取消', m.chatId);
+        await port.notify(t, '已取消', origin);
         return;
       }
     }
 
     if (cmd.kind === 'unknown') {
       // 没听懂但有待答卡片 → 当作自由文本答案（人的话不该被丢掉）
-      if (await reportAnswer(port.tryAnswerByText(m.text, true), m.chatId)) return;
-      if (!m.mentioned) return; // 没 @ 又没听懂：安静退出
+      if (await reportAnswer(port.tryAnswerByText(m.text, true, th?.ticket), origin)) return;
+      if (!m.mentioned && !th) return; // 没 @ 又没听懂：安静退出（话题里除外，见上）
     }
+  }
+
+  // 话题路由（设计稿 §3.4）：话题绑了工单 → 这句一定是该单的事；绑了会话 → 续它。确定性优先于分类器的猜测
+  if (th || (m.inThread && runByCard(m.rootId))) {
+    const routed = routeInThread(cmd, th, m.text, !!runByCard(m.rootId));
+    if (routed !== cmd) log(`话题路由：${cmd.kind} → ${routed.kind}${(routed as { ticket?: string }).ticket ? ` @${(routed as { ticket?: string }).ticket}` : ''}`);
+    cmd = routed;
+    if (th?.ticket && m.rootId) touchThread(m.rootId);
   }
 
   // 分级确认：改变流程走向的一律先问，卡片上写清"我理解为什么、会导致什么"
@@ -293,22 +346,22 @@ async function onMessage(m: IncomingMessage): Promise<void> {
 
   if (needsConfirm(cmd)) {
     const t = (cmd as { ticket: string }).ticket;
-    if (!(await port.confirmCommand(t, describeCommand(cmd), m.chatId))) {
-      await port.notify(t, '已取消', m.chatId);
+    if (!(await port.confirmCommand(t, describeCommand(cmd), origin))) {
+      await port.notify(t, '已取消', origin);
       return;
     }
   }
 
   try {
-    await handleCommand(cmd, m.sender, m.chatId);
+    await handleCommand(cmd, m.sender, origin);
   } catch (e) {
     log(`指令处理失败：${(e as Error).message}`);
-    await port.notify('指令', `处理失败：${(e as Error).message}`, m.chatId);
+    await port.notify('指令', `处理失败：${(e as Error).message}`, origin);
   }
 }
 
 /** 统一回执待答项路由结果；返回是否已处理完毕 */
-async function reportAnswer(r: ReturnType<FeishuPort['tryAnswerByText']>, chat?: string): Promise<boolean> {
+async function reportAnswer(r: ReturnType<FeishuPort["tryAnswerByText"]>, chat?: ChatRef): Promise<boolean> {
   if (r.status === 'resolved') {
     await port.notify('回答', `已记录 ${r.label} → ${r.answer}${r.note ? `（补充：${r.note}）` : ''}`, chat);
     return true;
@@ -350,6 +403,8 @@ log(boardOn ? '看板投影已启用（多维表格）' : '看板投影未配置
 port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
 // 工单生命周期通知按项目绑定群路由（/bind 设置）：工单号前缀 → 项目，或直接给项目别名
 port.routeChat = (t) => (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId;
+// 工单绑了话题就把它的卡片/进度投进话题（src/threads.ts；广播另在主线留一份）
+port.routeThread = (t) => threadOfTicket(t)?.rootId;
 // 指令处理器只通过这份上下文拿状态（src/daemon/context.ts）。port 已就绪、到首个 await 之间无消息可达，此处装配无时序风险
 const ctx: DaemonContext = {
   projects,

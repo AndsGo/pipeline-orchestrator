@@ -8,6 +8,7 @@ import { readImplementProgress } from '../implementProgress.js';
 import { engineFor } from '../engine/index.js';
 import { type PipelineProfile, STAGE_PROFILE_FILE, stageBrief } from '../profile.js';
 import { MAP_HINT_FILE, mapFreshness, renderMapHint } from '../systemMap.js';
+import { broadcast } from '../ports.js';
 import type { Stage } from '../types.js';
 import { audienceOf, startLine } from '../voice.js';
 import type { TicketRun } from './context.js';
@@ -76,7 +77,8 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
     summary: `阶段 ${stage} 开始${run.extraArgs ? `（${run.extraArgs}）` : ''}`,
     payload: { claudeMdSha, ...(modelLabel ? { model: modelLabel } : {}) },
   });
-  await port.notify(
+  await broadcast(
+    port,
     ticket,
     audienceOf(profile) === 'business'
       ? startLine(stage, run.extraArgs, typicalStageMinutes(stage))

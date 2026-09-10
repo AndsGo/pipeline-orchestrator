@@ -1,6 +1,6 @@
 # 话题维度的上下文管理（设计稿）
 
-**状态**：已拍板（2026-09-10），待实现 · **日期**：2026-09-09 · **范围**：编排器（`src/feishu/`、`src/daemon*`、`src/followup.ts`），不动阶段 skill 与 handoff 契约
+**状态**：已实现（2026-09-10，commit 见 git log；真机字段取值待首个话题消息验证） · **日期**：2026-09-09 · **范围**：编排器（`src/feishu/`、`src/daemon*`、`src/followup.ts`），不动阶段 skill 与 handoff 契约
 
 ## 0. 一句话
 

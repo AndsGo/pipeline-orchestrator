@@ -4,9 +4,10 @@ import { PLUGIN_DIR } from '../../config.js';
 import { describeProjects, mentionedProject, resolveProject } from '../../projects.js';
 import { describeSlashTarget, resolveSlashTarget } from '../../slashTarget.js';
 import { readSticky, writeSticky } from '../../sticky.js';
+import { type ChatRef, chatIdOf } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'run'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'run'>, _sender: string, chat?: ChatRef): Promise<void> {
   const { port, projects, cfg, log } = ctx;
   // 单次执行：低预算、不建工单、不进看板。工具里有 Bash——这不是只读通道，能跑测试也能跑部署脚本
   let project = resolveProject(projects, c.project);
@@ -30,15 +31,15 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'run'>, _sender: s
     }
   }
   // 群绑定：这个群就是这个项目（/bind）；再往后是项目粘性（本群最近明确指过的项目，见 sticky.ts）
-  if (!project && chat) project = projects.find((p) => p.chatId === chat) ?? null;
-  if (!project && chat) project = readSticky(chat, projects);
+  if (!project && chat) project = projects.find((p) => p.chatId === chatIdOf(chat)) ?? null;
+  if (!project && chat) project = readSticky(chatIdOf(chat)!, projects);
   project ??= resolveProject(projects, cfg.defaultProject);
   if (!project) {
     await port.notify('执行', `无法确定项目（可用：${describeProjects(projects)}）`, chat);
     return;
   }
   // 记粘性：绑定群不记（群即项目），未绑定群沿用这次的归属
-  if (chat && !projects.some((p) => p.chatId === chat)) writeSticky(chat, project.alias);
+  if (chat && !projects.some((p) => p.chatId === chatIdOf(chat))) writeSticky(chatIdOf(chat)!, project.alias);
   const isSlashCmd = isProjectSlashCommand(c.text);
   let slashRisks: string[] = []; // 执行失败时要据此提醒"远端状态未知"
   log(`/run on ${project.alias}${isSlashCmd ? '（斜杠指令）' : ''}: ${c.text.slice(0, 100)}`);

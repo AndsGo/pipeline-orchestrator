@@ -1,4 +1,5 @@
 import type { Command } from '../../commands.js';
+import type { ChatRef } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 import * as addproject from './addproject.js';
 import * as amend from './amend.js';
@@ -18,7 +19,7 @@ import * as status from './status.js';
 import * as unknown from './unknown.js';
 import * as use from './use.js';
 
-export type Handler<K extends Command['kind']> = (ctx: DaemonContext, cmd: CommandOf<K>, sender: string, chat?: string) => Promise<void>;
+export type Handler<K extends Command['kind']> = (ctx: DaemonContext, cmd: CommandOf<K>, sender: string, chat?: ChatRef) => Promise<void>;
 
 /** kind → 处理器。映射类型按 Command['kind'] 穷举：新增一种指令没配处理器，tsc 直接报错 */
 export const handlers: { [K in Command['kind']]: Handler<K> } = {
@@ -42,6 +43,6 @@ export const handlers: { [K in Command['kind']]: Handler<K> } = {
 };
 
 /** 按 kind 分发。断言是安全的：映射类型已保证 handlers[k] 收的就是 kind 为 k 的指令 */
-export function dispatch(ctx: DaemonContext, c: Command, sender: string, chat?: string): Promise<void> {
+export function dispatch(ctx: DaemonContext, c: Command, sender: string, chat?: ChatRef): Promise<void> {
   return (handlers[c.kind] as Handler<Command['kind']>)(ctx, c, sender, chat);
 }

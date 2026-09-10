@@ -6,6 +6,7 @@ import { checkMergeAgainstTarget, describeMergeCheck } from '../mergeCheck.js';
 import { describeRelease, type PipelineProfile, releaseTargetBranch } from '../profile.js';
 import { readSnapshot, saveTicket } from '../ticket.js';
 import type { OpenQuestion } from '../types.js';
+import { broadcast } from '../ports.js';
 import { audienceOf, releaseLine } from '../voice.js';
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
@@ -76,7 +77,8 @@ export async function runRelease(run: TicketRun, profile: PipelineProfile): Prom
         return 'halt';
       }
       appendEvent({ ticket, type: 'release', summary: `已合并 MR !${mr.iid} → ${target}（${r.sha.slice(0, 8)}）` });
-      await port.notify(
+      await broadcast(
+        port,
         ticket,
         audienceOf(profile) === 'business' ? releaseLine(target, mr.webUrl) : `已合并 MR !${mr.iid} → ${target}：${mr.webUrl}`,
       );

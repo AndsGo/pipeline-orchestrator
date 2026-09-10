@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GateDecision } from '../ports.js';
+import type { ChatRef, GateDecision } from '../ports.js';
 import type { Project } from '../projects.js';
 import { Semaphore } from '../semaphore.js';
 import type { TicketState } from '../types.js';
@@ -57,11 +57,11 @@ interface Script {
 }
 
 function fakeCtx(script: Script = {}, over: Partial<DaemonContext> = {}) {
-  const notify: Array<[string, string, string | undefined]> = [];
-  const choose: Array<{ ticket: string; question: string; options: string[]; chat?: string }> = [];
+  const notify: Array<[string, string, ChatRef | undefined]> = [];
+  const choose: Array<{ ticket: string; question: string; options: string[]; chat?: ChatRef }> = [];
   const gates: Array<{ ticket: string; gate: string; summary: string }> = [];
   const started: unknown[][] = [];
-  const followups: Array<[string, string | undefined]> = [];
+  const followups: Array<[string, ChatRef | undefined]> = [];
   const logs: string[] = [];
   const port: DaemonPort = {
     notify: async (t, m, chat) => void notify.push([t, m, chat]),

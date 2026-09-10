@@ -9,6 +9,24 @@ export interface GateDecision {
 }
 
 /**
+ * 消息来源：来自哪个群、以及是否在某个话题里（rootId = 话题根消息）。
+ * 回应要回到发问的地方——话题里问的就答进话题（设计稿 2026-09-09-thread-context §3.5）。
+ * 历史调用只传群 id 字符串，所以端口方法接受 `ChatRef = string | Origin`，字符串 = 只有群。
+ */
+export interface Origin {
+  chatId: string;
+  rootId?: string;
+}
+export type ChatRef = string | Origin;
+export const chatIdOf = (ref: ChatRef | undefined): string | undefined => (typeof ref === 'string' ? ref : ref?.chatId);
+export const rootIdOf = (ref: ChatRef | undefined): string | undefined => (typeof ref === 'string' ? undefined : ref?.rootId);
+
+/** 广播：有工单话题时主线与话题各发一份（开工/收尾/上线/闭环/挂起）；端口没实现就退回 notify */
+export function broadcast(port: InteractionPort, ticket: string, message: string): Promise<void> {
+  return port.broadcast ? port.broadcast(ticket, message) : port.notify(ticket, message);
+}
+
+/**
  * 交互端口抽象：CLI / 无人值守 / 飞书 三种实现。
  * 每个方法都必须允许人给出自由文本——只给选择题会让人失去表达能力。
  */
@@ -21,6 +39,8 @@ export interface InteractionPort {
   notify(ticket: string, message: string): Promise<void>;
   /** 结构化报告（如验收 AC 结果表）：比 notify 长、要排版。可选——未实现的端口由调用方降级为 notify */
   sendReport?(ticket: string, title: string, markdown: string): Promise<void>;
+  /** 广播：主线 + 工单话题各一份（见 ports.broadcast）。可选——没有话题概念的端口不实现 */
+  broadcast?(ticket: string, message: string): Promise<void>;
   close(): void;
 }
 

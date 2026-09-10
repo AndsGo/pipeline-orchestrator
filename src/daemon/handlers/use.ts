@@ -1,8 +1,10 @@
 import { describeProjects, mentionedProject, resolveProject } from '../../projects.js';
 import { readSticky, STICKY_TTL_MS, writeSticky } from '../../sticky.js';
+import { type ChatRef, chatIdOf } from '../../ports.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 
-export async function handle(ctx: DaemonContext, c: CommandOf<'use'>, _sender: string, chat?: string): Promise<void> {
+export async function handle(ctx: DaemonContext, c: CommandOf<'use'>, _sender: string, ref?: ChatRef): Promise<void> {
+  const chat = chatIdOf(ref);
   const { port, projects, cfg } = ctx;
   if (!chat) return;
   const bound = projects.find((p) => p.chatId === chat);
