@@ -487,7 +487,7 @@ export function normalize(
       // （"…属于只读诊断操作"），于是用户的现象描述和 URL 全丢了，执行会话拿到一段推理当需求
       return { kind: 'run', text: original, sideEffect: so.side_effect === true };
     case 'followup':
-      return { kind: 'followup', text: original, sideEffect: so.side_effect === true };
+      return { kind: 'followup', text: original, ...(so.side_effect === true ? { sideEffect: true } : {}) };
     case 'help':
       return { kind: 'help' };
     case 'list':
