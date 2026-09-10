@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { writeAdhocRecord } from '../adhocLog.js';
 import { PLUGIN_DIR } from '../config.js';
@@ -12,6 +13,7 @@ import {
   saveLastRunFor,
   withRound,
 } from '../followup.js';
+import { collectOutbox, outboxDir, outboxPromptLine } from '../outbox.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
@@ -42,7 +44,11 @@ export async function execAdhoc(
   // 无人值守声明：实测会话被工具白名单拦下后，向群里喊「请在权限提示中点击允许」——那个提示不存在
   // 写权限声明（2026-08-25 实测）：会话排查出 14 个文件要改，向用户开出「是否现在授予写入权限」的选项——
   // 白名单钉死在 daemon 里，续聊也不会变，这个授权不存在。改代码的正路是 /new 建单走流水线（有评审有 CI）。
-  const prompt = `${corePrompt}\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里）`;
+  // 出件箱（src/outbox.ts）：每轮一个目录，会话把要交给人的文件写进去，结束后由编排器上传发到同一目标
+  const outbox = outboxDir(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs.mkdirSync(outbox, { recursive: true });
+  let keepOutbox = false;
+  const prompt = `${corePrompt}\n\n（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里）`;
   try {
     const r = await engineFor(project.repo).runText({
       cwd: project.repo,
@@ -115,6 +121,17 @@ export async function execAdhoc(
       );
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
+      // 出件箱里的文件跟着结果一起发（话题就回话题）；发不出去的要说，别让人以为文件丢了
+      const box = collectOutbox(outbox);
+      if (box.files.length || box.skipped.length) {
+        const sent = port.sendFiles ? await port.sendFiles('执行', box.files, opts?.chat) : { sent: [], failed: box.files.map((f) => path.basename(f)) };
+        log(`  出件箱：发出 ${sent.sent.length} 个${sent.failed.length ? `，失败 ${sent.failed.join('、')}` : ''}${box.skipped.length ? `，跳过 ${box.skipped.join('、')}` : ''}`);
+        const problems = [...sent.failed.map((n) => `${n}（上传失败）`), ...box.skipped];
+        if (problems.length) {
+          keepOutbox = true;
+          await port.notify('执行', `有文件没能发出：${problems.join('；')}。文件仍在本机 ${outbox}/`, opts?.chat);
+        }
+      }
     }
     return true;
   } catch (e) {
@@ -129,6 +146,14 @@ export async function execAdhoc(
     return false;
   } finally {
     release();
+    // 出件箱用完即清；有文件没发出去时保留目录——通知里给了路径，人还要来取
+    if (!keepOutbox) {
+      try {
+        fs.rmSync(outbox, { recursive: true, force: true });
+      } catch {
+        /* 清不掉不影响主流程 */
+      }
+    }
   }
 }
 

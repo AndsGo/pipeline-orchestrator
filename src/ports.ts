@@ -41,6 +41,8 @@ export interface InteractionPort {
   sendReport?(ticket: string, title: string, markdown: string): Promise<void>;
   /** 广播：主线 + 工单话题各一份（见 ports.broadcast）。可选——没有话题概念的端口不实现 */
   broadcast?(ticket: string, message: string): Promise<void>;
+  /** 代发本地文件/图片（出件箱，见 src/outbox.ts）。可选——CLI/无人值守端口没有地方可发 */
+  sendFiles?(ticketOrAlias: string, files: string[], to?: ChatRef): Promise<{ sent: string[]; failed: string[] }>;
   close(): void;
 }
 

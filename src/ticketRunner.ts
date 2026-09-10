@@ -8,6 +8,7 @@ import { detectTicketBranch, resolveLedgerFile } from './implementProgress.js';
 import { jenkinsConfigFromEnv, runJenkinsBuild } from './jenkins.js';
 import type { Lane } from './lanes.js';
 import { applyResult, mergeReviewResults, route, unconsumedReviewBlocks } from './machine.js';
+import { recentImages } from './outbox.js';
 import { isPaused } from './pause.js';
 import type { InteractionPort } from './ports.js';
 import { readProfile } from './profile.js';
@@ -258,6 +259,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     }
 
     const stageModel = await prepareStage(run, stage, profile);
+    const stageStartedMs = Date.now();
     const ledgerWatch = stage === 'implement' ? watchLedger(repo, ticket, port, audienceOf(profile)) : null;
     let envelope: Envelope;
     try {
@@ -373,6 +375,12 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       if (rep) {
         if (port.sendReport) await port.sendReport(ticket, `验收结果 ${res.verdict}`, rep);
         else await port.notify(ticket, `验收结果（${res.verdict}）：\n${rep.slice(0, 600)}`);
+      }
+      // 本轮浏览器实测留下的截图跟结果表一起发（e2e: playwright 项目）——证据要能看见，不是只给路径
+      const shots = recentImages(path.join(ticketDir(repo, ticket), 'e2e'), stageStartedMs);
+      if (shots.length && port.sendFiles) {
+        const r = await port.sendFiles(ticket, shots.slice(0, 8));
+        if (r.failed.length) await port.notify(ticket, `有 ${r.failed.length} 张验收截图没能发出（${r.failed.join('、')}），见 docs/pipeline/${ticket}/e2e/`);
       }
     }
 

@@ -17,7 +17,7 @@ export type CommandOf<K extends Command['kind']> = Extract<Command, { kind: K }>
 export type DaemonPort = Pick<
   FeishuPort,
   'notify' | 'chooseOption' | 'confirmGate' | 'confirmCommand' | 'sendDashboard' | 'sendStatus' | 'sendResult' | 'pendingLabels'
->;
+> & { sendFiles?: FeishuPort['sendFiles'] };
 
 /** 单次执行的轻量台账条目：不建工单，但成本要看得见 */
 export interface AdhocEntry {

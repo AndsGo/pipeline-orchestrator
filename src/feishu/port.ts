@@ -2,6 +2,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Answer } from '../backfill.js';
+import { imFileType, isImage } from '../outbox.js';
 import { dataDir } from '../paths.js';
 import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
@@ -190,7 +191,40 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发到群或话题：有 rootId 走 reply + reply_in_thread（回到话题），否则 create 到群 */
-  private async post(msgType: 'text' | 'interactive', content: string, to: { chatId?: string; rootId?: string }): Promise<string | undefined> {
+  /**
+   * 代会话发文件/图片（出件箱，见 src/outbox.ts）：先上传拿 key，再以 file/image 消息发到目标（话题就回话题）。
+   * 单个失败不影响其余；返回发成功与失败的文件名供调用方通报
+   */
+  async sendFiles(ticketOrAlias: string, files: string[], to?: ChatRef): Promise<{ sent: string[]; failed: string[] }> {
+    const target = this.targetFor(ticketOrAlias, to);
+    const sent: string[] = [];
+    const failed: string[] = [];
+    for (const f of files) {
+      const name = path.basename(f);
+      try {
+        if (isImage(name)) {
+          const res = (await this.client.im.image.create({
+            data: { image_type: 'message', image: fs.createReadStream(f) },
+          })) as { data?: { image_key?: string } } | undefined;
+          if (!res?.data?.image_key) throw new Error('上传未返回 image_key');
+          await this.post('image', JSON.stringify({ image_key: res.data.image_key }), target);
+        } else {
+          const res = (await this.client.im.file.create({
+            data: { file_type: imFileType(name), file_name: name, file: fs.createReadStream(f) },
+          })) as { data?: { file_key?: string } } | undefined;
+          if (!res?.data?.file_key) throw new Error('上传未返回 file_key');
+          await this.post('file', JSON.stringify({ file_key: res.data.file_key }), target);
+        }
+        sent.push(name);
+      } catch (e) {
+        console.warn(`[feishu] 发送文件失败 ${name}：${(e as Error).message.slice(0, 160)}`);
+        failed.push(name);
+      }
+    }
+    return { sent, failed };
+  }
+
+  private async post(msgType: string, content: string, to: { chatId?: string; rootId?: string }): Promise<string | undefined> {
     if (to.rootId) {
       try {
         const res = (await this.client.im.message.reply({
