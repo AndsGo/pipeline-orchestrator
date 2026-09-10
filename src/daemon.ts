@@ -168,7 +168,9 @@ async function onMessage(m: IncomingMessage): Promise<void> {
       await port.notify('执行', '上一句还在处理，这句排在它后面…', { chatId: m.chatId, rootId: m.rootId });
       await prev.catch(() => {});
     }
-    await handleMessage(m, th);
+    // 排队期间前一句可能刚把会话绑到话题上：进场时读的 th 已过期，要重读（2026-09-10 真机：/run 结束 0.6s 后
+    // 不 @ 的追问按过期的 th=null 走了「没 @ 又不像指令」的静默退出，人的话被丢了）
+    await handleMessage(m, getThread(m.rootId));
   })();
   threadQueue.set(key, p);
   try {
