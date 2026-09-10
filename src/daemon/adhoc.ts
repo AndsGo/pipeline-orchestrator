@@ -48,7 +48,22 @@ export async function execAdhoc(
   const outbox = outboxDir(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   fs.mkdirSync(outbox, { recursive: true });
   let keepOutbox = false;
-  const prompt = `${corePrompt}\n\n（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里）`;
+  // 在线表（feishu/sheet.ts）：会话绑了表就把最新内容导成 outbox/sheet.csv 给它读——人可能在网页里改过
+  const boundSheet = opts?.prev?.sheet;
+  const sheetCsvFile = path.join(outbox, 'sheet.csv');
+  let sheetCsvBefore: string | null = null;
+  if (boundSheet && port.sheets) {
+    try {
+      sheetCsvBefore = await port.sheets().exportCsv(boundSheet, sheetCsvFile);
+    } catch (e) {
+      log(`  在线表导出失败（本轮不带表）：${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+  const sheetLine =
+    boundSheet && sheetCsvBefore !== null
+      ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，最新内容已导出到 ${outbox}/sheet.csv——人可能在网页里改过，以它为准。要更新这张表就直接改写这个文件（保持 CSV 格式、不要另存新文件），结束后我会写回同一张表；不要把 sheet.csv 当作要发给用户的附件。）\n\n`
+      : '';
+  const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里）`;
   try {
     const r = await engineFor(project.repo).runText({
       cwd: project.repo,
@@ -98,6 +113,32 @@ export async function execAdhoc(
         opts?.chat,
       );
     } else {
+      // 在线表：已绑 → 会话改了 sheet.csv 就写回；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
+      // 任一步失败都退回「按附件发」：文件留在出件箱，下面照常发出
+      let sheet = boundSheet;
+      let sheetNote = '';
+      if (port.sheets) {
+        try {
+          if (sheet && sheetCsvBefore !== null) {
+            const after = fs.existsSync(sheetCsvFile) ? fs.readFileSync(sheetCsvFile, 'utf-8') : null;
+            if (after !== null && after !== sheetCsvBefore) {
+              const n = await port.sheets().importCsvInto(sheet, sheetCsvFile);
+              sheetNote = `📊 在线表已更新（${n} 行）：${sheet.url}`;
+            }
+            fs.rmSync(sheetCsvFile, { force: true }); // 会话没改或已写回，都不作为附件发
+          } else if (!sheet) {
+            const table = collectOutbox(outbox).files.find((f) => /\.(csv|xlsx)$/i.test(f));
+            if (table) {
+              sheet = await port.sheets().importFile(table, path.basename(table, path.extname(table)));
+              fs.rmSync(table, { force: true });
+              sheetNote = `📊 已建为在线表格（之后这次对话里的修改会直接写回它，你也可以在线改；多人同时用请在话题里聊）：${sheet.url}`;
+            }
+          }
+        } catch (e) {
+          log(`  在线表处理失败（退回附件）：${(e as Error).message.slice(0, 160)}`);
+          sheetNote = `⚠ 在线表处理失败（${(e as Error).message.slice(0, 80)}），表格按附件发出`;
+        }
+      }
       const rec: LastRun = {
         at,
         project: project.alias,
@@ -106,6 +147,7 @@ export async function execAdhoc(
         chain,
         sessionId: r.sessionId,
         origin: opts?.origin ?? commandText,
+        sheet,
         // 整段对话随指针累积：续轮接在被续的那条记录后面（按卡续时是那张卡的记录，否则是本群指针）
         transcript: withRound(chain > 0 ? (opts?.prev ?? readLastRunFor(chatId)) : null, { command: commandText, output: r.text }),
       };
@@ -121,6 +163,7 @@ export async function execAdhoc(
       );
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
+      if (sheetNote) await port.notify('执行', sheetNote, opts?.chat);
       // 出件箱里的文件跟着结果一起发（话题就回话题）；发不出去的要说，别让人以为文件丢了
       const box = collectOutbox(outbox);
       if (box.files.length || box.skipped.length) {

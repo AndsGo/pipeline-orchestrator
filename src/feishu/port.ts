@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Answer } from '../backfill.js';
 import { imFileType, isImage } from '../outbox.js';
 import { dataDir } from '../paths.js';
+import { SheetService } from './sheet.js';
 import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
 import {
@@ -191,6 +192,12 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发到群或话题：有 rootId 走 reply + reply_in_thread（回到话题），否则 create 到群 */
+  private sheetSvc?: SheetService;
+  /** 在线电子表格服务（会话表格产物的落点，见 feishu/sheet.ts）；共用同一个 lark client */
+  sheets(): SheetService {
+    return (this.sheetSvc ??= new SheetService(this.client));
+  }
+
   /**
    * 代会话发文件/图片（出件箱，见 src/outbox.ts）：先上传拿 key，再以 file/image 消息发到目标（话题就回话题）。
    * 单个失败不影响其余；返回发成功与失败的文件名供调用方通报
