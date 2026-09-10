@@ -130,7 +130,8 @@ export function routeInThread(cmd: Command, th: ThreadRec | null, text: string, 
     }
   }
   if ((th?.run || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown')) {
-    return { kind: 'followup', text: text.replace(/^\/re\s*/i, '').trim() || '继续' };
+    // 话题里人习惯照旧打 /run、/re（真机 2026-09-10）：续聊正文不该带着指令前缀
+    return { kind: 'followup', text: text.replace(/^\/(re|run)\s*/i, '').trim() || '继续' };
   }
   return cmd;
 }
