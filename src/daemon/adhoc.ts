@@ -162,7 +162,10 @@ export async function execAdhoc(
       );
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
-      if (sheetNote) await port.notify('执行', sheetNote, opts?.chat);
+      if (sheetNote) {
+        log(`  ${sheetNote.slice(0, 160)}`); // 写回/建表要在日志里可见，不只群里一句
+        await port.notify('执行', sheetNote, opts?.chat);
+      }
       // 出件箱里的文件跟着结果一起发（话题就回话题）；发不出去的要说，别让人以为文件丢了
       const box = collectOutbox(outbox);
       if (box.files.length || box.skipped.length) {
