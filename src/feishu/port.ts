@@ -202,18 +202,21 @@ export class FeishuPort implements InteractionPort {
     for (const f of files) {
       const name = path.basename(f);
       try {
+        // SDK 对上传接口把 data 拆开了直接返回 { file_key }（2026-09-10 实测），其他接口是 { data: {...} }——两种都认
         if (isImage(name)) {
           const res = (await this.client.im.image.create({
             data: { image_type: 'message', image: fs.createReadStream(f) },
-          })) as { data?: { image_key?: string } } | undefined;
-          if (!res?.data?.image_key) throw new Error('上传未返回 image_key');
-          await this.post('image', JSON.stringify({ image_key: res.data.image_key }), target);
+          })) as { image_key?: string; data?: { image_key?: string } } | undefined;
+          const key = res?.image_key ?? res?.data?.image_key;
+          if (!key) throw new Error('上传未返回 image_key');
+          await this.post('image', JSON.stringify({ image_key: key }), target);
         } else {
           const res = (await this.client.im.file.create({
             data: { file_type: imFileType(name), file_name: name, file: fs.createReadStream(f) },
-          })) as { data?: { file_key?: string } } | undefined;
-          if (!res?.data?.file_key) throw new Error('上传未返回 file_key');
-          await this.post('file', JSON.stringify({ file_key: res.data.file_key }), target);
+          })) as { file_key?: string; data?: { file_key?: string } } | undefined;
+          const key = res?.file_key ?? res?.data?.file_key;
+          if (!key) throw new Error('上传未返回 file_key');
+          await this.post('file', JSON.stringify({ file_key: key }), target);
         }
         sent.push(name);
       } catch (e) {
