@@ -21,6 +21,47 @@ export interface ThreadRec {
   lastAt: string;
   /** 会话轮次（首轮 1）；与 lastAt 一起决定会话寿命 */
   turns: number;
+  /**
+   * 话题里没 @ 机器人的话（拍板 2026-09-11）：不触发、不回复，攒着；下一次有人 @ 时连同那句一起交给会话/工单。
+   * 上限 20 条 / 24 小时，超了丢最早的
+   */
+  pending?: Array<{ sender: string; text: string; ts: string }>;
+}
+
+export const PENDING_CAP = 20;
+export const PENDING_TTL_MS = 24 * 3600_000;
+
+/** 攒一句没 @ 的话（只对已绑定的话题；未绑定的话题不是在跟机器人说话，不记） */
+export function pushPending(rootId: string, sender: string, text: string, file = threadsFile(), now = Date.now()): number {
+  const all = readThreads(file);
+  const rec = all[rootId];
+  if (!rec) return 0;
+  const fresh = (rec.pending ?? []).filter((p) => now - Date.parse(p.ts) <= PENDING_TTL_MS);
+  fresh.push({ sender, text: text.slice(0, 1000), ts: new Date(now).toISOString() });
+  rec.pending = fresh.slice(-PENDING_CAP);
+  rec.lastAt = new Date(now).toISOString();
+  writeThreads(all, file, now);
+  return rec.pending.length;
+}
+
+/** 取走并清空攒下的话 */
+export function takePending(rootId: string, file = threadsFile(), now = Date.now()): Array<{ sender: string; text: string; ts: string }> {
+  const all = readThreads(file);
+  const rec = all[rootId];
+  if (!rec?.pending?.length) return [];
+  const out = rec.pending.filter((p) => now - Date.parse(p.ts) <= PENDING_TTL_MS);
+  rec.pending = [];
+  writeThreads(all, file, now);
+  return out;
+}
+
+/** 攒下的话渲染成给会话/工单看的段落（发送人只留 open_id 尾 6 位——会话不需要知道是谁，只需要知道不是同一个人） */
+export function renderPending(items: Array<{ sender: string; text: string; ts: string }>): string {
+  if (!items.length) return '';
+  return [
+    '（这期间话题里还有以下讨论，供参考，以最后 @ 你的那句为准）',
+    ...items.map((p) => `- [${p.ts.slice(11, 16)} ${p.sender.slice(-6)}] ${p.text.replace(/\s+/g, ' ').slice(0, 300)}`),
+  ].join('\n');
 }
 
 export type Threads = Record<string, ThreadRec>;

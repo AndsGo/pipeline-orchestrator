@@ -190,11 +190,19 @@ export function readLastRunFor(chat: string | undefined, now = Date.now(), ttlMs
   return (chat ? readLastRun(now, lastRunFileFor(chat), ttlMs) : null) ?? readLastRun(now, undefined, ttlMs);
 }
 
-/** 卡片/日志里指代上次执行的短句：《指令前 60 字》（N 分钟前） */
+/** 引用附件的分隔标记（feishu/port.ts 把被引用消息的正文拼在用户原话后面） */
+export const QUOTE_MARK = '\n\n【用户引用的消息】';
+
+/** 只留用户自己说的话：记录、日志、复述都不该带着引用附件（话题里每句都拖着根消息的引用，2026-09-11 真机确认卡因此不可读） */
+export function stripQuote(text: string): string {
+  return text.split(QUOTE_MARK)[0].trim();
+}
+
+/** 卡片/日志里指代上次执行的短句：《指令前 60 字》（N 分钟前）。机制细节（第几轮）不给人看 */
 export function describeLastRun(r: LastRun, now = Date.now()): string {
   const min = Math.max(0, Math.round((now - Date.parse(r.at)) / 60_000));
   const ago = min < 60 ? `${min} 分钟前` : `${Math.round(min / 60)} 小时前`;
-  return `《${r.command.slice(0, 60)}》（${r.chain > 0 ? `续聊第 ${r.chain} 轮，` : ''}${ago}）`;
+  return `《${stripQuote(r.command).slice(0, 60)}》（${ago}）`;
 }
 
 /**

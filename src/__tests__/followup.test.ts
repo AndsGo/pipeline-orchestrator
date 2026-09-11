@@ -226,7 +226,16 @@ describe('describeLastRun', () => {
   it('续轮标出轮次，超过一小时按小时说', () => {
     const at = new Date().toISOString();
     const s = describeLastRun(mkRun({ at, chain: 2 }), Date.parse(at) + 3 * 3_600_000);
-    expect(s).toContain('续聊第 2 轮');
+    expect(s).not.toContain('续聊第'); // 2026-09-11：机制细节不给人看
     expect(s).toContain('3 小时前');
+  });
+});
+
+describe('stripQuote / describeLastRun（2026-09-11 确认卡不可读）', () => {
+  it('复述只留人说的话，不带引用附件，也不带「第 N 轮」', async () => {
+    const { describeLastRun, stripQuote } = await import('../followup.js');
+    expect(stripQuote('这个表格里面的\n\n【用户引用的消息】\n[文件已保存：D:/x]')).toBe('这个表格里面的');
+    const s = describeLastRun({ at: new Date(Date.now() - 3 * 60_000).toISOString(), project: 'p', command: '这个表格里面的\n\n【用户引用的消息】\n[文件]', output: 'o', chain: 17 }, Date.now());
+    expect(s).toBe('《这个表格里面的》（3 分钟前）');
   });
 });

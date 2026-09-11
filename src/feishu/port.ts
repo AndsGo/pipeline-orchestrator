@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Answer } from '../backfill.js';
 import { imFileType, isImage } from '../outbox.js';
 import { dataDir } from '../paths.js';
+import { getThread } from '../threads.js';
 import { SheetService } from './sheet.js';
 import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
@@ -137,11 +138,14 @@ export class FeishuPort implements InteractionPort {
         if (parsed) {
           let text = parsed.text;
           const inThread = !!data.message?.thread_id;
+          // 话题里每条消息的 parent 都是话题根：根消息只在第一轮有价值（会话已带着它），已绑定的话题不再每句重拉重拼
+          // （2026-09-11 真机：每句都拖着「【用户引用的消息】+ 文件路径」，确认卡不可读、每轮白花 token）
+          const quoteIsThreadRoot = inThread && !!data.message?.parent_id && data.message.parent_id === data.message.root_id && !!getThread(data.message.root_id);
           // 真机字段取值留痕（话题回复 / 引用回复 / 话题内引用 三种形态要对得上设计稿 §3.3 的假设）
           if (data.message?.root_id || data.message?.thread_id) {
             console.log(`[feishu] 消息 ${data.message?.message_id} root=${data.message?.root_id ?? '-'} thread=${data.message?.thread_id ?? '-'} parent=${data.message?.parent_id ?? '-'}`);
           }
-          if (data.message?.parent_id) {
+          if (data.message?.parent_id && !quoteIsThreadRoot) {
             const quoted = await port.fetchQuoted(data.message.parent_id);
             if (quoted) {
               text = `${text}\n\n【用户引用的消息】\n${quoted}`;
@@ -192,6 +196,18 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 发到群或话题：有 rootId 走 reply + reply_in_thread（回到话题），否则 create 到群 */
+  /**
+   * 给某条消息加表情回应（收到=👀、完成=✅）：话题里的「确认」不再是一条文字消息——
+   * 人刚打完字，机器人再复述一遍「继续上次执行《你刚说的》」只是噪音（2026-09-11 拍板）。失败无所谓
+   */
+  async react(messageId: string, emoji: 'EYES' | 'DONE' | 'THUMBSUP' = 'EYES'): Promise<void> {
+    try {
+      await this.client.im.messageReaction.create({ path: { message_id: messageId }, data: { reaction_type: { emoji_type: emoji } } });
+    } catch (e) {
+      console.warn(`[feishu] 表情回应失败：${(e as Error).message.slice(0, 100)}`);
+    }
+  }
+
   private sheetSvc?: SheetService;
   /** 在线电子表格服务（会话表格产物的落点，见 feishu/sheet.ts）；共用同一个 lark client */
   sheets(): SheetService {

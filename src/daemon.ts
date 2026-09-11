@@ -16,10 +16,10 @@ import { initBitableSync } from './bitable/sync.js';
 import { appendEvent, listTickets } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
-import { readLastRunFor, runByCard } from './followup.js';
+import { readLastRunFor, runByCard, stripQuote } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
-import { bindTicketThread, getThread, routeInThread, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
+import { bindTicketThread, getThread, pushPending, renderPending, routeInThread, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
 import { describeProjects, loadProjects, projectOfTicket, resolveProject, type Project } from './projects.js';
@@ -246,8 +246,12 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     }
   } else {
     // @了机器人 → 一定回应；没 @ → 只在像指令时才花钱分类，避免打扰群聊。
-    // 绑定了工单/会话的话题里例外：那本来就是与机器人的对话，不用每句 @
-    if (!m.mentioned && !looksLikeCommand(m.text) && !th) return;
+    // 话题里没 @ 的话（拍板 2026-09-11）：不触发、不回复，攒着；下一次有人 @ 时连同那句一起交给会话/工单。
+    // 之前「话题里每句都算对话」让同事间的讨论每句触发一轮 resume——太贵也太吵。答卡例外在上面已处理（有明确格式）
+    if (!m.mentioned && !looksLikeCommand(m.text)) {
+      if (th && m.rootId) log(`话题 ${m.rootId.slice(-8)} 攒下一句（共 ${pushPending(m.rootId, m.sender, stripQuote(m.text))} 条），等 @ 时一并处理`);
+      return;
+    }
     // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
     const contexts = th?.ticket ? ticketContexts().filter((c) => c.ticket === th.ticket) : ticketContexts();
     const lastRun = th ? (th.run ?? null) : readLastRunFor(m.chatId);
@@ -346,6 +350,20 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     if (routed !== cmd) log(`话题路由：${cmd.kind} → ${routed.kind}${(routed as { ticket?: string }).ticket ? ` @${(routed as { ticket?: string }).ticket}` : ''}`);
     cmd = routed;
     if (th?.ticket && m.rootId) touchThread(m.rootId);
+  }
+
+  // 话题里攒下的没 @ 的话：这次被 @ 了，一并带上（写进续聊答复 / 工单说明 / 需求原文），然后清空
+  if (th && m.rootId) {
+    const pending = takePending(m.rootId);
+    if (pending.length) {
+      const digest = renderPending(pending);
+      if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
+      else if (cmd.kind === 'new') cmd = { ...cmd, requirement: `${cmd.requirement}\n\n${digest}` };
+      log(`话题 ${m.rootId.slice(-8)} 连同攒下的 ${pending.length} 条一起处理`);
+      await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
+    }
+    // 话题里的确认不发文字，给你的消息加个 👀（结果卡回来就是完成）
+    if (cmd.kind === 'followup' || cmd.kind === 'run') void port.react(m.messageId, 'EYES');
   }
 
   // 分级确认：改变流程走向的一律先问，卡片上写清"我理解为什么、会导致什么"

@@ -11,6 +11,7 @@ import {
   rememberRunCard,
   runByCard,
   saveLastRunFor,
+  stripQuote,
   withRound,
 } from '../followup.js';
 import { collectOutbox, outboxDir, outboxPromptLine } from '../outbox.js';
@@ -176,7 +177,7 @@ export async function execAdhoc(
       const rec: LastRun = {
         at,
         project: project.alias,
-        command: commandText,
+        command: stripQuote(commandText), // 记录里只留人说的话，引用附件不进复述与建单草稿
         output: r.text,
         chain,
         sessionId: r.sessionId,
@@ -294,8 +295,9 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
     return;
   }
   const origin = last.origin ?? last.command;
-  log(`续聊（第 ${last.chain + 1} 轮${last.sessionId ? '，resume' : '，拼接'}）on ${project.alias}: ${reply.slice(0, 80)}`);
-  await port.notify('执行', `继续上次执行 ${describeLastRun(last)}，已带上你的答复…`, chat);
+  log(`续聊（第 ${last.chain + 1} 轮${last.sessionId ? '，resume' : '，拼接'}）on ${project.alias}: ${stripQuote(reply).slice(0, 80)}`);
+  // 话题里不发文字确认（表情回应在 daemon 层加了），主线一句短的；「第 N 轮 / 已带上答复」是机制描述，人不需要
+  if (!rootIdOf(chat)) await port.notify('执行', `接着上次 ${describeLastRun(last)} 继续…`, chat);
   if (last.sessionId) {
     // 真续会话：完整历史在会话里，正文只需要答复本身
     if (await execAdhoc(ctx, project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat, prev: last })) return;
