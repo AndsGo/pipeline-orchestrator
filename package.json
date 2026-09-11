@@ -1,6 +1,6 @@
 {
   "name": "pipeline-orchestrator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "飞书 + Claude Code 开发流水线编排服务：状态机路由 + headless 会话调度 + 交互端口",
