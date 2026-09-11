@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-09-11
+
 ### 文档
 - 开源化：README 重写，新增 LICENSE（MIT）、CONTRIBUTING、SECURITY、CHANGELOG，`docs/` 下入门 / 配置 / 架构 / 运维 / 排障 / 指令参考六篇，GitHub issue / PR 模板；`.env.example` 补 Codex 引擎相关键；`package.json` 补元数据。
 
@@ -81,6 +83,7 @@
 - followup：结果卡 ↔ 会话映射 + 按群续聊指针（引用哪张卡续哪次）；`/re` 撞上过期指针列出上一次问要不要接；引用卡片消息时抽出卡片文字。
 - 修复：「全部通过，但是…新需求」不再灌进每项备注；doctor 检测 `.gitignore` 屏蔽 `CLAUDE.md`；停止信号的「空闲」改为无会话在执行。
 
-[Unreleased]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AndsGo/pipeline-orchestrator/releases/tag/v0.2.0
