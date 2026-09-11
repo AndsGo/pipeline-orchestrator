@@ -200,7 +200,7 @@ export class FeishuPort implements InteractionPort {
    * 给某条消息加表情回应（收到=👀、完成=✅）：话题里的「确认」不再是一条文字消息——
    * 人刚打完字，机器人再复述一遍「继续上次执行《你刚说的》」只是噪音（2026-09-11 拍板）。失败无所谓
    */
-  async react(messageId: string, emoji: 'EYES' | 'DONE' | 'THUMBSUP' = 'EYES'): Promise<void> {
+  async react(messageId: string, emoji: 'Get' | 'DONE' | 'THUMBSUP' | 'GLANCE' = 'Get'): Promise<void> {
     try {
       await this.client.im.messageReaction.create({ path: { message_id: messageId }, data: { reaction_type: { emoji_type: emoji } } });
     } catch (e) {

@@ -363,7 +363,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
       await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
     }
     // 话题里的确认不发文字，给你的消息加个 👀（结果卡回来就是完成）
-    if (cmd.kind === 'followup' || cmd.kind === 'run') void port.react(m.messageId, 'EYES');
+    if (cmd.kind === 'followup' || cmd.kind === 'run') void port.react(m.messageId, 'Get');
   }
 
   // 分级确认：改变流程走向的一律先问，卡片上写清"我理解为什么、会导致什么"
