@@ -70,6 +70,11 @@ try {
 # 退出码留痕：2026-09-10 20:50 与 09-11 15:11 daemon 两次无声消失——JS 层 exit/信号钩子一个没触发，说明不是 process.exit
 # 也不是收到信号，而是进程被硬杀或原生崩溃。让外层 cmd 把 node 的退出码写进日志：有这一行 = node 自己死的（负数即崩溃码），
 # 连这一行都没有 = 整棵进程树被外力杀掉。/v:on 开延迟展开，否则 !ERRORLEVEL! 在 npm 跑之前就被替换了
+# 崩溃诊断报告：daemon（及其 tsx 子进程）五次以 0xC0000409 无声退出，stderr 一个字没有。Node 的 --report-on-fatalerror
+# 在 V8/Node 内部致命错误时落一份 JSON 报告（堆状态、native 栈、最近的 JS 栈）到 logs\reports\，这是当前唯一能拿到现场的手段
+$reports = Join-Path $root 'logs\reports'
+New-Item -ItemType Directory -Force $reports | Out-Null
+$env:NODE_OPTIONS = "--report-on-fatalerror --report-directory=$reports"
 $p = Start-Process -FilePath 'cmd' -ArgumentList "/v:on /c `"npm run daemon >> `"$log`" 2>&1 & echo [wrapper] !DATE! !TIME! daemon exited code=!ERRORLEVEL! >> `"$log`"`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Set-Content -Path $pidFile -Value $p.Id -Encoding utf8
 
