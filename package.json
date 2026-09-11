@@ -4,6 +4,19 @@
   "private": true,
   "type": "module",
   "description": "飞书 + Claude Code 开发流水线编排服务：状态机路由 + headless 会话调度 + 交互端口",
+  "license": "MIT",
+  "author": "宋徐林 (AndsGo)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AndsGo/pipeline-orchestrator.git"
+  },
+  "homepage": "https://github.com/AndsGo/pipeline-orchestrator#readme",
+  "bugs": {
+    "url": "https://github.com/AndsGo/pipeline-orchestrator/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "orchestrate": "tsx src/cli.ts",
     "daemon": "tsx src/daemon.ts",
