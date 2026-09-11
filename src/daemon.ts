@@ -362,11 +362,12 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
       log(`话题 ${m.rootId.slice(-8)} 连同攒下的 ${pending.length} 条一起处理`);
       await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
     }
-    // 「看 pin 的那条 / 置顶的文档」：把群里置顶的文件下载下来一并带上（真机 2026-09-11）
-    if (/pin|置顶/i.test(m.text) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new')) {
+    // 群里置顶的文件一并带上：pin 是人「指给你看」的自然方式，而人不会每次都说「置顶」二字
+    // （真机 2026-09-11：pin 了新提示词 xlsx 后 @「取文档中 新提示词 sheet」，只认 pin/置顶 关键词就漏了）。文件按 key 落盘，重复带只是多一行路径
+    if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new') {
       const pinned = await port.pinnedFiles(m.chatId);
       if (pinned.length) {
-        const lines = pinned.map((f) => `[置顶的文件 ${f.name} 已保存：${f.path}——文本/图片/PDF 可用 Read 工具查看]`).join('\n');
+        const lines = pinned.map((f) => `[群里置顶的文件 ${f.name} 已保存：${f.path}——若与本句有关请用 Read 工具查看]`).join('\n');
         cmd = cmd.kind === 'new' ? { ...cmd, requirement: `${cmd.requirement}\n\n${lines}` } : { ...cmd, text: `${cmd.text}\n\n${lines}` };
         log(`话题 ${m.rootId.slice(-8)} 带上 ${pinned.length} 个置顶文件：${pinned.map((f) => f.name).join('、')}`);
       }
