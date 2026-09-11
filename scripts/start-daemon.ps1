@@ -67,7 +67,10 @@ try {
   return
 }
 
-$p = Start-Process -FilePath 'cmd' -ArgumentList "/c npm run daemon >> `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+# 退出码留痕：2026-09-10 20:50 与 09-11 15:11 daemon 两次无声消失——JS 层 exit/信号钩子一个没触发，说明不是 process.exit
+# 也不是收到信号，而是进程被硬杀或原生崩溃。让外层 cmd 把 node 的退出码写进日志：有这一行 = node 自己死的（负数即崩溃码），
+# 连这一行都没有 = 整棵进程树被外力杀掉。/v:on 开延迟展开，否则 !ERRORLEVEL! 在 npm 跑之前就被替换了
+$p = Start-Process -FilePath 'cmd' -ArgumentList "/v:on /c `"npm run daemon >> `"$log`" 2>&1 & echo [wrapper] !DATE! !TIME! daemon exited code=!ERRORLEVEL! >> `"$log`"`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Set-Content -Path $pidFile -Value $p.Id -Encoding utf8
 
 # 启动核实：Start-Process 拿到 pid 就返回，子进程秒死也一样返回——不核实就会报假成功
