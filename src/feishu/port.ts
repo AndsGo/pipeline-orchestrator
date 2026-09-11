@@ -220,6 +220,30 @@ export class FeishuPort implements InteractionPort {
     }
   }
 
+  /**
+   * 群里置顶（pin）的文件/图片：下载到本地，返回 {文件名, 路径}。
+   * 真机 2026-09-11：同事把新提示词 xlsx 甩进话题后又 pin 了它，然后 @「你可以看到刚刚 pin 的消息」——
+   * 话题里的文件消息此前被丢，pin 是人能想到的最自然的「指给你看」方式，得认
+   */
+  async pinnedFiles(chatId: string, limit = 3): Promise<Array<{ name: string; path: string }>> {
+    const out: Array<{ name: string; path: string }> = [];
+    try {
+      const res = (await this.client.im.pin.list({ params: { chat_id: chatId, page_size: 10 } })) as { data?: { items?: Array<{ message_id?: string }> } };
+      for (const p of (res?.data?.items ?? []).slice(0, limit)) {
+        if (!p.message_id) continue;
+        const m = (await this.client.im.message.get({ path: { message_id: p.message_id } })) as { data?: { items?: Array<{ msg_type?: string; body?: { content?: string } }> } };
+        const it = m.data?.items?.[0];
+        const ref = attachmentRef(it?.msg_type, it?.body?.content, p.message_id);
+        if (!ref) continue;
+        const saved = await this.downloadQuotedResource(ref);
+        if (saved) out.push({ name: ref.name ?? path.basename(saved), path: saved });
+      }
+    } catch (e) {
+      console.warn(`[feishu] 读取置顶消息失败：${(e as Error).message.slice(0, 120)}`);
+    }
+    return out;
+  }
+
   private sheetSvc?: SheetService;
   /** 在线电子表格服务（会话表格产物的落点，见 feishu/sheet.ts）；共用同一个 lark client */
   sheets(): SheetService {

@@ -362,7 +362,16 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
       log(`话题 ${m.rootId.slice(-8)} 连同攒下的 ${pending.length} 条一起处理`);
       await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
     }
-    // 话题里的确认不发文字，给你的消息加个 👀（结果卡回来就是完成）
+    // 「看 pin 的那条 / 置顶的文档」：把群里置顶的文件下载下来一并带上（真机 2026-09-11）
+    if (/pin|置顶/i.test(m.text) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new')) {
+      const pinned = await port.pinnedFiles(m.chatId);
+      if (pinned.length) {
+        const lines = pinned.map((f) => `[置顶的文件 ${f.name} 已保存：${f.path}——文本/图片/PDF 可用 Read 工具查看]`).join('\n');
+        cmd = cmd.kind === 'new' ? { ...cmd, requirement: `${cmd.requirement}\n\n${lines}` } : { ...cmd, text: `${cmd.text}\n\n${lines}` };
+        log(`话题 ${m.rootId.slice(-8)} 带上 ${pinned.length} 个置顶文件：${pinned.map((f) => f.name).join('、')}`);
+      }
+    }
+    // 话题里的确认不发文字，给你的消息加个「收到」表情（结果卡回来就是完成）
     if (cmd.kind === 'followup' || cmd.kind === 'run') void port.react(m.messageId, 'Get');
   }
 
