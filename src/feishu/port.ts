@@ -214,7 +214,9 @@ export class FeishuPort implements InteractionPort {
     try {
       await this.client.im.messageReaction.create({ path: { message_id: messageId }, data: { reaction_type: { emoji_type: emoji } } });
     } catch (e) {
-      console.warn(`[feishu] 表情回应失败：${(e as Error).message.slice(0, 100)}`);
+      // 231003 = 消息已撤回（真机：同事发完又撤回重发），不值得告警
+      const code = (e as { response?: { data?: { code?: number } } }).response?.data?.code;
+      if (code !== 231003) console.warn(`[feishu] 表情回应失败 ${messageId}：${code ?? ''} ${(e as Error).message.slice(0, 100)}`);
     }
   }
 
