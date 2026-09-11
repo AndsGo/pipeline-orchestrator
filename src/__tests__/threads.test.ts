@@ -112,3 +112,15 @@ describe('threads：话题 = 会话（设计稿 2026-09-09-thread-context）', (
     expect(chatIdOf(undefined)).toBeUndefined();
   });
 });
+
+describe('routeInThread：会话话题里的 new（2026-09-11 真机）', () => {
+  const runTh: ThreadRec = { chatId: 'oc', run: { at: 'x', project: 'p', command: 'c', output: 'o', chain: 0 }, createdAt: 'x', lastAt: 'y', turns: 1 };
+  it('分类器猜的 new → 续聊；明确要建单或亲手 /new → 仍建单', () => {
+    const guessed: Command = { kind: 'new', requirement: '服装的类目不需要指定模特穿衣服，更换背景就行' };
+    expect(routeInThread(guessed, runTh, '服装的类目不需要指定模特穿衣服，更换背景就行', false)).toEqual({ kind: 'followup', text: '服装的类目不需要指定模特穿衣服，更换背景就行' });
+    const explicit: Command = { kind: 'new', requirement: '按刚才聊的建单' };
+    expect(routeInThread(explicit, runTh, '按刚才聊的建单', false)).toBe(explicit);
+    const slash: Command = { kind: 'new', requirement: '把结论建成工单' };
+    expect(routeInThread(slash, runTh, '/new 把结论建成工单', false)).toBe(slash);
+  });
+});

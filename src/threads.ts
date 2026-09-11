@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Command } from './commands.js';
+import { asksToCreateTicket, type Command } from './commands.js';
 import type { LastRun } from './followup.js';
 import { dataDir } from './paths.js';
 
@@ -129,7 +129,10 @@ export function routeInThread(cmd: Command, th: ThreadRec | null, text: string, 
         return cmd;
     }
   }
-  if ((th?.run || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown')) {
+  // 会话话题里分类器猜出的 new 也按续聊：那多半是在给会话提意见（2026-09-11 真机：同事一句「服装类目不用指定模特…更换背景就行」
+  // 被判 new@65%，差点建成工单）。人明确说「建单/开工单」或亲手打 /new 的仍然建单
+  const guessedNew = cmd.kind === 'new' && !text.trim().startsWith('/') && !asksToCreateTicket(text);
+  if ((th?.run || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown' || guessedNew)) {
     // 话题里人习惯照旧打 /run、/re（真机 2026-09-10）：续聊正文不该带着指令前缀。
     // 分类器判出的对外副作用要带过去：run 变成 followup 不能把部署/推送的确认闸门一起变没
     const sideEffect = cmd.kind === 'run' || cmd.kind === 'followup' ? cmd.sideEffect : undefined;
