@@ -352,9 +352,11 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     if (th?.ticket && m.rootId) touchThread(m.rootId);
   }
 
-  // 话题里攒下的没 @ 的话：这次被 @ 了，一并带上（写进续聊答复 / 工单说明 / 需求原文），然后清空
+  // 话题里攒下的没 @ 的话：这次被 @ 了，一并带上（写进续聊答复 / 工单说明 / 需求原文），然后清空。
+  // 只有能装下这些话的指令才取走；/dashboard /status 这类查询不取——真机 2026-09-11：一句 /dashboard 把攒下的意见吞了
   if (th && m.rootId) {
-    const pending = takePending(m.rootId);
+    const carries = cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new';
+    const pending = carries ? takePending(m.rootId) : [];
     if (pending.length) {
       const digest = renderPending(pending);
       if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
