@@ -15,7 +15,7 @@ import {
   withRound,
 } from '../followup.js';
 import { collectOutbox, outboxDir, outboxPromptLine } from '../outbox.js';
-import { parseCsv, planAssets } from '../sheetCsv.js';
+import { runSheetWorker } from '../sheetWriteback.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
@@ -124,54 +124,19 @@ export async function execAdhoc(
         `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
         opts?.chat,
       );
-      // 在线表：已绑 → 会话改了 sheet.csv 就写回；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
+      // 在线表：已绑 → 会话改了的页写回、嵌图、附件夹；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
+      // 在**子进程**里跑（src/sheetWriteback.ts）：大批量嵌图曾三次让 daemon 无声退出（0xC0000409），崩就崩在子进程里。
       // 任一步失败都退回「按附件发」：文件留在出件箱，下面照常发出
       let sheet = boundSheet;
       let sheetNote = '';
-      if (port.sheets) {
+      if (port.sheets && (boundSheet || collectOutbox(outbox).files.some((f) => /\.(csv|xlsx)$/i.test(f)))) {
         try {
-          if (sheet && sheetBefore) {
-            // 附件：整格等于图片文件名 → 嵌进单元格；只在文字里提到 / 非图片 → 传附件夹挂链接。都不刷进群
-            const assetsDir = path.join(sheetDir, 'assets');
-            let assetNote = '';
-            const assetNames = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir).filter((n) => fs.statSync(path.join(assetsDir, n)).isFile()) : [];
-            let plan = { embed: new Set<string>(), link: new Set<string>() };
-            if (assetNames.length) {
-              const csvRows = fs
-                .readdirSync(sheetDir)
-                .filter((n) => n.toLowerCase().endsWith('.csv'))
-                .map((n) => parseCsv(fs.readFileSync(path.join(sheetDir, n), 'utf-8')));
-              plan = planAssets(csvRows, assetNames);
-              if (plan.link.size) {
-                if (!sheet.assetsFolder) sheet = { ...sheet, assetsFolder: await port.sheets().ensureAssetsFolder(sheet.title ?? sheet.token.slice(-8)) };
-                const a = await port.sheets().uploadAssetsAndLinkify(sheetDir, sheet.assetsFolder!, plan.link);
-                const n = Object.keys(a.links).length;
-                assetNote += `${n ? `，${n} 个附件入附件夹并挂链接` : ''}${a.failed.length ? `，${a.failed.length} 个附件上传失败（${a.failed.join('、')}）` : ''}`;
-                for (const name of Object.keys(a.links)) fs.rmSync(path.join(assetsDir, name), { force: true });
-                for (const name of a.failed) fs.renameSync(path.join(assetsDir, name), path.join(outbox, name)); // 失败的走出件箱兜底
-              }
-            }
-            const w = await port.sheets().importDir(sheet, sheetDir, sheetBefore, plan.embed);
-            if (plan.embed.size) {
-              const miss = [...plan.embed].filter((n) => !w.embedded.has(n));
-              assetNote = `${w.embedded.size ? `，${w.embedded.size} 张图已嵌入单元格` : ''}${miss.length ? `，${miss.length} 张嵌图失败已按附件发出（${miss.join('、')}）` : ''}${assetNote}`;
-              for (const name of w.embedded) fs.rmSync(path.join(assetsDir, name), { force: true });
-              for (const name of miss) if (fs.existsSync(path.join(assetsDir, name))) fs.renameSync(path.join(assetsDir, name), path.join(outbox, name));
-            }
-            if (w.updated.length || w.added.length || assetNote) {
-              sheetNote = `📊 在线表已更新${w.updated.length ? `（改了：${w.updated.join('、')}）` : ''}${w.added.length ? `（新增页：${w.added.join('、')}）` : ''}${assetNote}：${sheet.url}`;
-            }
-          } else if (!sheet) {
-            const table = collectOutbox(outbox).files.find((f) => /\.(csv|xlsx)$/i.test(f));
-            if (table) {
-              sheet = await port.sheets().importFile(table, path.basename(table, path.extname(table)));
-              fs.rmSync(table, { force: true });
-              sheetNote = `📊 已建为在线表格（之后这次对话里的修改会直接写回它，你也可以在线改；多人同时用请在话题里聊）：${sheet.url}`;
-            }
-          }
+          const r = await runSheetWorker({ sheet: boundSheet, sheetDir, sheetBefore, outbox }, log);
+          sheet = r.sheet;
+          sheetNote = r.note;
         } catch (e) {
-          log(`  在线表处理失败（退回附件）：${(e as Error).message.slice(0, 160)}`);
-          sheetNote = `⚠ 在线表处理失败（${(e as Error).message.slice(0, 80)}），表格按附件发出`;
+          log(`  在线表写回失败（退回附件）：${(e as Error).message.slice(0, 200)}`);
+          sheetNote = `⚠ 在线表写回失败（${(e as Error).message.slice(0, 100)}），表格与附件按出件箱发出`;
         }
       }
       const rec: LastRun = {
