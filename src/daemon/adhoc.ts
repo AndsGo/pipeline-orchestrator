@@ -121,7 +121,7 @@ export async function execAdhoc(
       const mid = await port.sendResult(
         `执行结果 · ${project.alias}`,
         r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里直接回复即可继续这次任务）`,
+        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
         opts?.chat,
       );
       // 在线表：已绑 → 会话改了 sheet.csv 就写回；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
