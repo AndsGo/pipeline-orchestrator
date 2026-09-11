@@ -15,7 +15,7 @@ import {
   withRound,
 } from '../followup.js';
 import { collectOutbox, outboxDir, outboxPromptLine } from '../outbox.js';
-import { runSheetWorker } from '../sheetWriteback.js';
+import { applyCleanup, runSheetWorker } from '../sheetWriteback.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
@@ -134,9 +134,12 @@ export async function execAdhoc(
           const r = await runSheetWorker({ sheet: boundSheet, sheetDir, sheetBefore, outbox }, log);
           sheet = r.sheet;
           sheetNote = r.note;
+          applyCleanup(r, outbox); // 已嵌/已传的删掉，失败的挪到出件箱顶层按附件发
         } catch (e) {
-          log(`  在线表写回失败（退回附件）：${(e as Error).message.slice(0, 200)}`);
-          sheetNote = `⚠ 在线表写回失败（${(e as Error).message.slice(0, 100)}），表格与附件按出件箱发出`;
+          // 彻底失败（连检查点都没有）：表格与图片都还在 outbox/sheet/ 下，留着别删，人还能来取
+          keepOutbox = true;
+          log(`  在线表写回失败（保留出件箱）：${(e as Error).message.slice(0, 200)}`);
+          sheetNote = `⚠ 在线表写回失败（${(e as Error).message.slice(0, 100)}）。本轮的表格与图片留在本机 ${outbox}/sheet/，在话题里 @我 说「重新写回」可再试`;
         }
       }
       const rec: LastRun = {

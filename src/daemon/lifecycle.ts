@@ -34,6 +34,12 @@ export function startKbAudit(ctx: DaemonContext): void {
  * data/daemon.stop，daemon 每 10 秒看一眼，没有工单在跑或等卡片时自己退出，看门狗 2 分钟内以最新代码拉起。
  * 启动即清掉残留的信号文件，否则新进程一起来就自杀、无限循环。
  */
+/**
+ * 正在处理中的群消息数（收到 → 分类 → 分发完毕）。分类要十几秒，这期间闸门还没被占：
+ * 2026-09-11 真机——同事一句 @ 到达 0.8 秒后 daemon 按「无会话在执行」退出，这句丢了
+ */
+export const inflight = { n: 0 };
+
 export function startStopFilePoller(ctx: DaemonContext, stopFile: string): void {
   const { sem, active, log } = ctx;
   fs.rmSync(stopFile, { force: true });
@@ -44,10 +50,10 @@ export function startStopFilePoller(ctx: DaemonContext, stopFile: string): void 
     if (!stopSeenAt) stopSeenAt = Date.now();
     // 「空闲」= 没有会话在执行。等卡片的工单不算：卡片可恢复（卡点卡原样重发、问题卡由「继续」重问），
     // 而一张几天没人答的上线后补验卡不该让 daemon 永远停不下来（2026-09-03 实测）
-    if (sem.inUse > 0) {
+    if (sem.inUse > 0 || inflight.n > 0) {
       if (!stopDeferredLogged) {
         stopDeferredLogged = true;
-        log(`收到停止信号，但有 ${sem.inUse} 个阶段会话在执行，等它们结束再退出`);
+        log(`收到停止信号，但有 ${sem.inUse} 个阶段会话在执行、${inflight.n} 条消息在处理，等它们结束再退出`);
       }
       return;
     }

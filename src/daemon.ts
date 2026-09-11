@@ -31,7 +31,7 @@ import { draftRequirementFromChat, execAdhoc, runFollowup } from './daemon/adhoc
 import { announceInterruptedTickets } from './daemon/boot.js';
 import type { DaemonContext } from './daemon/context.js';
 import { dispatch } from './daemon/handlers/index.js';
-import { startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
+import { inflight, startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
 import { runTicket } from './ticketRunner.js';
 import { allocateWorkspace } from './workspace.js';
 
@@ -169,7 +169,16 @@ async function handleCommand(c: Command, sender: string, chat?: ChatRef): Promis
  * 工单话题不排队——那里的话是答卡/备注，处理是瞬时的，而工单本身在 runner 里跑
  */
 const threadQueue = new Map<string, Promise<void>>();
+/** 处理中的消息计数：停止信号要等它们处理完（分类那十几秒闸门还没占，2026-09-11 真机丢过一句） */
 async function onMessage(m: IncomingMessage): Promise<void> {
+  inflight.n++;
+  try {
+    await onMessageQueued(m);
+  } finally {
+    inflight.n--;
+  }
+}
+async function onMessageQueued(m: IncomingMessage): Promise<void> {
   const th = m.inThread ? getThread(m.rootId) : null;
   const key = m.inThread && m.rootId && !th?.ticket ? m.rootId : null;
   if (!key) return handleMessage(m, th);
