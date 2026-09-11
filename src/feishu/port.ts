@@ -134,7 +134,17 @@ export class FeishuPort implements InteractionPort {
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
-        const parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
+        let parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
+        // 话题里直接甩的文件/图片（没文字、没 @）也要进「攒着」的队列：2026-09-11 真机——同事把新提示词以文件发进话题，
+        // 文件消息不是 text/post 直接被丢，随后 @ 的那句「用上面的提示词」会话什么都看不到
+        if (!parsed && data?.message?.thread_id) {
+          const ref = attachmentRef(data.message.message_type, data.message.content, data.message.message_id ?? '');
+          if (ref && getThread(data.message.root_id)) {
+            const saved = await port.downloadQuotedResource(ref);
+            const what = ref.kind === 'image' ? '图片' : `文件${ref.name ? ` ${ref.name}` : ''}`;
+            parsed = { text: saved ? `[${what}已保存：${saved}——文本/图片/PDF 可用 Read 工具查看]` : `[${what}，下载失败未解析]`, mentioned: false };
+          }
+        }
         if (parsed) {
           let text = parsed.text;
           const inThread = !!data.message?.thread_id;
@@ -828,4 +838,17 @@ export function feishuConfigFromEnv(): FeishuConfig {
     throw new Error('FeishuPort 需要环境变量 FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_CHAT_ID');
   }
   return { appId: FEISHU_APP_ID, appSecret: FEISHU_APP_SECRET, chatId: FEISHU_CHAT_ID };
+}
+
+/** 文件/图片消息 → 可下载的资源引用（纯函数，供话题里的附件进「攒着」队列）；其他类型或解析不了返回 null */
+export function attachmentRef(messageType: string | undefined, content: string | undefined, messageId: string): QuotedResourceRef | null {
+  if (!content || !messageId) return null;
+  try {
+    const c = JSON.parse(content) as { file_key?: string; file_name?: string; image_key?: string };
+    if (messageType === 'file' && c.file_key) return { messageId, fileKey: c.file_key, marker: '', kind: 'file', name: c.file_name };
+    if (messageType === 'image' && c.image_key) return { messageId, fileKey: c.image_key, marker: '', kind: 'image' };
+  } catch {
+    /* 不是 JSON */
+  }
+  return null;
 }

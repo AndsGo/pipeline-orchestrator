@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gateCard, questionCard, statusCard, type CardAction } from '../feishu/card.js';
-import { FeishuPort, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
+import { attachmentRef, FeishuPort, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
 import type { OpenQuestion } from '../types.js';
 
 const q: OpenQuestion = {
@@ -402,5 +402,15 @@ describe('chooseOption 只认选项（strictOptions）', () => {
     // 选项前缀 + 补充说明：正常解析
     expect(port.tryAnswerByText('取消 我先问问同事', true)).toMatchObject({ status: 'resolved', answer: '取消' });
     expect(await p).toBe('取消');
+  });
+});
+
+describe('attachmentRef：话题里直接甩的文件/图片进攒着队列（2026-09-11）', () => {
+  it('file / image 消息解析出资源引用；text 与坏 JSON 返回 null', () => {
+    expect(attachmentRef('file', '{"file_key":"file_v3_x","file_name":"提示词.xlsx"}', 'om_1')).toEqual({ messageId: 'om_1', fileKey: 'file_v3_x', marker: '', kind: 'file', name: '提示词.xlsx' });
+    expect(attachmentRef('image', '{"image_key":"img_v2_y"}', 'om_2')).toEqual({ messageId: 'om_2', fileKey: 'img_v2_y', marker: '', kind: 'image' });
+    expect(attachmentRef('text', '{"text":"hi"}', 'om_3')).toBeNull();
+    expect(attachmentRef('file', 'not-json', 'om_4')).toBeNull();
+    expect(attachmentRef('file', '{"file_key":"k"}', '')).toBeNull();
   });
 });
