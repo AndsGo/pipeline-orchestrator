@@ -38,14 +38,26 @@ export function startStopFilePoller(ctx: DaemonContext, stopFile: string): void 
   const { sem, active, log } = ctx;
   fs.rmSync(stopFile, { force: true });
   let stopDeferredLogged = false;
+  let stopSeenAt = 0;
   setInterval(() => {
     if (!fs.existsSync(stopFile)) return;
+    if (!stopSeenAt) stopSeenAt = Date.now();
     // 「空闲」= 没有会话在执行。等卡片的工单不算：卡片可恢复（卡点卡原样重发、问题卡由「继续」重问），
     // 而一张几天没人答的上线后补验卡不该让 daemon 永远停不下来（2026-09-03 实测）
     if (sem.inUse > 0) {
       if (!stopDeferredLogged) {
         stopDeferredLogged = true;
         log(`收到停止信号，但有 ${sem.inUse} 个阶段会话在执行，等它们结束再退出`);
+      }
+      return;
+    }
+    // 群里还挂着刚弹的卡（确认/选择/低置信）：给人 5 分钟答完再退——这些卡不可恢复，重启即作废
+    // （2026-09-11 真机：话题里一张「我不太确定」卡刚弹出 50 秒 daemon 就重启了，人的话丢了）
+    const cards = ctx.port.pendingLabels().length;
+    if (cards > 0 && Date.now() - stopSeenAt < 5 * 60_000) {
+      if (!stopDeferredLogged) {
+        stopDeferredLogged = true;
+        log(`收到停止信号，但有 ${cards} 张卡片等人答，最多等 5 分钟再退出`);
       }
       return;
     }

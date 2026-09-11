@@ -322,7 +322,9 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     }
 
     // 低置信不猜：给候选让人点（比"没听懂"友好，也是最省事的纠错）
-    if (cmd.kind !== 'unknown' && confidence < 0.6) {
+    // 低置信确认卡只在主线弹：绑定了会话/工单的话题里，下面的话题路由会把它收口成续聊/说明，不用再问人
+    // （真机 2026-09-11：话题里一句意见被判 new@45%，弹了「我不太确定」卡，随后 daemon 重启卡片作废，人的话丢了）
+    if (cmd.kind !== 'unknown' && confidence < 0.6 && !th) {
       const t = (cmd as { ticket?: string }).ticket ?? [...active.keys()][0] ?? '指令';
       const pick = await port.chooseOption(
         t,
