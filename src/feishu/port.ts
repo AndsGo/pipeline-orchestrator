@@ -197,7 +197,7 @@ export class FeishuPort implements InteractionPort {
 
   /** 发到群或话题：有 rootId 走 reply + reply_in_thread（回到话题），否则 create 到群 */
   /**
-   * 给某条消息加表情回应（收到=👀、完成=✅）：话题里的「确认」不再是一条文字消息——
+   * 给某条消息加表情回应（收到=「Get」、完成=DONE；emoji_type 键见飞书 emojis-introduce，EYES 不存在——真机 231001）：话题里的「确认」不再是一条文字消息——
    * 人刚打完字，机器人再复述一遍「继续上次执行《你刚说的》」只是噪音（2026-09-11 拍板）。失败无所谓
    */
   async react(messageId: string, emoji: 'Get' | 'DONE' | 'THUMBSUP' | 'GLANCE' = 'Get'): Promise<void> {
