@@ -82,5 +82,5 @@
 - 修复：「全部通过，但是…新需求」不再灌进每项备注；doctor 检测 `.gitignore` 屏蔽 `CLAUDE.md`；停止信号的「空闲」改为无会话在执行。
 
 [Unreleased]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.2.0...6a7c7eb
+[0.3.0]: https://github.com/AndsGo/pipeline-orchestrator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AndsGo/pipeline-orchestrator/releases/tag/v0.2.0
