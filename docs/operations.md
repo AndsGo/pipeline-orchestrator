@@ -5,7 +5,7 @@
 | 东西 | 在哪 | 说明 |
 |---|---|---|
 | daemon | `npm run daemon` → `tsx src/daemon.ts` | 单实例；pid 在 `data/daemon.pid` |
-| 看门狗 | `scripts/daemon-watchdog.ps1` | 每 2 分钟一次；pid（循环方式启动时）在 `data/watchdog.pid` |
+| 看门狗 | `scripts/daemon-watchdog.ps1` / `.sh` | 每 2 分钟一次；pid（循环方式启动时）在 `data/watchdog.pid`；bash 版的重启节流时间戳在 `data/watchdog.last-restart` |
 | webhook / 预览服务 | `npm run webhook` → `src/gitlab/service.ts` | 可选；:8377；pid 在 `data/webhook.pid` |
 | daemon 日志 | `logs/daemon.log` | 追加写；>1MB 启动时轮转，保留 14 天 |
 | 看门狗日志 | `logs/watchdog.log` | 重启记录、备份结果、跳过原因 |
@@ -14,19 +14,26 @@
 | 事件流 | `data/<ticket>.events.jsonl` | append-only，事实源 |
 | 续聊指针 | `data/last-run.<chat>.json`、`data/run-sessions.json` | 按群的最近一次 /run；结果卡 → 会话映射 |
 | 话题绑定 | `data/threads.json` | 话题根消息 → 会话/工单 |
-| 每日备份 | `backups/data-YYYYMMDD.zip` | 看门狗做，保留 14 天；被占用的文件跳过并记名 |
+| 每日备份 | `backups/data-YYYYMMDD.zip`（Windows）/ `.tar.gz`（Unix） | 看门狗做，保留 14 天；Windows 版被占用的文件跳过并记名 |
 | 停止信号 | `data/daemon.stop` | 见「部署新代码」 |
 
 ## 启动与停止
+
+每个进程脚本有 PowerShell 与 bash 两版，参数形式对应：`-Stop` ↔ `--stop`。
 
 ```powershell
 .\scripts\start-daemon.ps1         # 启动：冲突检查 → 装载 .env → 日志轮转 → 日志占用探测 → 启动 → 5 秒后核实
 .\scripts\start-daemon.ps1 -Stop   # 停止：杀不动（提权进程）时改写停止信号文件
 ```
 
+```bash
+scripts/start-daemon.sh            # 同上（无日志占用探测：Unix 没有独占锁这回事）
+scripts/start-daemon.sh --stop     # 杀整棵进程树；杀不动（别的用户 / systemd 拉起）时改写停止信号文件
+```
+
 启动脚本会做几件容易被忽略的事：检查是否已有编排器进程（一个飞书应用只能一条长连接）；以 UTF-8 读 `.env`（ANSI 读会吞掉非 ASCII 注释后的换行）；探测日志文件是否被别的进程独占（被 `tail -f` 攥着时 cmd 的重定向会秒退但不报错）；启动后 5 秒核实进程还活着。
 
-Linux / macOS：`npm run daemon`，进程看护自己接 systemd / launchd，停止信号文件机制同样可用。
+bash 版的 `.env` 装载与 `doctor.ts` 同一口径（逐行按第一个 `=` 切分，不 `source`——JSON 值里的引号会被 shell 吃掉）。
 
 ## 看门狗
 
@@ -46,6 +53,18 @@ schtasks /Create /TN "PipelineDaemonWatchdog" /SC MINUTE /MO 2 /F `
 .\scripts\start-watchdog.ps1 -Stop
 ```
 
+**Linux / macOS**：用 cron，两个系统都行：
+
+```bash
+crontab -e
+# 加一行（路径换成你的）
+*/2 * * * * /opt/pipeline-orchestrator/scripts/daemon-watchdog.sh
+```
+
+或循环方式试跑：`scripts/start-watchdog.sh` / `--stop`。想用 systemd timer 也可以，把 `ExecStart` 指到 `daemon-watchdog.sh`、`OnUnitActiveSec=2min` 即可；macOS launchd 用 `StartInterval` 120。看门狗自身不依赖任何调度器特性。
+
+bash 版与 PowerShell 版行为一致，三处差异：备份是 `tar.gz` 而非 zip；重启节流用 `data/watchdog.last-restart` 里的 epoch 秒而不是解析日志时间（免去 GNU/BSD `date` 差异）；「有会话在跑」判据是 daemon 树下有 `claude` / `codex` 进程或 `bash` 子进程（启动器自身那层 bash 排除）。
+
 > **提权陷阱**：以管理员账号注册的计划任务拉起的 daemon 是高完整性进程，普通 shell 对它**看不见命令行、杀不动、探活报权限错误**——很容易误判成"进程已死"。实测把任务 RunLevel 改成 Limited 对管理员账号也不起作用。不要试图 `taskkill`，统一用下面的停止信号。`doctor` 会把这种情况标为「运行中但为提权进程」。
 
 ## 部署新代码
@@ -55,6 +74,11 @@ schtasks /Create /TN "PipelineDaemonWatchdog" /SC MINUTE /MO 2 /F `
 git pull; npm run typecheck; npm test
 # 2. 写停止信号
 Set-Content data\daemon.stop (Get-Date -Format o)
+```
+
+```bash
+git pull && npm run typecheck && npm test
+date -Iseconds > data/daemon.stop        # 或 scripts/start-daemon.sh --stop，杀不动时它也写这个文件
 ```
 
 daemon 每 10 秒看一眼信号文件：**没有阶段会话在执行时**自行退出，看门狗 2 分钟内以新代码拉起。有会话在跑就等它结束再退（日志会记「收到停止信号，但有 N 个阶段会话在执行」）；有卡片在等人的工单不算忙——卡点卡会原样重发、问题卡由「继续」重问，但为了不吞掉刚发出去的卡，会最多等 5 分钟。启动时清掉残留信号文件，防止起来就自杀。
@@ -87,6 +111,7 @@ daemon 每 30 天自动发一次老化报告到群（零成本，只读表 + 命
 
 ## 平台说明
 
-- 执行机是 Windows。PowerShell 5.1：`Invoke-WebRequest` 无 `-SkipHttpErrorCheck`；`Set-Content` 默认 ANSI，写 UTF-8 要显式 `-Encoding utf8`；无 BOM 的 UTF-8 脚本含中文注释会被按 ANSI 读并吞掉换行——脚本用纯 ASCII 注释或加 BOM。
+- bash 脚本只用 bash 3.2（macOS 自带版本）也有的特性：无 `mapfile`、无关联数组、无 GNU `date -d`；文件大小用 `wc -c`，进程树用 `ps -eo pid=,ppid=` 自己 BFS。
+- 生产执行机是 Windows。PowerShell 5.1：`Invoke-WebRequest` 无 `-SkipHttpErrorCheck`；`Set-Content` 默认 ANSI，写 UTF-8 要显式 `-Encoding utf8`；无 BOM 的 UTF-8 脚本含中文注释会被按 ANSI 读并吞掉换行——脚本用纯 ASCII 注释或加 BOM。
 - 起子进程**不经 shell**：`spawn(..., { shell: true })` 下 Node 不给参数加引号，带空格换行中文的提示词会被拆成一串参数（Codex 评审曾因此第一秒崩）。
 - 孤儿进程检测用 `-EncodedCommand` 调 PowerShell，不经 cmd 转发（cmd 不认转义引号、把内层管道当自己的）。

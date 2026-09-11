@@ -62,7 +62,13 @@ npm run orchestrate -- <repoPath> <ticketId> [--start <stage>] [--requirement "�
 | `--auto` | 无人值守：采纳推荐答案、卡点自动放行、验收人工项答「无法验证」 |
 | （都不给） | CLI 端口，终端里问答 |
 
-PowerShell 包装：`.\scripts\start-ticket.ps1 -Repo D:/work/x -Ticket LS-003 -Requirement "…"` / `-Start review` / `-Lane fast`。
+脚本包装（后台起、日志落 `logs/<工单>.log`）：
+
+```bash
+scripts/start-ticket.sh --repo /work/x --ticket LS-003 --requirement "…"     # Linux / macOS
+scripts/start-ticket.sh --repo /work/x --ticket LS-003 --start review
+.\scripts\start-ticket.ps1 -Repo D:/work/x -Ticket LS-003 -Requirement "…"  # Windows
+```
 
 ### 服务
 
@@ -105,12 +111,15 @@ PowerShell 包装：`.\scripts\start-ticket.ps1 -Repo D:/work/x -Ticket LS-003 -
 
 `classify-probe.ts` / `classify-debug.ts`（意图识别）、`jenkins-probe.ts`、`wiki-probe.ts`、`msg-probe.ts`（群消息读取权限）、`doc-probe.ts`（Markdown → 云文档链路）、`e2e-port-test.ts`（飞书端口真机联调）、`gate-preview.ts <repo> <ticket> <gate>`（预览卡点决策材料）、`slash-preview.ts`（斜杠指令确认卡文案）、`list-check.ts`、`project-check.ts`。
 
-### 进程脚本（PowerShell）
+### 进程脚本
+
+每个都有 PowerShell（Windows）与 bash（Linux / macOS）两版，行为一致；`-Stop` ↔ `--stop`。
 
 | 脚本 | 作用 |
 |---|---|
-| `start-daemon.ps1 [-Stop]` | 启停 daemon（含单实例检查、日志轮转、停止信号） |
-| `start-watchdog.ps1 [-Stop]` | 以循环方式跑看门狗（不随开机自启；开机自启用 `schtasks`，见 [operations.md](operations.md#看门狗)） |
-| `daemon-watchdog.ps1` | 看门狗本体（计划任务调它） |
-| `start-webhook.ps1 [-Stop]` | 启停 webhook 服务（有 pid 文件时看门狗一并守护） |
-| `start-ticket.ps1` | `npm run orchestrate` 的包装 |
+| `start-daemon.ps1 [-Stop]` / `start-daemon.sh [--stop]` | 启停 daemon（单实例检查、`.env` 装载、日志轮转、启动核实、停止信号） |
+| `start-watchdog.ps1 [-Stop]` / `start-watchdog.sh [--stop]` | 以循环方式跑看门狗（不随开机自启；开机自启用 `schtasks` / cron，见 [operations.md](operations.md#看门狗)） |
+| `daemon-watchdog.ps1` / `daemon-watchdog.sh` | 看门狗本体（计划任务 / cron 调它） |
+| `start-webhook.ps1 [-Stop]` / `start-webhook.sh [--stop]` | 启停 webhook 服务（有 pid 文件时看门狗一并守护） |
+| `start-ticket.ps1` / `start-ticket.sh` | `npm run orchestrate` 的后台包装 |
+| `_lib.sh` | bash 版共用函数（`.env` 装载、进程树、日志轮转），不单独执行 |

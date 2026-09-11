@@ -54,6 +54,11 @@ export function releaseLock(ticket: string): void {
   }
 }
 
+/** 清理孤儿进程的提示：Windows 用 taskkill 杀整棵树，Unix 用 kill（阶段会话是 bash → claude 两层，杀 bash 即可） */
+export function killHint(): string {
+  return process.platform === 'win32' ? 'taskkill /PID <pid> /T /F' : 'kill <pid>';
+}
+
 /**
  * 孤儿检测：查找仍在运行本工单 pipeline 阶段的 claude 进程
  * （编排器死亡后 claude 子树可能存活——LS-002 双控制器事故的根因）。

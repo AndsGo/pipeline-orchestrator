@@ -164,7 +164,10 @@ else if (FEISHU_APP_ID && FEISHU_APP_SECRET) {
   }
 }
 
-console.log('\n== daemon ==');
+const isWin = process.platform === 'win32';
+const stopHint = isWin ? 'start-daemon.ps1 -Stop' : 'scripts/start-daemon.sh --stop';
+console.log('
+== daemon ==');
 const pidFile = path.join(root, 'data', 'daemon.pid');
 if (!fs.existsSync(pidFile)) add('⚠️', 'daemon', '未在运行（无 pid 文件）');
 else {
@@ -184,11 +187,32 @@ else {
     state === 'alive'
       ? `运行中（pid ${pid}）`
       : state === 'elevated'
-        ? `运行中但为提权进程（pid ${pid}）——本 shell 杀不动它；重启用 start-daemon.ps1 -Stop 写停止信号，它空闲时自退、看门狗拉起`
+        ? `运行中但本 shell 无权限（pid ${pid}，${isWin ? '提权进程' : '属于别的用户'}）——杀不动它；重启用 ${stopHint} 写停止信号，它空闲时自退、看门狗拉起`
         : `pid 文件指向已死进程 ${pid}——删掉 data/daemon.pid 再启动`,
   );
 }
-add(tryExec('schtasks /query /tn PipelineDaemonWatchdog') ? '✅' : '⚠️', '看门狗计划任务', tryExec('schtasks /query /tn PipelineDaemonWatchdog') ? 'PipelineDaemonWatchdog 已注册' : '未注册（daemon 崩溃后不会自动拉起）');
+if (isWin) {
+  const registered = tryExec('schtasks /query /tn PipelineDaemonWatchdog') !== null;
+  add(registered ? '✅' : '⚠️', '看门狗计划任务', registered ? 'PipelineDaemonWatchdog 已注册' : '未注册（daemon 崩溃后不会自动拉起）');
+} else {
+  // Unix：cron 里有 daemon-watchdog.sh，或 start-watchdog.sh 的循环在跑，二者任一即可
+  const inCron = /daemon-watchdog.sh/.test(tryExec('crontab -l') ?? '');
+  const wdPidFile = path.join(root, 'data', 'watchdog.pid');
+  let loop = false;
+  if (fs.existsSync(wdPidFile)) {
+    try {
+      process.kill(Number(fs.readFileSync(wdPidFile, 'utf-8').trim()), 0);
+      loop = true;
+    } catch {
+      /* 死了或无权限：都不算在跑 */
+    }
+  }
+  add(
+    inCron || loop ? '✅' : '⚠️',
+    '看门狗',
+    inCron ? 'crontab 已注册 daemon-watchdog.sh' : loop ? '循环方式在跑（start-watchdog.sh）' : `未注册（daemon 崩溃后不会自动拉起）：crontab -e 加 */2 * * * * ${path.join(root, 'scripts', 'daemon-watchdog.sh')}`,
+  );
+}
 
 if (!process.argv.includes('--no-infer')) {
   console.log('\n== 真实推理 ==');

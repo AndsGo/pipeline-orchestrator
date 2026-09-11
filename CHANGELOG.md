@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+- **Linux / macOS 进程脚本**：`start-daemon.sh` / `start-webhook.sh` / `start-watchdog.sh` / `daemon-watchdog.sh` / `start-ticket.sh`，与 PowerShell 版行为对应（单实例检查、`.env` 装载、日志轮转、启动核实、停止信号、看门狗的死亡/僵死检测与每日备份）；共用 `_lib.sh`。只用 bash 3.2 特性，Ubuntu 上按功能逐项验证。
+- `doctor` 在非 Windows 上检查 cron / 循环看门狗；孤儿进程与重启提示按平台给命令。`.gitattributes` 钉 `.sh` 为 LF、`.ps1` 为 CRLF。
+
 ## [0.3.1] — 2026-09-11
 
 ### 文档

@@ -3,7 +3,7 @@
 import { initBitableSync } from './bitable/sync.js';
 import { FeishuPort, feishuConfigFromEnv } from './feishu/port.js';
 import type { Lane } from './lanes.js';
-import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
+import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js';
 import { clearPaused } from './pause.js';
 import { AutoPort, CliPort } from './ports.js';
 import { runTicket } from './ticketRunner.js';
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   if (orphans.length) {
     console.error('检测到本工单的存活 claude 进程（可能是上次运行的孤儿），先处理再启动：');
     for (const o of orphans) console.error(`  pid ${o.pid}: ${o.cmd}`);
-    console.error('确认后可 taskkill /PID <pid> /T /F 清理');
+    console.error(`确认后可 ${killHint()} 清理`);
     releaseLock(ticket);
     process.exit(1);
   }

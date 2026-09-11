@@ -15,7 +15,7 @@ import {
 import { initBitableSync } from './bitable/sync.js';
 import { appendEvent, listTickets } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
-import { acquireLock, findOrphanClaude, releaseLock } from './lock.js';
+import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js';
 import { readLastRunFor, runByCard, stripQuote } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
@@ -99,7 +99,7 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
   const orphans = findOrphanClaude(ticket);
   if (orphans.length) {
     releaseLock(ticket);
-    return `${ticket} 仍有存活的 claude 进程（pid ${orphans.map((o) => o.pid).join(', ')}），清理后再启动：taskkill /PID <pid> /T /F`;
+    return `${ticket} 仍有存活的 claude 进程（pid ${orphans.map((o) => o.pid).join(', ')}），清理后再启动：${killHint()}`;
   }
 
   // 已绑定工作目录的工单沿用原目录；否则按主仓库是否被占用决定是否开 worktree

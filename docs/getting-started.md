@@ -6,7 +6,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 执行机 | Windows 优先（启动/看门狗脚本是 PowerShell）；Linux/macOS 可跑 daemon，进程看护自己接 |
+| 执行机 | Windows / Linux / macOS 均可。启动、看门狗等脚本有 PowerShell 与 bash 两版 |
 | Node ≥ 20 | `node -v` |
 | `claude` CLI | 已登录、在 PATH。这是默认执行引擎 |
 | 飞书自建应用 | 有机器人能力；步骤见第 1 节 |
@@ -85,17 +85,12 @@ release: none            # 先不设上线环节
 
 ## 4. 启动
 
-Windows：
-
-```powershell
-.\scripts\start-daemon.ps1
-```
-
-Linux / macOS：
-
 ```bash
-npm run daemon
+scripts/start-daemon.sh        # Linux / macOS
+.\scripts\start-daemon.ps1     # Windows
 ```
+
+两版做的事相同：单实例检查 → 装载 `.env` → 日志轮转 → 后台启动 → 5 秒后核实进程还在。直接 `npm run daemon` 也行，只是少了这些护栏。
 
 日志在 `logs/daemon.log`。看到这两行就绪：
 

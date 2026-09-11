@@ -97,7 +97,7 @@ fs.copyFileSync(envFile, backup);
 fs.writeFileSync(envFile, upsertEnvVar(envText, 'PIPELINE_PROJECTS', nextJson), 'utf-8');
 console.log(`\n✅ 已写入 .env（备份：${path.relative(root, backup)}）`);
 console.log(`\n项目 ${cand.alias}（${cand.prefix.toUpperCase()}-）接入完成。后续三步：`);
-console.log('  1. 重启 daemon 生效：.\\scripts\\start-daemon.ps1 -Stop; .\\scripts\\start-daemon.ps1');
+console.log(process.platform === 'win32' ? '  1. 重启 daemon 生效：.\scripts\start-daemon.ps1 -Stop; .\scripts\start-daemon.ps1' : '  1. 重启 daemon 生效：scripts/start-daemon.sh --stop; scripts/start-daemon.sh');
 console.log('  2. 体检：npx tsx scripts/doctor.ts');
 console.log(`  3. 铺业务地基（强烈建议）：npx tsx scripts/system-map.ts --rebuild ${cand.alias} && --publish ${cand.alias}，`);
 console.log('     并在目标仓库手写一页 docs/pipeline/PROJECT-BRIEF.md（之后 compound 自动增量维护）。');

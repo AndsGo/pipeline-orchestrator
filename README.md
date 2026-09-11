@@ -79,16 +79,11 @@ cp .env.example .env          # 至少填 FEISHU_* 三项 + PIPELINE_PROJECTS
 npx tsx scripts/doctor.ts     # 体检：依赖 / 配置 / 连通性一眼看清哪里断了
 ```
 
-Windows（生产部署方式）：
-
-```powershell
-.\scripts\start-daemon.ps1    # 启动 daemon（自带单实例检查）
-```
-
-Linux / macOS（daemon 本体跨平台；看门狗与启动脚本目前只有 PowerShell 版）：
+启动 daemon（自带单实例检查、日志轮转、启动核实）：
 
 ```bash
-npm run daemon
+scripts/start-daemon.sh        # Linux / macOS
+.\scripts\start-daemon.ps1     # Windows
 ```
 
 然后在飞书群里 @机器人：
@@ -142,7 +137,7 @@ docs/                    文档与设计稿
 ## 状态与边界
 
 - **生产在用**：三个项目、15+ 张真实工单闭环、约 $550 模型成本（2026-08 至 09）。
-- **Windows 优先**：执行机是 Windows，启动/看门狗脚本为 PowerShell；daemon 本体与测试跨平台，但 Linux/macOS 上的进程看护要自己接（systemd / launchd）。
+- **三平台**：daemon 本体与测试跨平台；启动、看门狗、webhook、工单脚本各有 PowerShell 与 bash 两版（`scripts/*.ps1` / `scripts/*.sh`）。生产执行机是 Windows，bash 版在 Ubuntu 上按功能逐项验证过，尚未长期跑生产。
 - **单实例**：飞书长连接一个应用只能一条，daemon 必须单实例；多工单并行靠单进程内的异步任务 + git worktree 隔离。
 - **交互层绑定飞书**：`InteractionPort` 是四方法接口，换聊天平台需要新写一个实现（已有 CLI 与自动放行两个非飞书实现可参考）。
 - **状态是本地文件**：`data/` 下 JSON + jsonl，无数据库，不做多机高可用。
