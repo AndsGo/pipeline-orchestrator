@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,4 +14,18 @@ const DEFAULT_DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export function dataDir(): string {
   const env = process.env.PIPELINE_DATA_DIR?.trim();
   return env ? path.resolve(env) : DEFAULT_DATA_DIR;
+}
+
+/**
+ * 删单个文件（不存在则忽略）。**别用 fs.rmSync 删路径里带中文的文件**：Node 24.13（Windows）的非递归 rmSync
+ * 走 C++ std::filesystem，路径按 ANSI 代码页转换，遇到 CJK 直接 std::terminate——进程以 0xC0000409 无声退出，
+ * 没有 JS 栈、没有 stderr、--report-on-fatalerror 也不落报告。daemon 六次「无声消失」（2026-09-10 ～ 09-12）
+ * 全是写回结束后清理「结合标题描述的场景化测试结果(282条).csv」这类文件触发的。unlinkSync 走 libuv，UTF-8 路径正常。
+ */
+export function removeFile(file: string): void {
+  try {
+    fs.unlinkSync(file);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
 }

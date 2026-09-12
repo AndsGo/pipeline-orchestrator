@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { SheetService } from './feishu/sheet.js';
 import type { LastRun } from './followup.js';
 import { collectOutbox } from './outbox.js';
+import { removeFile } from './paths.js';
 import { parseCsv, planAssets } from './sheetCsv.js';
 
 /**
@@ -100,9 +101,9 @@ function checkpointed(job: SheetJob, r: SheetResult): SheetResult {
   return r;
 }
 
-/** 父进程执行子进程开出的清理清单 */
+/** 父进程执行子进程开出的清理清单。文件名多是中文页名，不能用 rmSync（见 paths.removeFile：daemon 六次无声退出的根因） */
 export function applyCleanup(r: SheetResult, outbox: string): void {
-  for (const f of r.cleanup.remove) fs.rmSync(f, { force: true });
+  for (const f of r.cleanup.remove) removeFile(f);
   for (const f of r.cleanup.toOutbox) if (fs.existsSync(f)) fs.renameSync(f, path.join(outbox, path.basename(f)));
 }
 

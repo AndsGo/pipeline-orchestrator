@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Answer } from '../backfill.js';
 import { imFileType, isImage } from '../outbox.js';
-import { dataDir } from '../paths.js';
+import { dataDir, removeFile } from '../paths.js';
 import { getThread } from '../threads.js';
 import { SheetService } from './sheet.js';
 import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
@@ -593,7 +593,8 @@ export class FeishuPort implements InteractionPort {
       fs.mkdirSync(quoted, { recursive: true });
       for (const f of fs.readdirSync(quoted)) {
         const fp = path.join(quoted, f);
-        if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 24 * 3600_000) fs.rmSync(fp, { force: true });
+        // 文件消息落盘时保留了原始中文文件名，这里必须用 removeFile（rmSync 遇 CJK 路径会让进程无声崩掉）
+        if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 24 * 3600_000) removeFile(fp);
       }
       // file_key 可作文件名（字母数字下划线连字符），复用它天然去重同资源多次引用；
       // 文件消息再拼上原始文件名，扩展名跟着原名走（Read/Bash 都认得出格式）
