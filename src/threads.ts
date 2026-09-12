@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { asksToCreateTicket, type Command } from './commands.js';
-import type { LastRun } from './followup.js';
+import type { LastRun, Round } from './followup.js';
 import { dataDir } from './paths.js';
 
 /**
@@ -130,7 +130,9 @@ export function rememberThreadRun(rootId: string, chatId: string, run: LastRun, 
     chatId,
     project: run.project,
     ticket: prev?.ticket,
-    run: { ...run, output: run.output.slice(0, STORED_OUTPUT_CAP), transcript: undefined },
+    // 过程留一份压缩版（最近 12 轮、每轮几百字）：会话到期重开时靠它接手。此前不存 transcript，重开的会话只拿到
+    // 上次输出前 600 字——2026-09-12 真机：第 29 轮用内网生图接口跑了 282 张图，第 31 轮（新会话）却说「环境里没有生图工具」
+    run: { ...run, output: run.output.slice(0, STORED_OUTPUT_CAP), transcript: compactRounds(run.transcript ?? [{ command: run.command, output: run.output }]) },
     createdAt: prev?.createdAt ?? at,
     lastAt: at,
     turns: sameSession ? (prev?.turns ?? 0) + 1 : 1,
@@ -143,10 +145,36 @@ export function sessionFresh(rec: ThreadRec, now = Date.now()): boolean {
   return rec.turns < THREAD_SESSION_MAX_TURNS && now - Date.parse(rec.lastAt) < THREAD_SESSION_IDLE_MS;
 }
 
-/** 到期会话的开场摘要：新会话第一句带上旧会话最后一次输出的前 600 字，不重放全史 */
+/** 压缩留存的过程：最近多少轮、每轮用户原话与输出各留多少字 */
+export const BRIEF_ROUNDS = 12;
+const BRIEF_COMMAND_CAP = 200;
+const BRIEF_OUTPUT_CAP = 400;
+/** 会话按提示词约定在结尾写的「用到的工具：…」行——不管在输出多后面都要留住，重开的会话靠它知道接口/脚本 */
+const TOOLS_LINE = /^\s*[-*]?\s*\**用到的工具\**[:：].*/gm;
+
+/** 每轮只留头几百字 + 工具行；轮数只留最近的（老轮次的全文在 data/adhoc/ 留痕） */
+export function compactRounds(rounds: Round[]): Round[] {
+  return rounds.slice(-BRIEF_ROUNDS).map((r) => {
+    const head = r.output.slice(0, BRIEF_OUTPUT_CAP);
+    const tools = (r.output.match(TOOLS_LINE) ?? []).map((l) => l.trim()).filter((l) => !head.includes(l));
+    return { command: r.command.slice(0, BRIEF_COMMAND_CAP), output: [head, ...tools].join('\n') };
+  });
+}
+
+/**
+ * 到期会话的开场摘要：新会话第一句带上原任务 + 最近各轮「用户说了什么 → 输出开头 / 用到的工具」。
+ * 不重放全史（老轮次留痕在 data/adhoc/），但过程里出现过的接口、脚本、文件路径要跟过去——那是新会话接手的全部依据
+ */
 export function expiredSessionBrief(rec: ThreadRec): string | null {
   if (!rec.run) return null;
-  return `（这个话题此前有一段对话，会话已到期重开。上次的任务：${(rec.run.origin ?? rec.run.command).slice(0, 200)}\n上次输出摘要：${rec.run.output.slice(0, 600)}）`;
+  const rounds = compactRounds(rec.run.transcript ?? [{ command: rec.run.command, output: rec.run.output }]);
+  const lines = rounds.map((r, i) => `[${i + 1}/${rounds.length}] 用户：${r.command}\n→ ${r.output}`);
+  return [
+    `（这个话题此前有一段对话，会话已到期重开。原任务：${(rec.run.origin ?? rec.run.command).slice(0, 200)}`,
+    `以下是最近 ${rounds.length} 轮的过程摘要（按时间顺序）；其中提到的接口、脚本、文件路径在本会话同样可用，直接接着用，不要说「环境里没有」：`,
+    ...lines,
+    '）',
+  ].join('\n');
 }
 
 /**

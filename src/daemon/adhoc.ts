@@ -66,7 +66,7 @@ export async function execAdhoc(
     boundSheet && sheetBefore
       ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。**图片等附件放到 ${outbox}/sheet/assets/ 下，单元格里只写文件名**——整格只有文件名的，图片会直接嵌进那个单元格显示；文字里提到文件名的、或非图片附件，会传到附件夹并换成链接。都不会刷进群。表里已有的「[图片]」是已嵌入的图片占位，原样保留不要改。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
-  const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑）`;
+  const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
   try {
     const r = await engineFor(project.repo).runText({
       cwd: project.repo,
@@ -234,7 +234,8 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
   if (th?.run && last === th.run && !sessionFresh(th)) {
     log(`话题会话到期（${th.turns} 轮，最近 ${th.lastAt}），重开新会话并带摘要`);
     await port.notify('执行', '这个话题的会话已到期（超 30 轮或 7 天没动），我重开一个新会话接着聊，带上之前的摘要。', chat);
-    last = { ...th.run, sessionId: undefined, output: expiredSessionBrief(th) ?? th.run.output.slice(0, 600) };
+    // 摘要里已含压缩过的各轮过程，transcript 清掉：拼接提示词只渲染这一份，新一轮再从它往后累积
+    last = { ...th.run, sessionId: undefined, output: expiredSessionBrief(th) ?? th.run.output.slice(0, 600), transcript: undefined };
   }
   if (!last) {
     // 24 小时 TTL 是为「隔天回个 1」这种含糊答复设的；人明确打了 /re 就该问一句而不是直接拒（2026-09-04 实测：

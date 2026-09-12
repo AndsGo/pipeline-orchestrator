@@ -6,7 +6,9 @@ import type { Command } from '../commands.js';
 import type { LastRun } from '../followup.js';
 import { chatIdOf, rootIdOf } from '../ports.js';
 import {
+  BRIEF_ROUNDS,
   bindTicketThread,
+  compactRounds,
   expiredSessionBrief,
   getThread,
   pushPending,
@@ -45,26 +47,42 @@ describe('threads：话题 = 会话（设计稿 2026-09-09-thread-context）', (
     expect(getThread(undefined, f)).toBeNull();
   });
 
-  it('会话话题：记会话、轮次累计，同会话 +1，换会话归 1；输出截断、transcript 不落盘', () => {
+  it('会话话题：记会话、轮次累计，同会话 +1，换会话归 1；输出截断、transcript 只落压缩版', () => {
     const f = tmp();
     rememberThreadRun('om_r', 'oc_lake', run(), f, NOW);
-    rememberThreadRun('om_r', 'oc_lake', run({ chain: 1 }), f, NOW + 1000);
+    const rounds = Array.from({ length: 15 }, (_, i) => ({ command: `第${i + 1}句`, output: 'y'.repeat(2000) }));
+    rememberThreadRun('om_r', 'oc_lake', run({ chain: 1, transcript: rounds }), f, NOW + 1000);
     const rec = getThread('om_r', f)!;
     expect(rec.turns).toBe(2);
     expect(rec.run?.output.length).toBe(8000);
-    expect(rec.run?.transcript).toBeUndefined();
+    expect(rec.run?.transcript?.length).toBe(BRIEF_ROUNDS);
+    expect(rec.run?.transcript?.[0].command).toBe('第4句');
+    expect(rec.run?.transcript?.[0].output.length).toBe(400);
     rememberThreadRun('om_r', 'oc_lake', run({ sessionId: 'sess-2' }), f, NOW + 2000);
     expect(getThread('om_r', f)?.turns).toBe(1);
   });
 
-  it('会话寿命：30 轮或 7 天不活跃即到期；到期摘要带原任务与输出前 600 字', () => {
+  it('会话寿命：30 轮或 7 天不活跃即到期；到期摘要带原任务与最近各轮过程（含结尾的「用到的工具」行）', () => {
     const base: ThreadRec = { chatId: 'oc', run: run(), createdAt: 'x', lastAt: new Date(NOW).toISOString(), turns: 3 };
     expect(sessionFresh(base, NOW + 1000)).toBe(true);
     expect(sessionFresh({ ...base, turns: THREAD_SESSION_MAX_TURNS }, NOW + 1000)).toBe(false);
     expect(sessionFresh(base, NOW + 7 * 24 * 3600_000 + 1)).toBe(false);
-    const brief = expiredSessionBrief(base)!;
-    expect(brief).toContain('看看登录为什么慢');
-    expect(brief.length).toBeLessThan(700 + 100);
+    // 没有 transcript 的旧记录：退回单轮，输出只留头 400 字
+    const single = expiredSessionBrief(base)!;
+    expect(single).toContain('看看登录为什么慢');
+    expect(single.length).toBeLessThan(400 + 400);
+    // 2026-09-12 真机：第 29 轮用内网接口生了 282 张图，接口写在输出很后面；重开的会话必须还能看到它
+    const gen = `282 条全部完成。${'z'.repeat(3000)}\n\n**用到的工具：** POST http://10.0.20.39:8800/edit（JSON {prompt, images:[base64]}）`;
+    const rounds = [
+      { command: '把表里的提示词跑一遍', output: gen },
+      { command: '为什么还是有灯', output: '分析如下……' },
+    ];
+    const brief = expiredSessionBrief({ ...base, run: run({ transcript: rounds }) })!;
+    expect(brief).toContain('[1/2] 用户：把表里的提示词跑一遍');
+    expect(brief).toContain('用到的工具：** POST http://10.0.20.39:8800/edit');
+    expect(brief).toContain('[2/2] 用户：为什么还是有灯');
+    expect(brief).not.toContain('z'.repeat(500));
+    expect(compactRounds(rounds)[0].output.length).toBeLessThan(400 + 120);
     expect(expiredSessionBrief({ ...base, run: undefined })).toBeNull();
   });
 
