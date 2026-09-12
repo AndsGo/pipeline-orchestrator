@@ -147,6 +147,13 @@ export class FeishuPort implements InteractionPort {
         }
         if (parsed) {
           let text = parsed.text;
+          // 富文本里粘的图片：下载落盘，路径接在正文后面（没正文的纯图 post 就只剩这几行，走后面同样的路由/攒着逻辑）
+          if (parsed.images?.length) {
+            const mid = data.message?.message_id ?? '';
+            const saved = await Promise.all(parsed.images.map((k) => port.downloadQuotedResource({ messageId: mid, fileKey: k, marker: '', kind: 'image' })));
+            const lines = saved.map((s) => (s ? `[图片已保存：${s}——可用 Read 工具查看]` : '[图片，下载失败未解析]'));
+            text = [text, ...lines].filter(Boolean).join('\n');
+          }
           const inThread = !!data.message?.thread_id;
           // 话题里每条消息的 parent 都是话题根：根消息只在第一轮有价值（会话已带着它），已绑定的话题不再每句重拉重拼
           // （2026-09-11 真机：每句都拖着「【用户引用的消息】+ 文件路径」，确认卡不可读、每轮白花 token）
@@ -813,7 +820,7 @@ function renderPost(content: string | undefined, imgMark: (key?: string) => stri
 export function parseMessageText(
   content: string | undefined,
   messageType?: string,
-): { text: string; mentioned: boolean } | null {
+): { text: string; mentioned: boolean; images?: string[] } | null {
   if (!content || (messageType && messageType !== 'text' && messageType !== 'post')) return null;
   try {
     // 富文本（post）优先按结构化 runs 解析——它的 .text 兜底字段里飞书会留 <p></p> 之类的
@@ -821,12 +828,15 @@ export function parseMessageText(
     if (messageType === 'post') {
       const p = JSON.parse(content) as {
         title?: string;
-        content?: Array<Array<{ tag?: string; text?: string }>>;
+        content?: Array<Array<{ tag?: string; text?: string; image_key?: string }>>;
         text?: string;
       };
       if (Array.isArray(p.content)) {
         let mentioned = false;
         const lines: string[] = [];
+        // 粘在同一条消息里的图片（截图 + 一句话 + @ 是最常见的发法）：只回 image_key，由消息处理层下载落盘
+        // （真机 2026-09-12：「你能识别出这个是涂抹商标行为吗」贴着一张图发来，img 段被丢，会话反问「这个是哪一张」）
+        const images: string[] = [];
         if (p.title?.trim()) lines.push(p.title.trim());
         for (const para of p.content) {
           const line = para
@@ -835,6 +845,7 @@ export function parseMessageText(
                 mentioned = true;
                 return '';
               }
+              if (r.tag === 'img' && r.image_key) images.push(r.image_key);
               return r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : '';
             })
             .join('');
@@ -843,7 +854,8 @@ export function parseMessageText(
         const raw = lines.join(' ');
         if (/@_user_\d+/.test(raw)) mentioned = true;
         const cleaned = raw.replace(/@_user_\d+/g, '').replace(/\s+/g, ' ').trim();
-        return cleaned ? { text: cleaned, mentioned } : null;
+        if (!cleaned && !images.length) return null;
+        return images.length ? { text: cleaned, mentioned, images } : { text: cleaned, mentioned };
       }
     }
     const parsed = JSON.parse(content) as { text?: string };

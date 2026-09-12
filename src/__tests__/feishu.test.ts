@@ -253,6 +253,19 @@ describe('群消息文本解析', () => {
         mentioned: true,
       });
     });
+    it('粘在正文里的图片：回 image_key 列表（真机 2026-09-12：img 段被丢，会话反问「这个是哪一张」）', () => {
+      const content = JSON.stringify({
+        title: '',
+        content: [
+          [{ tag: 'img', image_key: 'img_v3_a', width: 441, height: 494 }],
+          [{ tag: 'at', user_id: '@_user_1', user_name: 'bot' }, { tag: 'text', text: ' /run 你能识别出这个是涂抹商标行为吗？' }],
+        ],
+      });
+      expect(parseMessageText(content, 'post')).toEqual({ text: '/run 你能识别出这个是涂抹商标行为吗？', mentioned: true, images: ['img_v3_a'] });
+      // 纯图 post（没一个字）也不能丢：文本为空，靠图片进后续路由/攒着逻辑
+      const onlyImg = JSON.stringify({ content: [[{ tag: 'img', image_key: 'img_v3_b' }]] });
+      expect(parseMessageText(onlyImg, 'post')).toEqual({ text: '', mentioned: false, images: ['img_v3_b'] });
+    });
     it('平铺 text 兜底：清 <p>/<br> 段落标签，但不动代码里的泛型尖括号', () => {
       const flat = JSON.stringify({ text: '/new<p></p> 修复 Array<string> 解析<br/>第二行' });
       expect(parseMessageText(flat, 'post')).toEqual({
