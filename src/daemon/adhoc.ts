@@ -154,10 +154,12 @@ export async function execAdhoc(
         // 整段对话随指针累积：续轮接在被续的那条记录后面（按卡续时是那张卡的记录，否则是本群指针）
         transcript: withRound(chain > 0 ? (opts?.prev ?? readLastRunFor(chatId)) : null, { command: commandText, output: r.text }),
       };
-      // 指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
-      saveLastRunFor(chatId, rec);
-      // 话题 = 会话：在话题里跑的这轮记到话题上，下一句不用引用卡、不用 /re 就能续（src/threads.ts）
+      // 话题 = 会话：在话题里跑的这轮只记到话题上，下一句不用引用卡、不用 /re 就能续（src/threads.ts）；
+      // 不再覆盖群指针/全局指针——2026-09-12 真机：主线一句没听懂的话，兜底卡问「你是不是在回复《here》（20 小时前）」，
+      // 《here》是话题里的一句话，脱离话题毫无意义。主线的 /re 与兜底卡只看主线自己的会话
       if (rootId && chatId) rememberThreadRun(rootId, chatId, rec);
+      // 主线：指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
+      else saveLastRunFor(chatId, rec);
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
       if (sheetNote) {

@@ -340,3 +340,12 @@ describe('followup：本群改绑项目后，主线续聊不再续别的项目�
     expect(vi.mocked(run.handle)).not.toHaveBeenCalled();
   });
 });
+
+describe('unknown 兜底卡的猜测窗口（2026-09-12 真机：问「你是不是在回复《here》（20 小时前）」）', () => {
+  it('只在 2 小时内猜「是否在回复上次执行」，不用 24 小时的续聊 TTL', async () => {
+    vi.mocked(readLastRunFor).mockClear();
+    const { ctx } = fakeCtx();
+    await handlers.unknown(ctx, { kind: 'unknown', text: '你能识别出这个是涂抹商标行为吗' }, 'bob', 'oc_free');
+    expect(vi.mocked(readLastRunFor).mock.calls[0][2]).toBe(2 * 3600_000);
+  });
+});
