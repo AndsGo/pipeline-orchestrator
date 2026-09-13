@@ -107,6 +107,17 @@ export class FeishuPort implements InteractionPort {
     const ws = new lark.WSClient({ appId: cfg.appId, appSecret: cfg.appSecret });
     const port = new FeishuPort(client, ws, cfg);
 
+    // 「@我」要按 mentions 里的 open_id 判，不能「消息里有 @ 就算」：2026-09-13 真机——同事 @ 另一位同事让查两个编号，
+    // 机器人抢答了。启动时取一次机器人自己的 open_id；取不到就退回旧判法（宁可多答，不能漏 @）
+    let botOpenId: string | undefined;
+    try {
+      const info = (await client.request({ method: 'GET', url: '/open-apis/bot/v3/info' })) as { bot?: { open_id?: string }; data?: { bot?: { open_id?: string } } };
+      botOpenId = info?.bot?.open_id ?? info?.data?.bot?.open_id;
+    } catch {
+      /* 见下一行日志 */
+    }
+    if (!botOpenId) console.log('[feishu] 未取到机器人 open_id，@ 判定退回「消息里有 @ 即算」');
+
     const handlers: Record<string, (data: never) => Promise<unknown>> = {
       'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> } }) => {
         const update = port.handleCardAction(
@@ -131,6 +142,8 @@ export class FeishuPort implements InteractionPort {
           root_id?: string;
           /** 消息属于某个话题时非空 */
           thread_id?: string;
+          /** 被 @ 的人：key 对应正文里的 @_user_N 占位，id.open_id 才能分清 @ 的是机器人还是同事 */
+          mentions?: Array<{ key?: string; id?: { open_id?: string }; name?: string }>;
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
@@ -174,7 +187,7 @@ export class FeishuPort implements InteractionPort {
           onMessage({
             chatId: data.message?.chat_id ?? '',
             text,
-            mentioned: parsed.mentioned,
+            mentioned: isBotMentioned(data.message?.mentions, botOpenId, parsed.mentioned),
             sender: data.sender?.sender_id?.open_id ?? 'unknown',
             messageId: data.message?.message_id ?? '',
             quotedMessageId: data.message?.parent_id,
@@ -890,4 +903,17 @@ export function attachmentRef(messageType: string | undefined, content: string |
     /* 不是 JSON */
   }
   return null;
+}
+
+/**
+ * 这条消息是不是 @ 了机器人：按 mentions 里的 open_id 对，@ 的是同事不算。
+ * 没拿到机器人 open_id、或事件里没有 mentions 字段时退回 fallback（正文里有 @ 占位即算）——宁可多答，不能把真 @ 漏掉
+ */
+export function isBotMentioned(
+  mentions: Array<{ id?: { open_id?: string } }> | undefined,
+  botOpenId: string | undefined,
+  fallback: boolean,
+): boolean {
+  if (!botOpenId || !mentions) return fallback;
+  return mentions.some((m) => m.id?.open_id === botOpenId);
 }

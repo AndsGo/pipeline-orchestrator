@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gateCard, questionCard, statusCard, type CardAction } from '../feishu/card.js';
-import { attachmentRef, FeishuPort, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
+import { attachmentRef, FeishuPort, isBotMentioned, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
 import type { OpenQuestion } from '../types.js';
 
 const q: OpenQuestion = {
@@ -425,5 +425,19 @@ describe('attachmentRef：话题里直接甩的文件/图片进攒着队列（20
     expect(attachmentRef('text', '{"text":"hi"}', 'om_3')).toBeNull();
     expect(attachmentRef('file', 'not-json', 'om_4')).toBeNull();
     expect(attachmentRef('file', '{"file_key":"k"}', '')).toBeNull();
+  });
+});
+
+describe('isBotMentioned：@ 的是谁（2026-09-13 真机：同事 @ 同事让查编号，机器人抢答）', () => {
+  const BOT = 'ou_bot';
+  it('mentions 里有机器人才算 @我；只 @ 了同事不算', () => {
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], BOT, true)).toBe(false);
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }, { id: { open_id: BOT } }], BOT, false)).toBe(true);
+    expect(isBotMentioned([], BOT, true)).toBe(false);
+  });
+  it('没拿到机器人 open_id 或事件里没有 mentions 时退回正文判定', () => {
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], undefined, true)).toBe(true);
+    expect(isBotMentioned(undefined, BOT, true)).toBe(true);
+    expect(isBotMentioned(undefined, BOT, false)).toBe(false);
   });
 });
