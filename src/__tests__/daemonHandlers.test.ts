@@ -311,3 +311,32 @@ describe('unknown', () => {
     expect(notify[0][1]).toContain('这句已忽略');
   });
 });
+
+// /bind 之后的主线续聊（2026-09-13 真机：/bind odoo-product 后原话重发被判续聊，仍续回 lakeghost 的会话）
+vi.mock('../daemon/handlers/run.js', () => ({ handle: vi.fn(async () => undefined) }));
+
+describe('followup：本群改绑项目后，主线续聊不再续别的项目的会话', () => {
+  it('上次会话属于别的项目 → 提示并按新任务在本群绑定的项目上 /run', async () => {
+    const run = await import('../daemon/handlers/run.js');
+    vi.mocked(run.handle).mockClear();
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'nova' }));
+    const { ctx, followups, notify } = fakeCtx();
+    await handlers.followup(ctx, { kind: 'followup', text: '速卖通刊登状态没同步' }, 'alice', 'oc_lake');
+    expect(followups).toEqual([]);
+    expect(notify[0][1]).toContain('本群现在绑定的是 **lakeghost**');
+    expect(vi.mocked(run.handle).mock.calls[0][1]).toMatchObject({ kind: 'run', project: 'lakeghost', text: '速卖通刊登状态没同步' });
+  });
+  it('同项目、或在话题里 → 照常续聊', async () => {
+    const run = await import('../daemon/handlers/run.js');
+    vi.mocked(run.handle).mockClear();
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'lakeghost' }));
+    const a = fakeCtx();
+    await handlers.followup(a.ctx, { kind: 'followup', text: '继续' }, 'alice', 'oc_lake');
+    expect(a.followups).toHaveLength(1);
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'nova' }));
+    const b = fakeCtx();
+    await handlers.followup(b.ctx, { kind: 'followup', text: '继续' }, 'alice', { chatId: 'oc_lake', rootId: 'om_root' });
+    expect(b.followups).toHaveLength(1);
+    expect(vi.mocked(run.handle)).not.toHaveBeenCalled();
+  });
+});
