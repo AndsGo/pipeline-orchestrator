@@ -19,10 +19,10 @@ import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js'
 import { readLastRunFor, runByCard, stripQuote } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
-import { bindTicketThread, getThread, looksLikeInstruction, markPendingHint, pushPending, renderPending, routeInThread, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
+import { bindTicketThread, getThread, looksLikeInstruction, markPendingHint, pushPending, renderPending, routeInThread, switchThreadProject, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
-import { describeProjects, loadProjects, projectOfTicket, resolveProject, type Project } from './projects.js';
+import { describeProjects, loadProjects, mentionedProject, projectOfTicket, resolveProject, type Project } from './projects.js';
 import { loadTicket, peekTicketRepo, readSnapshot, saveTicket } from './ticket.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -366,9 +366,20 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
 
   // 话题路由（设计稿 §3.4）：话题绑了工单 → 这句一定是该单的事；绑了会话 → 续它。确定性优先于分类器的猜测
   if (th || (m.inThread && runByCard(m.rootId))) {
-    const routed = routeInThread(cmd, th, m.text, !!runByCard(m.rootId));
-    if (routed !== cmd) log(`话题路由：${cmd.kind} → ${routed.kind}${(routed as { ticket?: string }).ticket ? ` @${(routed as { ticket?: string }).ticket}` : ''}`);
-    cmd = routed;
+    // 会话话题里 `/run <别的项目名> …`：点名换项目 → 不续旧会话，在该项目上新开会话并把话题改绑过去
+    // （2026-09-13 真机：lakeghost 结果卡开的话题，用户想换到 odoo-product，说了三次都被灌进旧会话）
+    const threadProject = th?.run?.project ?? runByCard(m.rootId)?.project;
+    const named = mentionedProject(projects, m.text);
+    const switched = !th?.ticket ? switchThreadProject(cmd, threadProject, named?.exact ? named.project.alias : undefined) : null;
+    if (switched) {
+      log(`话题 ${m.rootId?.slice(-8)} 点名换项目：${threadProject} → ${(switched as { project?: string }).project}，新开会话`);
+      await port.notify('执行', `这个话题原来是 **${threadProject}** 的会话，这句点名了 **${(switched as { project?: string }).project}**：新开会话执行，之后这个话题就归它。`, origin);
+      cmd = switched;
+    } else {
+      const routed = routeInThread(cmd, th, m.text, !!runByCard(m.rootId));
+      if (routed !== cmd) log(`话题路由：${cmd.kind} → ${routed.kind}${(routed as { ticket?: string }).ticket ? ` @${(routed as { ticket?: string }).ticket}` : ''}`);
+      cmd = routed;
+    }
     if (th?.ticket && m.rootId) touchThread(m.rootId);
   }
 

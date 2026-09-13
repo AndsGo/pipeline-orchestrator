@@ -20,6 +20,7 @@ import {
   renderPending,
   routeInThread,
   sessionFresh,
+  switchThreadProject,
   takePending,
   THREAD_SESSION_MAX_TURNS,
   type ThreadRec,
@@ -165,5 +166,15 @@ describe('攒下的「像指令」的话加 👀（2026-09-12 真机：「可以
     expect(markPendingHint('om_h', f, NOW + 10 * 60_000)).toBe(false);
     expect(markPendingHint('om_h', f, NOW + HINT_INTERVAL_MS + 1)).toBe(true);
     expect(markPendingHint('om_nobody', f, NOW)).toBe(false);
+  });
+});
+
+describe('switchThreadProject：会话话题里 /run 点名别的项目 → 新开会话（2026-09-13 真机）', () => {
+  it('点名不同项目的 run 保留为 run 并带上项目；同项目、没点名、非 run 都不动', () => {
+    expect(switchThreadProject({ kind: 'run', text: '/run odoo-product 速卖通刊登状态' }, 'lakeghost', 'odoo-product')).toEqual({ kind: 'run', text: '/run odoo-product 速卖通刊登状态', project: 'odoo-product' });
+    expect(switchThreadProject({ kind: 'run', text: 'x' }, 'lakeghost', 'lakeghost')).toBeNull();
+    expect(switchThreadProject({ kind: 'run', text: 'x' }, 'lakeghost', undefined)).toBeNull();
+    expect(switchThreadProject({ kind: 'followup', text: 'x' }, 'lakeghost', 'odoo-product')).toBeNull();
+    expect(switchThreadProject({ kind: 'run', text: 'x' }, undefined, 'odoo-product')).toBeNull();
   });
 });

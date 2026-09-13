@@ -239,3 +239,13 @@ export function markPendingHint(rootId: string, file = threadsFile(), now = Date
   writeThreads(all, file, now);
   return true;
 }
+
+/**
+ * 会话话题里点名换项目：`/run odoo-product 速卖通…`（正文里明确写了另一个项目名）不再续旧会话，而是在该项目上新开会话，
+ * 跑完 rememberThreadRun 会把话题改绑到新会话（sessionId 变了，轮次归 1）。
+ * 2026-09-13 真机：话题是 lakeghost 结果卡开的，用户想换到 odoo-product，「给这个话题新开一个会话，绑定 odoo-product」被当续聊灌进了旧会话
+ */
+export function switchThreadProject(cmd: Command, threadProject: string | undefined, namedProject: string | undefined): Command | null {
+  if (cmd.kind !== 'run' || !namedProject || !threadProject || namedProject === threadProject) return null;
+  return { ...cmd, project: namedProject };
+}
