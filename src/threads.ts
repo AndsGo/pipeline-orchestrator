@@ -26,6 +26,8 @@ export interface ThreadRec {
    * 上限 20 条 / 24 小时，超了丢最早的
    */
   pending?: Array<{ sender: string; text: string; ts: string }>;
+  /** 上次在攒下的「像指令」的话上加 👀 的时间：每话题每小时最多提示一次 */
+  hintedAt?: string;
 }
 
 export const PENDING_CAP = 20;
@@ -216,4 +218,24 @@ export function touchThread(rootId: string, file = threadsFile(), now = Date.now
   if (!all[rootId]) return;
   all[rootId].lastAt = new Date(now).toISOString();
   writeThreads(all, file, now);
+}
+
+/** 攒下的话像不像给机器人下的指令：动词开头，或「吧/一下/一遍」收尾，且不是问句。词面判定，漏判等于现状、误判多一个表情 */
+export function looksLikeInstruction(text: string): boolean {
+  const t = text.trim();
+  if (!t || /[？?]\s*$/.test(t) || t.length > 200) return false;
+  return /^(请|麻烦|直接|先|再|就)?(执行|开始|继续|重新|重跑|再跑|跑|帮我|生成|改|查|试|做|处理|更新|导出|发|把)/.test(t) || /(吧|一下|一遍|一次)\s*[。.!！]?$/.test(t);
+}
+
+export const HINT_INTERVAL_MS = 3600_000;
+
+/** 这条攒下的「像指令」的话要不要加 👀 提示：每话题每小时最多一次；返回 true 即已记下本次提示时间 */
+export function markPendingHint(rootId: string, file = threadsFile(), now = Date.now()): boolean {
+  const all = readThreads(file);
+  const rec = all[rootId];
+  if (!rec) return false;
+  if (rec.hintedAt && now - Date.parse(rec.hintedAt) < HINT_INTERVAL_MS) return false;
+  rec.hintedAt = new Date(now).toISOString();
+  writeThreads(all, file, now);
+  return true;
 }

@@ -11,6 +11,9 @@ import {
   compactRounds,
   expiredSessionBrief,
   getThread,
+  HINT_INTERVAL_MS,
+  looksLikeInstruction,
+  markPendingHint,
   pushPending,
   readThreads,
   rememberThreadRun,
@@ -143,5 +146,24 @@ describe('routeInThread：会话话题里的 new（2026-09-11 真机）', () => 
     expect(routeInThread(explicit, runTh, '按刚才聊的建单', false)).toBe(explicit);
     const slash: Command = { kind: 'new', requirement: '把结论建成工单' };
     expect(routeInThread(slash, runTh, '/new 把结论建成工单', false)).toBe(slash);
+  });
+});
+
+describe('攒下的「像指令」的话加 👀（2026-09-12 真机：「可以的，执行吧」「C000052单独重新跑一遍」没 @，人干等 9～22 分钟）', () => {
+  it('词面判定：动词开头或「吧/一下/一遍」收尾算指令；问句、讨论不算', () => {
+    expect(looksLikeInstruction('可以的，执行吧')).toBe(true);
+    expect(looksLikeInstruction('C000052单独重新跑一遍')).toBe(true);
+    expect(looksLikeInstruction('帮我把这页导出来')).toBe(true);
+    expect(looksLikeInstruction('我觉得这个背景不太对')).toBe(false);
+    expect(looksLikeInstruction('为什么还是会出现这个灯？')).toBe(false);
+    expect(looksLikeInstruction('这个能改吗?')).toBe(false);
+  });
+  it('每话题每小时最多提示一次；未绑定的话题不提示', () => {
+    const f = tmp();
+    rememberThreadRun('om_h', 'oc', run(), f, NOW);
+    expect(markPendingHint('om_h', f, NOW)).toBe(true);
+    expect(markPendingHint('om_h', f, NOW + 10 * 60_000)).toBe(false);
+    expect(markPendingHint('om_h', f, NOW + HINT_INTERVAL_MS + 1)).toBe(true);
+    expect(markPendingHint('om_nobody', f, NOW)).toBe(false);
   });
 });

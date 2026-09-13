@@ -19,7 +19,7 @@ import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js'
 import { readLastRunFor, runByCard, stripQuote } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
-import { bindTicketThread, getThread, pushPending, renderPending, routeInThread, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
+import { bindTicketThread, getThread, looksLikeInstruction, markPendingHint, pushPending, renderPending, routeInThread, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
 import { describeProjects, loadProjects, projectOfTicket, resolveProject, type Project } from './projects.js';
@@ -258,7 +258,16 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     // 话题里没 @ 的话（拍板 2026-09-11）：不触发、不回复，攒着；下一次有人 @ 时连同那句一起交给会话/工单。
     // 之前「话题里每句都算对话」让同事间的讨论每句触发一轮 resume——太贵也太吵。答卡例外在上面已处理（有明确格式）
     if (!m.mentioned && !looksLikeCommand(m.text)) {
-      if (th && m.rootId) log(`话题 ${m.rootId.slice(-8)} 攒下一句（共 ${pushPending(m.rootId, m.sender, stripQuote(m.text))} 条），等 @ 时一并处理`);
+      if (th && m.rootId) {
+        const own = stripQuote(m.text);
+        log(`话题 ${m.rootId.slice(-8)} 攒下一句（共 ${pushPending(m.rootId, m.sender, own)} 条），等 @ 时一并处理`);
+        // 像给我下的指令却没 @（2026-09-12 真机：「可以的，执行吧」「C000052单独重新跑一遍」，人干等 9～22 分钟）：
+        // 在那条消息上加个 👀，不发文字——人看到就知道「它看见了但没动，要 @ 才会动」。每话题每小时最多一次
+        if (looksLikeInstruction(own) && markPendingHint(m.rootId)) {
+          log(`  像指令但没 @，加 👀 提示`);
+          void port.react(m.messageId, 'GLANCE');
+        }
+      }
       return;
     }
     // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
