@@ -33,7 +33,7 @@ export type Command =
   /** 群内接入新项目（2026-08-31 用户在群里问「可以在对话中添加吗」——此前只有终端向导） */
   | { kind: 'addproject'; alias: string; repo: string; prefix: string; gitlab?: string; jenkins?: string; wiki?: string }
   /** 项目粘性：本群后续消息默认按该项目处理（不带别名 = 查看当前）；见 sticky.ts 头注 */
-  | { kind: 'use'; alias?: string }
+  | { kind: 'use'; alias?: string; /** `/use 别名 接着要做的事`：切完项目顺手把后半句当 /run（2026-09-14 真机：后半句被丢） */ rest?: string }
   /** 群↔项目绑定：在目标群里发，本群从此就是该项目的群（含工单通知路由） */
   | { kind: 'bind'; alias: string }
   | { kind: 'help' }
@@ -251,8 +251,10 @@ export function parseSlash(text: string): Command | null {
     case 'ask':
     case 'skill':
       return arg ? { kind: 'run', text: arg } : { kind: 'unknown', text: t };
-    case 'use':
-      return { kind: 'use', alias: first };
+    case 'use': {
+      const rest = unwrap(others.join(' '));
+      return rest ? { kind: 'use', alias: first, rest } : { kind: 'use', alias: first };
+    }
     case 'bind':
       return first ? { kind: 'bind', alias: first } : { kind: 'unknown', text: t };
     case 'addproject':

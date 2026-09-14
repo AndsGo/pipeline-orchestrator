@@ -364,3 +364,16 @@ describe('followup：/use 粘性项目同样算本群项目（2026-09-14 真机�
     expect(vi.mocked(run.handle).mock.calls[0][1]).toMatchObject({ kind: 'run', project: 'nova' });
   });
 });
+
+describe('use：`/use 别名 接着要做的事`（2026-09-14 真机：后半句被丢）', () => {
+  it('切完项目，后半句按该项目 /run；没有后半句只切', async () => {
+    const run = await import('../daemon/handlers/run.js');
+    vi.mocked(run.handle).mockClear();
+    const { ctx } = fakeCtx();
+    await handlers.use(ctx, { kind: 'use', alias: 'nova', rest: '分析下上面的问题' }, 'alice', 'oc_use_rest');
+    expect(vi.mocked(run.handle).mock.calls[0][1]).toMatchObject({ kind: 'run', project: 'nova', text: '分析下上面的问题' });
+    vi.mocked(run.handle).mockClear();
+    await handlers.use(ctx, { kind: 'use', alias: 'nova' }, 'alice', 'oc_use_rest');
+    expect(vi.mocked(run.handle)).not.toHaveBeenCalled();
+  });
+});

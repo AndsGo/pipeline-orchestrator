@@ -158,6 +158,7 @@ describe('指令解析', () => {
 
   it('/use 与 /bind：项目粘性与群绑定（2026-08-31 单群多项目的上下文切换之痛）', () => {
     expect(parseSlash('/use nova')).toEqual({ kind: 'use', alias: 'nova' });
+    expect(parseSlash('/use odoo-product 分析下上面的问题')).toEqual({ kind: 'use', alias: 'odoo-product', rest: '分析下上面的问题' });
     expect(parseSlash('/use')).toEqual({ kind: 'use', alias: undefined });
     expect(parseSlash('/bind odoo-product')).toEqual({ kind: 'bind', alias: 'odoo-product' });
     expect(parseSlash('/bind')).toMatchObject({ kind: 'unknown' }); // 绑定必须指名项目
