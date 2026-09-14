@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, planAssets, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, planAssets, rectangular, sheetFileName, splitRows, toCsv, trimEmpty } from '../sheetCsv.js';
 
 describe('sheetCsv：在线表 ↔ CSV 往返', () => {
   it('parse：引号包裹的逗号/换行/双引号，CRLF，BOM，尾行无换行', () => {
@@ -71,5 +71,19 @@ describe('sheetCsv：在线表 ↔ CSV 往返', () => {
     expect(r.range).toBe('A1:C2');
     expect(r.values).toEqual([['x', 'y', ''], ['', '', '']]);
     expect(coverRange([], []).range).toBe('A1:A1');
+  });
+});
+
+describe('splitRows：单次写入按 4000 行切（2026-09-14 真机：15,594 行台账一次 PUT 被 90202 拒绝，页面空着却报「已新增」）', () => {
+  it('超限的段按行切、range 跟着改；不超限原样返回', () => {
+    const values = Array.from({ length: 9000 }, (_, i) => [String(i), 'x']);
+    const parts = splitRows({ range: 'A1:B9000', values }, 4000);
+    expect(parts.map((p) => p.range)).toEqual(['A1:B4000', 'A4001:B8000', 'A8001:B9000']);
+    expect(parts.map((p) => p.values.length)).toEqual([4000, 4000, 1000]);
+    expect(parts[1].values[0][0]).toBe('4000');
+    const offset = splitRows({ range: 'C10:D12', values: [['a', 'b'], ['c', 'd'], ['e', 'f']] }, 2);
+    expect(offset.map((p) => p.range)).toEqual(['C10:D11', 'C12:D12']);
+    const small = { range: 'A1:B3', values: [['1', '2']] };
+    expect(splitRows(small, 4000)).toEqual([small]);
   });
 });

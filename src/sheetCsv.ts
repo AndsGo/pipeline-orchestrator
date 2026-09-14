@@ -156,3 +156,21 @@ export function coverRange(newRows: string[][], oldRows: string[][]): { range: s
   }
   return { range: `A1:${colLetter(cols)}${rows}`, values };
 }
+
+/** 飞书单次写入上限 5000 行（超了返回 code 90202「validate RangeVal fail」，HTTP 仍是 200）；留余量按 4000 切 */
+export const WRITE_ROWS_MAX = 4000;
+
+/** 把一个 {range, values} 段按行数切成若干段，range 跟着改；不超限的原样返回 */
+export function splitRows(seg: { range: string; values: string[][] }, max = WRITE_ROWS_MAX): Array<{ range: string; values: string[][] }> {
+  if (seg.values.length <= max) return [seg];
+  const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(seg.range);
+  if (!m) return [seg];
+  const [, c1, r1, c2] = m;
+  const start = Number(r1);
+  const out: Array<{ range: string; values: string[][] }> = [];
+  for (let i = 0; i < seg.values.length; i += max) {
+    const values = seg.values.slice(i, i + max);
+    out.push({ range: `${c1}${start + i}:${c2}${start + i + values.length - 1}`, values });
+  }
+  return out;
+}

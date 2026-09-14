@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type * as lark from '@larksuiteoapi/node-sdk';
-import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, rectangular, sheetFileName, toCsv, trimEmpty } from '../sheetCsv.js';
+import { colLetter, coverRange, diffRanges, IMAGE_PLACEHOLDER, linkifyCells, parseCsv, rectangular, sheetFileName, splitRows, toCsv, trimEmpty } from '../sheetCsv.js';
 
 /**
  * 在线电子表格（会话产出的表格类文件不再来回传 xlsx，而是「机器人建表、人和会话都往同一张表里写」）。
@@ -22,6 +22,15 @@ export interface SheetRef {
 const unwrap = <T>(res: unknown): T => {
   const r = res as { data?: T } & T;
   return (r?.data ?? r) as T;
+};
+
+/**
+ * 写接口的业务错误是 HTTP 200 + code≠0，SDK 不抛：2026-09-14 真机——15,594 行一次 PUT 被 90202「validate RangeVal fail」拒绝，
+ * 代码没看 code，页面空着却在群里报「已新增页」。所有写调用都过这一手
+ */
+const assertOk = (res: unknown, what: string): void => {
+  const r = res as { code?: number; msg?: string } | undefined;
+  if (r?.code) throw new Error(`${what} 失败：code=${r.code} ${r.msg ?? ''}`.trim());
 };
 
 export class SheetService {
@@ -162,13 +171,19 @@ export class SheetService {
 
   /** 差量写回：只写改动的格子（见 sheetCsv.diffRanges），每次最多 100 段 */
   async writeDiff(ref: SheetRef, sheetId: string, rows: string[][], oldRows: string[][]): Promise<number> {
-    const segs = diffRanges(rectangular(rows), oldRows).map((s) => ({ range: `${sheetId}!${s.range}`, values: s.values }));
+    // 一整列改动可能连成几千行的一段：先按 4000 行切，再每 100 段一批
+    const segs = diffRanges(rectangular(rows), oldRows)
+      .flatMap((s) => splitRows(s))
+      .map((s) => ({ range: `${sheetId}!${s.range}`, values: s.values }));
     for (let i = 0; i < segs.length; i += 100) {
-      await this.client.request({
-        method: 'POST',
-        url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values_batch_update`,
-        data: { valueRanges: segs.slice(i, i + 100) },
-      });
+      assertOk(
+        await this.client.request({
+          method: 'POST',
+          url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values_batch_update`,
+          data: { valueRanges: segs.slice(i, i + 100) },
+        }),
+        `批量写入（第 ${i / 100 + 1} 批）`,
+      );
     }
     return segs.length;
   }
@@ -210,12 +225,17 @@ export class SheetService {
 
   /** 用 rows 覆盖某工作表（旧内容多出来的格子写空清掉） */
   async writeAll(ref: SheetRef, rows: string[][], oldRows: string[][], sheetId = ref.sheetId): Promise<void> {
-    const { range, values } = coverRange(rectangular(rows), oldRows);
-    await this.client.request({
-      method: 'PUT',
-      url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values`,
-      data: { valueRange: { range: `${sheetId}!${range}`, values } },
-    });
+    // 单次写入上限 5000 行，按块顺序写；超出工作表现有行数的部分飞书会自动扩表（实测 200 行的新页写 300 行成功）
+    for (const seg of splitRows(coverRange(rectangular(rows), oldRows))) {
+      assertOk(
+        await this.client.request({
+          method: 'PUT',
+          url: `/open-apis/sheets/v2/spreadsheets/${ref.token}/values`,
+          data: { valueRange: { range: `${sheetId}!${seg.range}`, values: seg.values } },
+        }),
+        `写入 ${seg.range}`,
+      );
+    }
   }
 
   /** 新增一个工作表，返回其 id */
