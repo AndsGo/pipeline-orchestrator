@@ -323,7 +323,7 @@ describe('followup：本群改绑项目后，主线续聊不再续别的项目�
     const { ctx, followups, notify } = fakeCtx();
     await handlers.followup(ctx, { kind: 'followup', text: '速卖通刊登状态没同步' }, 'alice', 'oc_lake');
     expect(followups).toEqual([]);
-    expect(notify[0][1]).toContain('本群现在绑定的是 **lakeghost**');
+    expect(notify[0][1]).toContain('本群当前项目是 **lakeghost**');
     expect(vi.mocked(run.handle).mock.calls[0][1]).toMatchObject({ kind: 'run', project: 'lakeghost', text: '速卖通刊登状态没同步' });
   });
   it('同项目、或在话题里 → 照常续聊', async () => {
@@ -347,5 +347,20 @@ describe('unknown 兜底卡的猜测窗口（2026-09-12 真机：问「你是不
     const { ctx } = fakeCtx();
     await handlers.unknown(ctx, { kind: 'unknown', text: '你能识别出这个是涂抹商标行为吗' }, 'bob', 'oc_free');
     expect(vi.mocked(readLastRunFor).mock.calls[0][2]).toBe(2 * 3600_000);
+  });
+});
+
+describe('followup：/use 粘性项目同样算本群项目（2026-09-14 真机：/use odoo-product 后「分析下这个问题」仍续回 lakeghost）', () => {
+  it('未绑定的群 /use 了别的项目 → 上次别项目的会话不续，按新任务在粘性项目上 /run', async () => {
+    const run = await import('../daemon/handlers/run.js');
+    const sticky = await import('../sticky.js');
+    vi.mocked(run.handle).mockClear();
+    sticky.writeSticky('oc_free', 'nova');
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'lakeghost' }));
+    const { ctx, followups, notify } = fakeCtx();
+    await handlers.followup(ctx, { kind: 'followup', text: '分析下这个问题' }, 'alice', 'oc_free');
+    expect(followups).toEqual([]);
+    expect(notify[0][1]).toContain('本群当前项目是 **nova**');
+    expect(vi.mocked(run.handle).mock.calls[0][1]).toMatchObject({ kind: 'run', project: 'nova' });
   });
 });

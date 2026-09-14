@@ -1,5 +1,6 @@
 import { readLastRunFor } from '../../followup.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../../ports.js';
+import { readSticky } from '../../sticky.js';
 import type { CommandOf, DaemonContext } from '../context.js';
 import { handle as runHandle } from './run.js';
 
@@ -10,11 +11,12 @@ export async function handle(ctx: DaemonContext, c: CommandOf<'followup'>, sende
   // 被判续聊（85%）又续回 lakeghost——/bind 白做了
   if (!c.quotedMessageId && !rootIdOf(chat)) {
     const chatId = chatIdOf(chat);
-    const bound = ctx.projects.find((p) => p.chatId === chatId);
+    // 本群的项目：绑定（/bind）优先，其次粘性（/use）——2026-09-14 真机：/use odoo-product 后一句「分析下这个问题」仍续回 lakeghost
+    const bound = ctx.projects.find((p) => p.chatId === chatId) ?? (chatId ? readSticky(chatId, ctx.projects) : null);
     const last = chatId ? readLastRunFor(chatId) : null;
     if (bound && last && last.project !== bound.alias) {
-      log(`本群已绑定 ${bound.alias}，上次会话属于 ${last.project}：这句按新任务在 ${bound.alias} 上执行`);
-      await port.notify('执行', `本群现在绑定的是 **${bound.alias}**，上次会话属于 ${last.project}，这句按新任务在 ${bound.alias} 上执行。`, chat);
+      log(`本群当前项目 ${bound.alias}，上次会话属于 ${last.project}：这句按新任务在 ${bound.alias} 上执行`);
+      await port.notify('执行', `本群当前项目是 **${bound.alias}**，上次会话属于 ${last.project}，这句按新任务在 ${bound.alias} 上执行。`, chat);
       await runHandle(ctx, { kind: 'run', text: c.text, project: bound.alias, sideEffect: c.sideEffect }, sender, chat);
       return;
     }
