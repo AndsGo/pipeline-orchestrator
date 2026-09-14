@@ -441,3 +441,11 @@ describe('isBotMentioned：@ 的是谁（2026-09-13 真机：同事 @ 同事让�
     expect(isBotMentioned(undefined, BOT, false)).toBe(false);
   });
 });
+
+describe('isBotMentioned：mentions.id 是字符串形态（2026-09-14 真机：富文本里 @ 同事 + @机器人，机器人没被认出）', () => {
+  it('字符串 id 与对象 id 都能对上机器人', () => {
+    expect(isBotMentioned([{ id: 'ou_colleague' }, { id: 'ou_bot' }], 'ou_bot', false)).toBe(true);
+    expect(isBotMentioned([{ id: 'ou_colleague' }], 'ou_bot', true)).toBe(false);
+    expect(isBotMentioned([{ id: { open_id: 'ou_bot' } }, { id: 'ou_colleague' }], 'ou_bot', false)).toBe(true);
+  });
+});

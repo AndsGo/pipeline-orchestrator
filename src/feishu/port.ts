@@ -143,7 +143,7 @@ export class FeishuPort implements InteractionPort {
           /** 消息属于某个话题时非空 */
           thread_id?: string;
           /** 被 @ 的人：key 对应正文里的 @_user_N 占位，id.open_id 才能分清 @ 的是机器人还是同事 */
-          mentions?: Array<{ key?: string; id?: { open_id?: string }; name?: string }>;
+          mentions?: Array<{ key?: string; id?: string | { open_id?: string }; name?: string }>;
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
@@ -184,10 +184,16 @@ export class FeishuPort implements InteractionPort {
               void port.notify('引用', '你引用的那条消息我没能拉取到内容（可能过久或权限不足），下面只按你这句话本身处理。如需分析引用内容，请粘成文字重发。');
             }
           }
+          const mentioned = isBotMentioned(data.message?.mentions, botOpenId, parsed.mentioned);
+          // 有人被 @ 了但不是我：把 mentions 形态留痕（去掉 id 主体），下次再出现「明明 @ 了机器人却没认出」有据可查
+          if (!mentioned && data.message?.mentions?.length) {
+            const shape = data.message.mentions.map((m) => `${m.name ?? '?'}:${typeof m.id === 'string' ? `str…${m.id.slice(-6)}` : `obj…${m.id?.open_id?.slice(-6) ?? '-'}`}`).join(' ');
+            console.log(`[feishu] 消息 @ 了别人不是我：${shape}`);
+          }
           onMessage({
             chatId: data.message?.chat_id ?? '',
             text,
-            mentioned: isBotMentioned(data.message?.mentions, botOpenId, parsed.mentioned),
+            mentioned,
             sender: data.sender?.sender_id?.open_id ?? 'unknown',
             messageId: data.message?.message_id ?? '',
             quotedMessageId: data.message?.parent_id,
@@ -910,10 +916,11 @@ export function attachmentRef(messageType: string | undefined, content: string |
  * 没拿到机器人 open_id、或事件里没有 mentions 字段时退回 fallback（正文里有 @ 占位即算）——宁可多答，不能把真 @ 漏掉
  */
 export function isBotMentioned(
-  mentions: Array<{ id?: { open_id?: string } }> | undefined,
+  mentions: Array<{ id?: string | { open_id?: string } }> | undefined,
   botOpenId: string | undefined,
   fallback: boolean,
 ): boolean {
   if (!botOpenId || !mentions) return fallback;
-  return mentions.some((m) => m.id?.open_id === botOpenId);
+  // id 两种形态都见过：事件文档写的是 {open_id,...} 对象，消息接口回的是字符串（2026-09-14 真机：富文本里 @ 两个人含机器人，没被认出）
+  return mentions.some((m) => (typeof m.id === 'string' ? m.id : m.id?.open_id) === botOpenId);
 }
