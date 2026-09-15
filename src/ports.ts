@@ -22,8 +22,12 @@ export const chatIdOf = (ref: ChatRef | undefined): string | undefined => (typeo
 export const rootIdOf = (ref: ChatRef | undefined): string | undefined => (typeof ref === 'string' ? undefined : ref?.rootId);
 
 /** 广播：有工单话题时主线与话题各发一份（开工/收尾/上线/闭环/挂起）；端口没实现就退回 notify */
-export function broadcast(port: InteractionPort, ticket: string, message: string): Promise<void> {
-  return port.broadcast ? port.broadcast(ticket, message) : port.notify(ticket, message);
+/**
+ * 主线 + 工单话题各发一条。业务受众（audience: business，拍板 2026-09-14）的工单主线安静：过程只进话题，
+ * 主线只看得到要人决策的卡和收尾——`force` 给收尾/挂起/上线这类必须让业务方看见的消息
+ */
+export function broadcast(port: InteractionPort, ticket: string, message: string, force = false): Promise<void> {
+  return port.broadcast ? port.broadcast(ticket, message, force) : port.notify(ticket, message);
 }
 
 /**
@@ -40,7 +44,7 @@ export interface InteractionPort {
   /** 结构化报告（如验收 AC 结果表）：比 notify 长、要排版。可选——未实现的端口由调用方降级为 notify */
   sendReport?(ticket: string, title: string, markdown: string): Promise<void>;
   /** 广播：主线 + 工单话题各一份（见 ports.broadcast）。可选——没有话题概念的端口不实现 */
-  broadcast?(ticket: string, message: string): Promise<void>;
+  broadcast?(ticket: string, message: string, force?: boolean): Promise<void>;
   /** 代发本地文件/图片（出件箱，见 src/outbox.ts）。可选——CLI/无人值守端口没有地方可发 */
   sendFiles?(ticketOrAlias: string, files: string[], to?: ChatRef): Promise<{ sent: string[]; failed: string[] }>;
   close(): void;

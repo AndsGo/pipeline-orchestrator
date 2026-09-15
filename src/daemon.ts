@@ -20,6 +20,8 @@ import { readLastRunFor, runByCard, stripQuote } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
 import { bindTicketThread, getThread, looksLikeInstruction, markPendingHint, pushPending, renderPending, routeInThread, switchThreadProject, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
+import { readProfile } from './profile.js';
+import { audienceOf } from './voice.js';
 import { clearPaused } from './pause.js';
 import { Semaphore } from './semaphore.js';
 import { describeProjects, loadProjects, mentionedProject, projectOfTicket, resolveProject, type Project } from './projects.js';
@@ -479,6 +481,11 @@ port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
 port.routeChat = (t) => (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId;
 // 工单绑了话题就把它的卡片/进度投进话题（src/threads.ts；广播另在主线留一份）
 port.routeThread = (t) => threadOfTicket(t)?.rootId;
+// 业务受众（PIPELINE.md audience: business）的工单主线安静：过程只进话题，主线只发决策指路与收尾（拍板 2026-09-14）
+port.quietMain = (t) => {
+  const repo = peekTicketRepo(t);
+  return !!repo && audienceOf(readProfile(repo)) === 'business';
+};
 // 指令处理器只通过这份上下文拿状态（src/daemon/context.ts）。port 已就绪、到首个 await 之间无消息可达，此处装配无时序风险
 const ctx: DaemonContext = {
   projects,

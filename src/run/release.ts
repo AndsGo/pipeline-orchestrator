@@ -81,6 +81,7 @@ export async function runRelease(run: TicketRun, profile: PipelineProfile): Prom
         port,
         ticket,
         audienceOf(profile) === 'business' ? releaseLine(target, mr.webUrl) : `已合并 MR !${mr.iid} → ${target}：${mr.webUrl}`,
+        true, // 上线是业务方要看的结果，安静主线也发
       );
     } else {
       appendEvent({ ticket, type: 'release', summary: `人工合并 ${branch ?? '工单分支'} → ${target}（无可用 MR 或未配 GitLab API）` });

@@ -74,7 +74,7 @@ export async function handleHalted(run: TicketRun): Promise<'continue' | 'return
       return 'continue';
     }
     if (d.note?.trim()) appendFeedback(repo, ticket, '评审仲裁备注', d.note);
-    await broadcast(port, ticket, `已挂起：${haltedReason}。处理后在群里说「继续 ${ticket}」（会重跑 review）`);
+    await broadcast(port, ticket, `已挂起：${haltedReason}。处理后在群里说「继续 ${ticket}」（会重跑 review）`, true);
     return 'return';
   }
   // 错误翻译层：不把人丢给一句技术挂起原因，直接给「重试」按钮（本 runner 只发一次，防确定性失败空转）
@@ -105,6 +105,6 @@ export async function handleHalted(run: TicketRun): Promise<'continue' | 'return
     }
     if (d.note?.trim()) appendFeedback(repo, ticket, '挂起备注', d.note);
   }
-  await broadcast(port, ticket, `已挂起：${haltedReason}。处理后续跑，或在群里说「继续 ${ticket}」`);
+  await broadcast(port, ticket, `已挂起：${haltedReason}。处理后续跑，或在群里说「继续 ${ticket}」`, true);
   return 'return';
 }

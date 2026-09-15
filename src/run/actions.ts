@@ -68,6 +68,7 @@ async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfil
     port,
     ticket,
     biz ? closeoutLine(run.state.runs.length, total) : `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`,
+    true, // 收尾必须让主线看见（安静主线只静过程）
   );
 }
 

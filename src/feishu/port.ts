@@ -5,6 +5,7 @@ import type { Answer } from '../backfill.js';
 import { imFileType, isImage } from '../outbox.js';
 import { dataDir, removeFile } from '../paths.js';
 import { getThread } from '../threads.js';
+import { GATE_CN } from '../voice.js';
 import { SheetService } from './sheet.js';
 import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
 import type { OpenQuestion } from '../types.js';
@@ -217,6 +218,18 @@ export class FeishuPort implements InteractionPort {
   routeChat?: (ticketOrAlias: string) => string | undefined;
   /** 工单话题钩子（daemon 注入）：工单绑了话题就把它的卡片/进度投进话题（src/threads.ts） */
   routeThread?: (ticket: string) => string | undefined;
+  /**
+   * 主线安静钩子（daemon 注入，拍板 2026-09-14）：业务受众的工单，过程只进话题；主线只发「需要你决策」的指路一句和收尾。
+   * 业务方看主线要的是「什么时候轮到我」，不是每个阶段的开始结束
+   */
+  quietMain?: (ticket: string) => boolean;
+
+  /** 决策卡发进话题后，主线指一句路（仅安静主线的工单；卡本身不重复发，避免两处待答） */
+  private async pointMain(ticket: string, what: string): Promise<void> {
+    const { chatId, rootId } = this.targetFor(ticket);
+    if (!rootId || !this.quietMain?.(ticket)) return;
+    await this.post('text', JSON.stringify({ text: `[${ticket}] 需要你决策：${what}（卡在 ${ticket} 的话题里）` }), { chatId });
+  }
 
   private chatFor(ticketOrAlias: string, explicit?: ChatRef): string | undefined {
     return chatIdOf(explicit) ?? this.routeChat?.(ticketOrAlias);
@@ -518,6 +531,7 @@ export class FeishuPort implements InteractionPort {
       }).then(({ value, note }) => ({ id: it.q.id, question: it.q.question, answer: value, note })),
     );
     group.messageId = await this.postCard(questionsCard(ticket, group.items), this.targetFor(ticket));
+    await this.pointMain(ticket, `回答 ${group.items.length} 个问题`);
     return Promise.all(waits);
   }
 
@@ -531,6 +545,7 @@ export class FeishuPort implements InteractionPort {
     const key = this.nextKey(`gate:${ticket}:${gate}`);
     const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket });
     await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.targetFor(ticket));
+    await this.pointMain(ticket, `${GATE_CN[gate] ?? gate} 通过 / 驳回`);
     const { value, note } = await wait;
     return { approved: value === 'approve', note };
   }
@@ -543,9 +558,14 @@ export class FeishuPort implements InteractionPort {
    * 广播：工单绑了话题时主线与话题各一份（开工/收尾/上线/闭环/挂起这类别人也要看的）；
    * 主线那份点明详情在话题里——卡片都进了话题，只盯主线的人得知道去哪找
    */
-  async broadcast(ticket: string, message: string): Promise<void> {
+  async broadcast(ticket: string, message: string, force = false): Promise<void> {
     const rootId = this.routeThread?.(ticket);
     if (!rootId) return this.notify(ticket, message);
+    // 安静主线：过程只进话题；force（收尾/挂起/上线）照旧两边都发
+    if (!force && this.quietMain?.(ticket)) {
+      await this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), { rootId });
+      return;
+    }
     await Promise.all([
       this.post('text', JSON.stringify({ text: `[${ticket}] ${message}\n（卡片与详情在 ${ticket} 的话题里）` }), { chatId: this.routeChat?.(ticket) }),
       this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), { rootId }),
@@ -663,6 +683,7 @@ export class FeishuPort implements InteractionPort {
       strictOptions: true,
     });
     await this.postCard(chooseCard(ticket, question, options, key), this.targetFor(ticket, to));
+    if (to === undefined) await this.pointMain(ticket, question.split('\n')[0].slice(0, 60));
     return (await wait).value;
   }
 

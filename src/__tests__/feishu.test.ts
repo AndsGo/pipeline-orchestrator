@@ -449,3 +449,58 @@ describe('isBotMentioned：mentions.id 是字符串形态（2026-09-14 真机：
     expect(isBotMentioned([{ id: { open_id: 'ou_bot' } }, { id: 'ou_colleague' }], 'ou_bot', false)).toBe(true);
   });
 });
+
+describe('安静主线（拍板 2026-09-14：业务受众的工单，过程只进话题，主线只发决策指路与收尾）', () => {
+  function threadedPort(quiet: boolean) {
+    const main: string[] = [];
+    const thread: string[] = [];
+    const fakeClient = {
+      im: {
+        message: {
+          create: async (req: { data: { content: string } }) => {
+            main.push(req.data.content);
+            return {};
+          },
+          reply: async (req: { data: { content: string } }) => {
+            thread.push(req.data.content);
+            return {};
+          },
+        },
+      },
+    };
+    const port = new FeishuPort(fakeClient as never, null, { appId: 'a', appSecret: 's', chatId: 'c' });
+    port.routeThread = () => 'om_root';
+    port.quietMain = () => quiet;
+    return { port, main, thread };
+  }
+  it('broadcast：安静主线只进话题；force 时两边都发；非安静照旧两边', async () => {
+    const q = threadedPort(true);
+    await q.port.broadcast('OP-1', '开始做需求确认');
+    expect(q.thread).toHaveLength(1);
+    expect(q.main).toHaveLength(0);
+    await q.port.broadcast('OP-1', '这单做完了', true);
+    expect(q.main).toHaveLength(1);
+    const loud = threadedPort(false);
+    await loud.port.broadcast('OP-1', '开始做需求确认');
+    expect(loud.main).toHaveLength(1);
+    expect(loud.thread).toHaveLength(1);
+  });
+  it('决策卡发进话题，主线指一句路（卡不重复发）；非安静主线不指路', async () => {
+    const q = threadedPort(true);
+    const p = q.port.confirmGate('OP-1', 'prd-confirm', '摘要', []);
+    await new Promise((r) => setTimeout(r, 0)); // 卡片与指路都是 await 链，等事件循环走一轮
+    expect(q.thread).toHaveLength(1);
+    expect(q.main).toHaveLength(1);
+    expect(q.main[0]).toContain('需要你决策');
+    expect(q.main[0]).toContain('需求确认');
+    expect(JSON.parse(q.main[0]).text).not.toContain('"tag"');
+    q.port.tryAnswerByText('通过');
+    await p;
+    const loud = threadedPort(false);
+    const p2 = loud.port.confirmGate('OP-1', 'prd-confirm', '摘要', []);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loud.main).toHaveLength(0);
+    loud.port.tryAnswerByText('通过');
+    await p2;
+  });
+});
