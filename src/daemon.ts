@@ -389,7 +389,9 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
   // 只有能装下这些话的指令才取走；/dashboard /status 这类查询不取——真机 2026-09-11：一句 /dashboard 把攒下的意见吞了
   if (th && m.rootId) {
     const carries = cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new';
-    const pending = carries ? takePending(m.rootId) : [];
+    // 人常把没 @ 的那句原样加 @ 再发一遍（真机 2026-09-17：「这里表格有SUP」连发两次），攒下的同一句不再重复带
+    const own = stripQuote(m.text).trim();
+    const pending = (carries ? takePending(m.rootId) : []).filter((p) => !(p.sender === m.sender && p.text.trim() === own));
     if (pending.length) {
       const digest = renderPending(pending);
       if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
