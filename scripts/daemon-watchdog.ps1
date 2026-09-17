@@ -9,7 +9,14 @@ $wdLog = Join-Path $root 'logs\watchdog.log'
 
 function WdLog([string]$msg) {
   New-Item -ItemType Directory -Force (Join-Path $root 'logs') | Out-Null
-  Add-Content -Path $wdLog -Value "$((Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')) $msg" -Encoding utf8
+  # 不用 Add-Content：有人 tail -F 这个文件时它报「正由另一进程使用」（实测 2026-09-18：备份成功但日志缺行；
+  # RESTART 行丢了 10 分钟节流就失效）。FileShare.ReadWrite 打开则与 tail 共存
+  $fs = [IO.File]::Open($wdLog, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+  try {
+    $sw = New-Object IO.StreamWriter($fs, (New-Object Text.UTF8Encoding $false))
+    $sw.WriteLine("$((Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')) $msg")
+    $sw.Dispose()
+  } finally { $fs.Dispose() }
 }
 
 function RestartDaemon([string]$reason) {
