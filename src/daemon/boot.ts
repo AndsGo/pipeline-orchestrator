@@ -1,4 +1,4 @@
-import { interruptedStage, listTickets, lostPendingCards, readEvents } from '../events.js';
+import { appendEvent, interruptedStage, listTickets, lostPendingCards, readEvents } from '../events.js';
 import type { DaemonContext } from './context.js';
 
 /**
@@ -20,6 +20,8 @@ export async function announceInterruptedTickets(ctx: DaemonContext): Promise<vo
     if (lost) {
       log(`${t} 重启前的待答卡片已失效（${lost.slice(0, 60)}），已在群里提示`);
       await port.notify(t, `⚠ 重启前的待答卡片已失效（${lost.slice(0, 80)}）——旧卡片点了没用。发「继续 ${t}」：卡点卡会原样重发，问题卡会重新提问；已经说过的内容若已记入反馈会被读到，不用重复。`);
+      // 记一笔，下次重启不再对同一张死卡重复点名（真机 2026-09-21：OP-003 的仲裁卡在两次重启各被唠叨一遍）
+      appendEvent({ ticket: t, type: 'card.lost', summary: lost.slice(0, 80) });
     }
   }
 }

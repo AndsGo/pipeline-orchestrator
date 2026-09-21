@@ -26,7 +26,9 @@ export type EventType =
   | 'resume'
   | 'halt'
   | 'done'
-  | 'error';
+  | 'error'
+  /** 待答卡片随 daemon 重启失效，开机点名过一次（再重启不重复唠叨） */
+  | 'card.lost';
 
 export interface PipelineEvent {
   ts: string;
@@ -114,6 +116,7 @@ export function lostPendingCards(events: PipelineEvent[]): string | null {
     'done',
     'error',
     'resume',
+    'card.lost',
   ]);
   const last = [...events].reverse().find((e) => lifecycle.has(e.type));
   if (!last || (last.type !== 'question.asked' && last.type !== 'gate.asked')) return null;
@@ -141,6 +144,7 @@ const ICON: Record<EventType, string> = {
   halt: '⛔',
   done: '🏁',
   error: '⚠️',
+  'card.lost': '🃏',
 };
 
 function hhmm(ts: string): string {

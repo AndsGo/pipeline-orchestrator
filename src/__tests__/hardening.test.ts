@@ -51,6 +51,8 @@ describe('重启后失效的待答卡片（OP-001 事故回归：clarify 提了 
   it('已答完 / 阶段已推进 / 已闭环 → 不误报；备注类事件不干扰判定', () => {
     expect(lostPendingCards([ev('question.asked'), ev('question.answered')])).toBeNull();
     expect(lostPendingCards([ev('gate.asked'), ev('gate.answered'), ev('stage.start', 'ci')])).toBeNull();
+    // 开机点名过一次就记 card.lost，再重启不重复唠叨
+    expect(lostPendingCards([ev('gate.asked'), ev('card.lost')])).toBeNull();
     expect(lostPendingCards([ev('question.asked'), ev('human.message')])).toBe('s'); // note 不算应答
     expect(lostPendingCards([ev('stage.end'), ev('done')])).toBeNull();
     expect(lostPendingCards([])).toBeNull();
