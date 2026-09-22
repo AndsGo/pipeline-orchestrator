@@ -186,6 +186,9 @@ export class FeishuPort implements InteractionPort {
             }
           }
           const mentioned = isBotMentioned(data.message?.mentions, botOpenId, parsed.mentioned);
+          if (mentioned && parsed.mentioned && !data.message?.mentions?.length) {
+            console.log(`[feishu] 事件 mentions ${data.message?.mentions ? '为空数组' : '缺失'}但正文有 @，按正文判定为 @我`);
+          }
           // 有人被 @ 了但不是我：把 mentions 形态留痕（去掉 id 主体），下次再出现「明明 @ 了机器人却没认出」有据可查
           if (!mentioned && data.message?.mentions?.length) {
             const shape = data.message.mentions.map((m) => `${m.name ?? '?'}:${typeof m.id === 'string' ? `str…${m.id.slice(-6)}` : `obj…${m.id?.open_id?.slice(-6) ?? '-'}`}`).join(' ');
@@ -941,7 +944,9 @@ export function isBotMentioned(
   botOpenId: string | undefined,
   fallback: boolean,
 ): boolean {
-  if (!botOpenId || !mentions) return fallback;
+  // mentions 缺失或为空数组都退回正文判定：2026-09-22 真机，同事发「一张图 + 一句话 + @机器人」的富文本，
+  // 事件里 mentions 是 []（消息接口回查却有机器人的 open_id），按 [] 判成没 @ 就把人的问题攒着不答了
+  if (!botOpenId || !mentions?.length) return fallback;
   // id 两种形态都见过：事件文档写的是 {open_id,...} 对象，消息接口回的是字符串（2026-09-14 真机：富文本里 @ 两个人含机器人，没被认出）
   return mentions.some((m) => (typeof m.id === 'string' ? m.id : m.id?.open_id) === botOpenId);
 }

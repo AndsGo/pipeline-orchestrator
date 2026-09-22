@@ -433,7 +433,10 @@ describe('isBotMentioned：@ 的是谁（2026-09-13 真机：同事 @ 同事让�
   it('mentions 里有机器人才算 @我；只 @ 了同事不算', () => {
     expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], BOT, true)).toBe(false);
     expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }, { id: { open_id: BOT } }], BOT, false)).toBe(true);
-    expect(isBotMentioned([], BOT, true)).toBe(false);
+  });
+  it('mentions 是空数组时退回正文判定（2026-09-22 真机：图 + 一句话 + @机器人的富文本，事件 mentions 为 []）', () => {
+    expect(isBotMentioned([], BOT, true)).toBe(true);
+    expect(isBotMentioned([], BOT, false)).toBe(false);
   });
   it('没拿到机器人 open_id 或事件里没有 mentions 时退回正文判定', () => {
     expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], undefined, true)).toBe(true);
