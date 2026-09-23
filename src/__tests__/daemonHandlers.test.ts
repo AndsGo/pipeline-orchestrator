@@ -9,7 +9,8 @@ import type { TicketState } from '../types.js';
 import type { DaemonContext, DaemonPort } from '../daemon/context.js';
 import { handlers } from '../daemon/handlers/index.js';
 import { appendEvent, listTickets } from '../events.js';
-import { readLastRun, readLastRunFor, type LastRun } from '../followup.js';
+import { readLastRun, readLastRunFor, runByCard, type LastRun } from '../followup.js';
+import { getThread, type ThreadRec } from '../threads.js';
 import { clearPaused } from '../pause.js';
 import { peekTicketRepo, readSnapshot, saveTicket } from '../ticket.js';
 
@@ -33,6 +34,11 @@ vi.mock('../followup.js', async (orig) => ({
   ...(await orig<typeof import('../followup.js')>()),
   readLastRun: vi.fn(() => null),
   readLastRunFor: vi.fn(() => null),
+  runByCard: vi.fn(() => null),
+}));
+vi.mock('../threads.js', async (orig) => ({
+  ...(await orig<typeof import('../threads.js')>()),
+  getThread: vi.fn(() => null),
 }));
 vi.mock('../sticky.js', async (orig) => {
   const m = await orig<typeof import('../sticky.js')>();
@@ -108,8 +114,10 @@ function lastRun(over: Partial<LastRun> = {}): LastRun {
 }
 
 beforeEach(() => {
-  vi.mocked(readLastRun).mockReturnValue(null);
-  vi.mocked(readLastRunFor).mockReturnValue(null);
+  vi.mocked(readLastRun).mockClear().mockReturnValue(null);
+  vi.mocked(readLastRunFor).mockClear().mockReturnValue(null);
+  vi.mocked(runByCard).mockReset().mockReturnValue(null);
+  vi.mocked(getThread).mockReturnValue(null);
   vi.mocked(readSnapshot).mockReturnValue(null);
   vi.mocked(peekTicketRepo).mockReturnValue(null);
   vi.mocked(listTickets).mockReturnValue([]);
@@ -127,7 +135,7 @@ describe('new', () => {
   });
 
   it('最近的 /run 属于另一项目、而本群绑定了别的项目 → 明说、拒绝，不建单', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun({ project: 'nova' }));
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'nova' }));
     const { ctx, notify, started } = fakeCtx();
     await handlers.new(ctx, { kind: 'new', requirement: '按刚才聊的建单' }, 'alice', 'oc_lake');
     expect(started).toEqual([]);
@@ -136,7 +144,7 @@ describe('new', () => {
   });
 
   it('草拟路径：对话整理成需求 → 确认卡通过（带备注）→ 备注并入需求建单', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun());
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
     const { ctx, gates, started } = fakeCtx(
       { gate: { approved: true, note: '限流阈值 100/min' } },
       { draftRequirementFromChat: async () => '给 /mcp 端点加限流' },
@@ -151,7 +159,7 @@ describe('new', () => {
   });
 
   it('草拟路径被驳回 → 取消，不建单', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun());
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
     const { ctx, notify, started } = fakeCtx({ gate: { approved: false, note: '还没聊完' } }, { draftRequirementFromChat: async () => '草稿' });
     await handlers.new(ctx, { kind: 'new', requirement: '' }, 'alice', 'oc_free');
     expect(started).toEqual([]);
@@ -159,7 +167,7 @@ describe('new', () => {
   });
 
   it('正常需求：工单号前缀定项目，同项目的 /run 记录作为 intake 上下文一并交给 startTicket', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun());
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
     const { ctx, notify, started } = fakeCtx();
     await handlers.new(ctx, { kind: 'new', ticket: 'LS-009', requirement: '给 /mcp 端点加限流' }, 'alice');
     expect(started).toHaveLength(1);
@@ -170,11 +178,46 @@ describe('new', () => {
   });
 
   it('/run 记录属于别的项目 → 不附带上下文，也不发「已自动附带」', async () => {
-    vi.mocked(readLastRun).mockReturnValue(lastRun({ project: 'nova' }));
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ project: 'nova' }));
     const { ctx, notify, started } = fakeCtx();
     await handlers.new(ctx, { kind: 'new', ticket: 'LS-009', requirement: '给 /mcp 端点加限流' }, 'alice');
     expect((started[0] as unknown[])[3]).toBeUndefined();
     expect(notify).toHaveLength(1);
+  });
+
+  it('话题里建单：用话题自己的会话，不用本群/全局指针', async () => {
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ command: '主线别的事', output: '主线的结论' }));
+    vi.mocked(getThread).mockReturnValue({ chatId: 'oc_free', createdAt: '', lastAt: '', turns: 3, run: lastRun({ command: '话题里聊的需求' }) } as ThreadRec);
+    let drafted: LastRun | undefined;
+    const { ctx, started } = fakeCtx({}, { draftRequirementFromChat: async (_p, l) => ((drafted = l), '给 /mcp 端点加限流') });
+    await handlers.new(ctx, { kind: 'new', requirement: '按刚才聊的建单' }, 'alice', { chatId: 'oc_free', rootId: 'om_root' });
+    expect(drafted?.command).toBe('话题里聊的需求');
+    expect((started[0] as unknown[])[3]).toContain('话题里聊的需求');
+    expect((started[0] as unknown[])[3]).not.toContain('主线别的事');
+  });
+
+  it('话题里没有会话 → 不退回主线指针，给用法引导', async () => {
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun({ command: '主线别的事' }));
+    const { ctx, notify, started } = fakeCtx();
+    await handlers.new(ctx, { kind: 'new', requirement: '' }, 'alice', { chatId: 'oc_free', rootId: 'om_root' });
+    expect(started).toEqual([]);
+    expect(notify[0][1]).toContain('「/new」后面要跟需求原文');
+    expect(readLastRunFor).not.toHaveBeenCalled();
+  });
+
+  it('话题根是一张结果卡（无话题记录）→ 用那张卡的会话', async () => {
+    vi.mocked(runByCard).mockImplementation((mid) => (mid === 'om_card' ? lastRun({ command: '卡上的那次执行' }) : null));
+    const { ctx, started } = fakeCtx();
+    await handlers.new(ctx, { kind: 'new', ticket: 'LS-009', requirement: '给 /mcp 端点加限流' }, 'alice', { chatId: 'oc_free', rootId: 'om_card' });
+    expect((started[0] as unknown[])[3]).toContain('卡上的那次执行');
+  });
+
+  it('主线建单读本群指针', async () => {
+    vi.mocked(readLastRunFor).mockReturnValue(lastRun());
+    const { ctx } = fakeCtx();
+    await handlers.new(ctx, { kind: 'new', ticket: 'LS-009', requirement: '给 /mcp 端点加限流' }, 'alice', 'oc_free');
+    expect(readLastRunFor).toHaveBeenCalledWith('oc_free');
+    expect(readLastRun).not.toHaveBeenCalled();
   });
 });
 
