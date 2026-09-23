@@ -13,7 +13,7 @@ import {
   type TicketContext,
 } from './commands.js';
 import { initBitableSync } from './bitable/sync.js';
-import { appendEvent, listTickets } from './events.js';
+import { appendEvent, listTickets, onEvent } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js';
 import { readLastRunFor, runByCard, stripQuote } from './followup.js';
@@ -34,6 +34,8 @@ import { announceInterruptedTickets } from './daemon/boot.js';
 import type { DaemonContext } from './daemon/context.js';
 import { dispatch } from './daemon/handlers/index.js';
 import { inflight, startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
+import { recoverReqs, reqEventListener, startReqTicker } from './daemon/reqFlow.js';
+import { readReq, REQ_RE } from './requirements.js';
 import { runTicket } from './ticketRunner.js';
 import { allocateWorkspace } from './workspace.js';
 
@@ -211,7 +213,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
   let newFromBatchTail: string | undefined;
   if (!slash) {
     // 有待确认卡片时，先看这句话是不是在回答它（明确表决/选项才拦截，不劫持指令）
-    const ans = port.tryAnswerByText(m.text, false, th?.ticket);
+    const ans = port.tryAnswerByText(m.text, false, th?.ticket ?? th?.req, m.sender);
     if (ans.status === 'resolved') {
       await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`, origin);
       return;
@@ -335,7 +337,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     if (cmd.kind === 'answer') {
       const c = cmd;
       const composed = c.target ? `${c.target} ${c.text}` : c.text;
-      const r = port.tryAnswerByText(composed, true);
+      const r = port.tryAnswerByText(composed, true, th?.req, m.sender);
       if (await reportAnswer(r, origin)) return;
       cmd = { kind: 'note', ticket: c.ticket ?? '', text: c.text }; // 卡片已过期 → 退化为说明
       if (!cmd.ticket) cmd = { kind: 'unknown', text: m.text };
@@ -361,7 +363,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
 
     if (cmd.kind === 'unknown') {
       // 没听懂但有待答卡片 → 当作自由文本答案（人的话不该被丢掉）
-      if (await reportAnswer(port.tryAnswerByText(m.text, true, th?.ticket), origin)) return;
+      if (await reportAnswer(port.tryAnswerByText(m.text, true, th?.ticket ?? th?.req, m.sender), origin)) return;
       if (!m.mentioned && !th) return; // 没 @ 又没听懂：安静退出（话题里除外，见上）
     }
   }
@@ -388,13 +390,13 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
   // 话题里攒下的没 @ 的话：这次被 @ 了，一并带上（写进续聊答复 / 工单说明 / 需求原文），然后清空。
   // 只有能装下这些话的指令才取走；/dashboard /status 这类查询不取——真机 2026-09-11：一句 /dashboard 把攒下的意见吞了
   if (th && m.rootId) {
-    const carries = cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new';
+    const carries = cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new' || cmd.kind === 'req';
     // 人常把没 @ 的那句原样加 @ 再发一遍（真机 2026-09-17：「这里表格有SUP」连发两次），攒下的同一句不再重复带
     const own = stripQuote(m.text).trim();
     const pending = (carries ? takePending(m.rootId) : []).filter((p) => !(p.sender === m.sender && p.text.trim() === own));
     if (pending.length) {
       const digest = renderPending(pending);
-      if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
+      if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'req') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
       else if (cmd.kind === 'new') cmd = { ...cmd, requirement: `${cmd.requirement}\n\n${digest}` };
       log(`话题 ${m.rootId.slice(-8)} 连同攒下的 ${pending.length} 条一起处理`);
       await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
@@ -480,9 +482,10 @@ log(boardOn ? '看板投影已启用（多维表格）' : '看板投影未配置
 
 port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
 // 工单生命周期通知按项目绑定群路由（/bind 设置）：工单号前缀 → 项目，或直接给项目别名
-port.routeChat = (t) => (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId;
+port.routeChat = (t) => (REQ_RE.test(t) ? readReq(t)?.chatId : (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId);
 // 工单绑了话题就把它的卡片/进度投进话题（src/threads.ts；广播另在主线留一份）
-port.routeThread = (t) => threadOfTicket(t)?.rootId;
+// 需求（REQ-xxx）的卡片与进度进它的来源话题
+port.routeThread = (t) => (REQ_RE.test(t) ? readReq(t)?.rootId || undefined : threadOfTicket(t)?.rootId);
 // 业务受众（PIPELINE.md audience: business）的工单主线安静：过程只进话题，主线只发决策指路与收尾（拍板 2026-09-14）
 port.quietMain = (t) => {
   const repo = peekTicketRepo(t);
@@ -510,5 +513,9 @@ log(`daemon 就绪：并发上限 ${cfg.maxConcurrency}，项目 ${describeProje
 await port.notify('流水线', `编排器已上线。并发上限 ${cfg.maxConcurrency}。\n${helpText()}`);
 
 await announceInterruptedTickets(ctx);
+// 需求池：工单闭环回推提出人并出队；重启丢了的确认/排期卡按状态重发；每日提醒超期待排期
+onEvent(reqEventListener(ctx));
+recoverReqs(ctx);
+startReqTicker(ctx);
 startKbAudit(ctx);
 startStopFilePoller(ctx, path.join(dataDir(), 'daemon.stop'));

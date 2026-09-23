@@ -21,6 +21,7 @@ import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
 import { expiredSessionBrief, getThread, rememberThreadRun, sessionFresh } from '../threads.js';
 import type { DaemonContext } from './context.js';
+import { afterReqTurn, reqNudgeFor } from './reqFlow.js';
 
 /**
  * 单次执行的公共执行体（/run 与续聊共用）：跑会话 → 落盘留痕 → 发结果 → 更新续聊指针。
@@ -66,7 +67,8 @@ export async function execAdhoc(
     boundSheet && sheetBefore
       ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。这张表是这次对话里你自己先前的输出建成的在线版，不是用户新提供的数据：用户的新问题没提到「表里」时，别把它当作答案的依据，照常查库、查文件。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。**图片等附件放到 ${outbox}/sheet/assets/ 下，单元格里只写文件名**——整格只有文件名的，图片会直接嵌进那个单元格显示；文字里提到文件名的、或非图片附件，会传到附件夹并换成链接。都不会刷进群。表里已有的「[图片]」是已嵌入的图片占位，原样保留不要改。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
-  const prompt = `${corePrompt}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/new 一句话需求」建工单走流水线，并把你的排查结论浓缩进需求里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
+  // 需求话题的访谈：第 3 轮起逼出《需求说明》（src/requirements.ts roundNudge）
+  const prompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
   try {
     const r = await engineFor(project.repo).runText({
       cwd: project.repo,
@@ -121,7 +123,7 @@ export async function execAdhoc(
       const mid = await port.sendResult(
         `执行结果 · ${project.alias}`,
         r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码走 /new；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
+        `${tail} · 单次执行，不建工单不入看板（要改代码：/req 提需求，或 /new 直接建单；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
         opts?.chat,
       );
       // 在线表：已绑 → 会话改了的页写回、嵌图、附件夹；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
@@ -160,6 +162,8 @@ export async function execAdhoc(
       if (rootId && chatId) rememberThreadRun(rootId, chatId, rec);
       // 主线：指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
       else saveLastRunFor(chatId, rec);
+      // 需求话题：这一轮出了《需求说明》就发确认卡（不等卡——这里还占着闸门）
+      if (rootId) await afterReqTurn(ctx, rootId, r.text).catch((e: Error) => log(`  需求访谈收尾失败：${e.message.slice(0, 160)}`));
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
       if (sheetNote) {
@@ -231,6 +235,11 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
   const byCard = runByCard(quotedMessageId);
   if (byCard) log(`按引用的结果卡续会话：${describeLastRun(byCard)}（项目 ${byCard.project}）`);
   const th = getThread(rootId);
+  // 需求话题的第一轮访谈还没跑完就有人接话：话题还没有会话，往下会退回主线指针续错地方
+  if (th?.req && !th.run && !byCard) {
+    await port.notify('需求', `${th.req} 的第一轮还在整理，结果出来后再 @我 说这句。`, chat);
+    return;
+  }
   let last = byCard ?? th?.run ?? runByCard(rootId) ?? readLastRunFor(chatId);
   // 会话寿命（30 轮 / 7 天）：到期就不 --resume 了，新会话第一句带上旧会话的摘要
   if (th?.run && last === th.run && !sessionFresh(th)) {

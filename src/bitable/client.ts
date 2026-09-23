@@ -38,10 +38,12 @@ export interface BitableCfg {
   kbTableId?: string;
   /** 术语表（可选：未建则不做术语注入与采集） */
   glossaryTableId?: string;
+  /** 需求池表（可选：未建则不做需求投影，流程照常） */
+  reqTableId?: string;
 }
 
 export function bitableCfgFromEnv(): BitableCfg | null {
-  const { BITABLE_APP_TOKEN, BITABLE_TICKET_TABLE_ID, BITABLE_NODE_TABLE_ID, BITABLE_KB_TABLE_ID, BITABLE_GLOSSARY_TABLE_ID } =
+  const { BITABLE_APP_TOKEN, BITABLE_TICKET_TABLE_ID, BITABLE_NODE_TABLE_ID, BITABLE_KB_TABLE_ID, BITABLE_GLOSSARY_TABLE_ID, BITABLE_REQ_TABLE_ID } =
     process.env;
   if (!BITABLE_APP_TOKEN || !BITABLE_TICKET_TABLE_ID || !BITABLE_NODE_TABLE_ID) return null;
   return {
@@ -50,6 +52,7 @@ export function bitableCfgFromEnv(): BitableCfg | null {
     nodeTableId: BITABLE_NODE_TABLE_ID,
     kbTableId: BITABLE_KB_TABLE_ID,
     glossaryTableId: BITABLE_GLOSSARY_TABLE_ID,
+    reqTableId: BITABLE_REQ_TABLE_ID,
   };
 }
 
@@ -318,6 +321,24 @@ export class BitableBoard {
         };
       })
       .filter((t) => t.term);
+  }
+
+  /** 需求行 upsert（按需求号）。未配需求池表返回 false */
+  async upsertReq(id: string, fields: Record<string, unknown>): Promise<boolean> {
+    if (!this.cfg.reqTableId) return false;
+    const existing = await this.findRecord(this.cfg.reqTableId, '需求号', id);
+    if (existing) {
+      await this.client.bitable.appTableRecord.update({
+        path: { app_token: this.cfg.appToken, table_id: this.cfg.reqTableId, record_id: existing },
+        data: { fields: fields as Record<string, never> },
+      });
+    } else {
+      await this.client.bitable.appTableRecord.create({
+        path: { app_token: this.cfg.appToken, table_id: this.cfg.reqTableId },
+        data: { fields: fields as Record<string, never> },
+      });
+    }
+    return true;
   }
 
   private async findRecord(tableId: string, fieldName: string, value: string): Promise<string | undefined> {

@@ -19,7 +19,14 @@ const CASES: Case[] = [
   { text: '将LS-008对应的worktree 合并到master后删除', kind: 'run', sideEffect: true, why: '合并主干+删worktree（2026-08-18 实测漏判）' },
   { text: '把这个项目部署一下', kind: 'run', sideEffect: true, why: '部署' },
   { text: '发个版本上去', kind: 'run', sideEffect: true, why: '发布' },
-  { text: '给 /mcp 端点加限流', kind: 'new', why: '要改代码 → 建工单' },
+  // 需求池（拍板 2026-09-23）：描述新功能/改进默认进池；明确说建单才直接建
+  { text: '给 /mcp 端点加限流', kind: 'req', why: '描述一个改进、没说建单 → 进需求池' },
+  { text: '湖灵的数据域里有没有一个功能，我想知道勾选的几十张表里哪些没在权限规则里设权限', kind: 'req', why: '业务提需求（09-01 真机原话）' },
+  { text: '能不能在刊登页加一个批量改价的按钮', kind: 'req', why: '想要新功能' },
+  { text: '给 /mcp 端点加限流，直接建个工单', kind: 'new', why: '明确要求建单' },
+  { text: '导出一份8月份之后缺listing信息的SPU清单', kind: 'run', sideEffect: false, why: '查数导出不改代码（OP-001 曾被误建成工单）' },
+  { text: '查一下 queue_job 为什么积压', kind: 'run', sideEffect: false, why: '诊断' },
+  { text: '需求池里现在有什么', kind: 'pool', why: '看需求池' },
   { text: 'LS-005 现在跑到哪了', kind: 'status', why: '查进度' },
 ];
 

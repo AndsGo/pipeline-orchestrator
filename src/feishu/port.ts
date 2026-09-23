@@ -53,7 +53,12 @@ interface Pending {
    * 真机事故——「它的回答我不会了」被当自由文本答案落进低置信确认卡，意外确认建了工单。
    */
   strictOptions?: boolean;
+  /** 只认这些人（open_id）的回答：需求排期卡只认负责人。空 = 谁都可以 */
+  allowed?: string[];
 }
+
+/** dropPending 给等待方的值：卡被作废了（需求说明出了新版，旧确认卡不再算数） */
+export const DROPPED = '__dropped__';
 
 /** 调用方给的目标可以是群 id / Origin / 已解析的 {chatId, rootId}：统一成后者 */
 function asTarget(to?: ChatRef | { chatId?: string; rootId?: string }): { chatId?: string; rootId?: string } {
@@ -120,11 +125,13 @@ export class FeishuPort implements InteractionPort {
     if (!botOpenId) console.log('[feishu] 未取到机器人 open_id，@ 判定退回「消息里有 @ 即算」');
 
     const handlers: Record<string, (data: never) => Promise<unknown>> = {
-      'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> } }) => {
+      'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> }; operator?: { open_id?: string } }) => {
         const update = port.handleCardAction(
           data?.action?.value as CardAction | undefined,
           data?.action?.form_value,
+          data?.operator?.open_id,
         );
+        if (update === 'denied') return { toast: { type: 'warning', content: '这张卡只有指定的人能处理（需求排期卡只认项目负责人）' } };
         return update
           ? { toast: { type: 'success', content: '已收到' }, card: { type: 'raw', data: update } }
           : { toast: { type: 'info', content: '该卡片已处理或已过期' } };
@@ -349,10 +356,11 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 回调核心（纯逻辑，可单测）：按 key 归位 pending，返回更新后的卡片；未命中返回 null */
-  handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>): Record<string, unknown> | null {
+  handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>, operator?: string): Record<string, unknown> | null | 'denied' {
     if (!value?.key) return null;
     const p = this.pending.get(value.key);
     if (!p) return null;
+    if (p.allowed?.length && operator && !p.allowed.includes(operator)) return 'denied';
     this.pending.delete(value.key);
     const result = value.kind === 'gate' ? (value.decision ?? 'reject') : (value.answer ?? '');
     const note = formValue?.note?.trim() || undefined;
@@ -399,6 +407,7 @@ export class FeishuPort implements InteractionPort {
       group?: QuestionGroup;
       ticket?: string;
       strictOptions?: boolean;
+      allowed?: string[];
     },
   ): Promise<{ value: string; note?: string }> {
     return new Promise((resolve) => this.pending.set(key, { resolve, resolvedTitle, contextBody, ...meta }));
@@ -409,14 +418,28 @@ export class FeishuPort implements InteractionPort {
     return [...this.pending.values()].filter((p) => !ticket || p.ticket === ticket).map((p) => p.label);
   }
 
+  /** 作废某工单/需求的全部待答卡：等待方收到 DROPPED。返回作废了几张 */
+  dropPending(ticket: string): number {
+    let n = 0;
+    for (const [key, p] of [...this.pending.entries()]) {
+      if (p.ticket !== ticket) continue;
+      this.pending.delete(key);
+      p.resolve({ value: DROPPED });
+      n++;
+    }
+    return n;
+  }
+
   /**
    * 用群里的一句话回答待确认卡片。
    * allowFreeText=false 时只接受明确表决/选项匹配，避免把指令误当成答案；
    * 支持 "Q2 不通过 页面报500" 形式指定目标并附带说明。
    */
-  tryAnswerByText(text: string, allowFreeText = false, onlyTicket?: string): TextAnswerResult {
-    // 工单话题里的话只可能在答这张单的卡：别让别的单的 Q1 抢答
-    const entries = [...this.pending.entries()].filter(([, p]) => !onlyTicket || p.ticket === onlyTicket);
+  tryAnswerByText(text: string, allowFreeText = false, onlyTicket?: string, sender?: string): TextAnswerResult {
+    // 工单话题里的话只可能在答这张单的卡：别让别的单的 Q1 抢答；只认指定人的卡（排期卡）不让旁人打字答掉
+    const entries = [...this.pending.entries()].filter(
+      ([, p]) => (!onlyTicket || p.ticket === onlyTicket) && (!sender || !p.allowed?.length || p.allowed.includes(sender)),
+    );
     if (!entries.length) return { status: 'none' };
     const labels = () => entries.map(([, p]) => p.label).join('、');
     const body0 = text.trim();
@@ -544,13 +567,14 @@ export class FeishuPort implements InteractionPort {
     summary: string,
     concerns: string[],
     detail?: string,
+    opts?: { allowed?: string[] },
   ): Promise<GateDecision> {
     const key = this.nextKey(`gate:${ticket}:${gate}`);
-    const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket });
+    const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket, allowed: opts?.allowed });
     await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.targetFor(ticket));
     await this.pointMain(ticket, `${GATE_CN[gate] ?? gate} 通过 / 驳回`);
     const { value, note } = await wait;
-    return { approved: value === 'approve', note };
+    return { approved: value === 'approve', note, ...(value === DROPPED ? { dropped: true } : {}) };
   }
 
   async notify(ticket: string, message: string, to?: ChatRef): Promise<void> {
@@ -581,6 +605,11 @@ export class FeishuPort implements InteractionPort {
    */
   async openTicketThread(ticket: string, headline: string): Promise<string | undefined> {
     return this.post('text', JSON.stringify({ text: `[${ticket}] ${headline}` }), { chatId: this.routeChat?.(ticket) });
+  }
+
+  /** 在指定群发一条根消息（需求话题用），返回 message_id；此后回复进它就是话题 */
+  async openThread(chatId: string, text: string): Promise<string | undefined> {
+    return this.post('text', JSON.stringify({ text }), { chatId });
   }
 
   /** 发纯文本，返回 message_id（结果卡要记「这条消息 ↔ 哪次会话」，引用它就能精确续聊） */
@@ -676,7 +705,7 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 让人从候选里选一个（识别不确定时用，比"没听懂"友好） */
-  async chooseOption(ticket: string, question: string, options: string[], to?: ChatRef): Promise<string> {
+  async chooseOption(ticket: string, question: string, options: string[], to?: ChatRef, opts?: { allowed?: string[] }): Promise<string> {
     const key = this.nextKey(`choose:${ticket}`);
     const wait = this.waitFor(key, `${ticket} 已选择`, question, {
       kind: 'answer',
@@ -684,6 +713,7 @@ export class FeishuPort implements InteractionPort {
       options,
       ticket,
       strictOptions: true,
+      allowed: opts?.allowed,
     });
     await this.postCard(chooseCard(ticket, question, options, key), this.targetFor(ticket, to));
     if (to === undefined) await this.pointMain(ticket, question.split('\n')[0].slice(0, 60));

@@ -6,6 +6,8 @@ import type { OpenQuestion } from './types.js';
 export interface GateDecision {
   approved: boolean;
   note?: string;
+  /** 卡被作废（FeishuPort.dropPending）：不是人点的驳回，调用方应直接放弃这次等待 */
+  dropped?: boolean;
 }
 
 /**

@@ -20,6 +20,10 @@ export type Command =
   | { kind: 'amend'; ticket: string; text: string }
   | { kind: 'note'; ticket: string; text: string }
   | { kind: 'new'; ticket?: string; repo?: string; requirement: string }
+  /** 提需求：进需求池，bot 在话题里访谈梳理，提出人确认、负责人排期后才建单（设计稿 2026-09-23-requirements-pool.md） */
+  | { kind: 'req'; project?: string; text: string }
+  /** 需求池一览 */
+  | { kind: 'pool' }
   /** 回答待确认卡片：target 为 Q 编号或卡点名，text 为答案（含可选补充说明） */
   | { kind: 'answer'; ticket?: string; target?: string; text: string }
   /**
@@ -38,6 +42,13 @@ export type Command =
   | { kind: 'bind'; alias: string }
   | { kind: 'help' }
   | { kind: 'unknown'; text: string };
+
+/**
+ * 明确要把话题里聊的东西整理成需求进池（会话话题里只认这种说法，猜出来的 req 按续聊，见 threads.routeInThread）
+ */
+export function asksToCreateReq(text: string): boolean {
+  return /需求池|提(个|一个|一条)?需求|整理成(一个|一条)?需求|(记|写|转|放)(成|进|到)(一个|一条)?需求/.test(text);
+}
 
 /** 分类器需要的工单现场：知道跑到哪、在等什么，同一句话才能路由对 */
 /** 分类器/兜底给 new 填的固定正文：followup.isDraftFromChatRequest 认它，/new 处理器据此把对话整理成需求 */
@@ -138,7 +149,9 @@ export function isProjectSlashCommand(text: string): boolean {
 export function helpText(): string {
   return [
     '**流水线指令**（斜杠命令，或直接用中文说；群里需 @ 我）：',
-    '`/new LS-004 给 /mcp 端点加限流` 新建工单（工单号可省略，我会自动编号）',
+    '`/req 数据域里想一眼看出哪些表没设权限` 提需求：我在话题里跟你把需求聊清楚，你确认后进需求池，负责人排期后自动建工单',
+    '`/pool` 需求池一览（梳理中 / 待确认 / 待排期 / 排队中 / 开发中）',
+    '`/new LS-004 给 /mcp 端点加限流` 直接建工单、不经过需求池（开发自己用；工单号可省略，我会自动编号）',
     '`/new` 不带正文 → 把刚才 /run 聊出来的结论整理成需求，确认后建单（说「按刚才聊的建单」也行）',
     '`/dashboard` 运行面板：常用链接（仓库/看板/知识库/Jenkins）+ 运行情况 + 工单一览',
     '`/status LS-004` 查看进度时间线　`/list` 列出全部工单',
@@ -160,7 +173,7 @@ export function helpText(): string {
 /** 全部斜杠命令名（拼错提示用） */
 const SLASH_COMMANDS = [
   'help', 'list', 'dashboard', 'status', 'pause', 'resume', 'amend', 'rewind',
-  'note', 'new', 'run', 're', 'use', 'bind', 'addproject',
+  'note', 'new', 'req', 'pool', 'run', 're', 'use', 'bind', 'addproject',
 ];
 
 /** 斜杠命令拼错时给最接近的候选（「/dashborad」实测，2026-09-01）；对不上返回 null */
@@ -247,6 +260,10 @@ export function parseSlash(text: string): Command | null {
       // 不带正文也是合法的：daemon 会把最近的 /run 对话整理成需求、弹卡确认后建单（零输入建单）
       return { kind: 'new', ticket: ticketOk, repo, requirement: body ?? '' };
     }
+    case 'req':
+      return arg ? { kind: 'req', text: arg } : { kind: 'unknown', text: t };
+    case 'pool':
+      return { kind: 'pool' };
     case 'run':
     case 'ask':
     case 'skill':
@@ -285,7 +302,7 @@ export const COMMAND_SCHEMA = {
       type: 'string',
       enum: [
         'status', 'list', 'dashboard', 'pause', 'resume', 'rewind',
-        'amend', 'note', 'new', 'answer', 'run', 'followup', 'help', 'unknown',
+        'amend', 'note', 'new', 'req', 'pool', 'answer', 'run', 'followup', 'help', 'unknown',
       ],
     },
     ticket: { type: ['string', 'null'] },
@@ -293,7 +310,7 @@ export const COMMAND_SCHEMA = {
     target: { type: ['string', 'null'], description: 'answer 时的目标：Q 编号或卡点名' },
     text: {
       type: ['string', 'null'],
-      description: 'amend/note/new/answer 的正文（run 不用填，会原样使用用户原话；这里永远不要写判断理由）',
+      description: 'amend/note/new/answer 的正文（run、req 不用填，会原样使用用户原话；这里永远不要写判断理由）',
     },
     side_effect: {
       type: ['boolean', 'null'],
@@ -337,6 +354,7 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
         '  会话复用，比新开便宜也不丢上下文。**换了话题的新问题仍是 run**；有工单号或现场正在等回答时优先 answer/note。',
         `  例外：要把这次执行聊出来的结论**建成工单**（「建个单」「写进一个工单」「现在就发单」「按刚才聊的建单」）→ **new**，text 固定填「${DRAFT_FROM_CHAT}」`,
         '  （编排器会把整段对话整理成需求原文弹卡确认）。/run 会话自己没有建单能力，判成 followup 只会让它回一句「我建不了」。',
+        '  例外：要把聊出来的东西**整理成需求、进需求池**（「提个需求」「整理成需求」「放进需求池」）→ **req**。',
       ]
     : [];
   return [
@@ -355,14 +373,18 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
     'rewind：回退到指定阶段重跑，需要 stage。',
     'run：单次执行——问代码库的问题、跑测试、跑一条已有的指令/skill，不建工单。**它有 Bash 权限，不是只读的**。',
     '  "这个仓库的鉴权在哪""跑一下前端测试""帮我看看 X 是怎么实现的" → run。',
-    '  注意与 new 的分界：**要改代码就是 new**（建工单走流程），只是想看/问/验证/跑现成命令才是 run。',
+    '  注意与 req/new 的分界：**想要系统多一个功能或改一个行为就是 req**（进需求池梳理），只是想看/问/验证/跑现成命令、查数导出才是 run。',
+    'req：提需求——描述一件希望系统新增或改变的事（「我想要…」「能不能加个…」「有没有一个功能…」「这里应该改成…」），没说要直接建单。',
+    '  会先在话题里把需求聊清楚、提出人确认、负责人排期，之后自动建工单。**描述新功能/改进时默认 req，不是 new**。',
+    'new：直接建工单、不经过需求池——**只有**明确说「建单/开工单/直接建工单」、或给了工单号时才用。',
+    'pool：看需求池（「需求池里有什么」「我提的需求到哪了」）。',
     '  **side_effect**：这句话要求的动作会不会改变共享状态——部署、上线、推镜像、发包、推远端分支、改数据库，',
     '  也包括 git 结构性操作：**合并到 master/主干、删除分支或 worktree、改写历史、打 tag**（实测漏判过"合并到 master 后删除"）。',
     '  是就填 true（会先让人确认再执行），只是看代码/跑本地测试填 false。拿不准填 true。',
     'dashboard：运行面板（常用链接 + 整体运行情况）。"看下面板/总览/配置在哪/地址是多少/现在什么情况" → dashboard。',
     // resume 曾只是兜底行里的裸词条：实测「继续 LS-013」被判成 unknown@30%，用户被迫退回斜杠命令
     'resume：继续/恢复某个工单（「继续 LS-013」「LS-7 接着跑」「恢复 LS-2」）。ticket 必填——带工单号的「继续」是 resume；不带工单号的「继续」多半是在回应上一条执行结果，判 unknown 交给续聊。',
-    'status（单个工单的进度时间线）/ list / pause / new / help / unknown。',
+    'status（单个工单的进度时间线）/ list / pause / help / unknown。',
     '想接入/新增一个**项目**（不是工单）→ help：帮助里有 /addproject 的用法，接入必须用显式命令。',
     '',
     '## 判定规则（按优先级）',
@@ -370,7 +392,7 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
     '2. 描述"某功能报错/异常/不通过/无法使用"等**现象** → note 或 answer，**绝不是 amend**。',
     '   报缺陷不等于改需求——误判为 amend 会作废已完成的计划与实现。',
     '3. 明确说"需求改成…/再加一个要求/这个不做了" → amend，**但仅限于正在进行中的工单**。',
-    '4. **描述一件要做的事、却没指明是哪个在跑的工单 → new（新需求），不是 amend**。',
+    '4. **描述一件要做的事、却没指明是哪个在跑的工单 → req（新需求进池），不是 amend**；明确要求直接建单才是 new。',
     '   已闭环的工单不能改需求——想改就是一个新工单。现场里状态为"闭环"的工单永远不能作为 amend 的对象。',
     '5. 只提到一个进行中的工单时 ticket 填它；说不清是哪个工单就把 confidence 打低。',
     '6. 拿不准就 unknown + 低 confidence——宁可多问一句，不要猜。',
@@ -451,6 +473,7 @@ export async function classifyCommand(
       // 「现在就发，两条一起写进一个工单」被判 followup@88%（2026-09-07 实测）：/run 会话答「我建不了工单」，人只能复制粘贴 /new。
       // 词面兜底：明确说要建/开/发/写进工单的续聊句 → new（按对话草拟需求）
       if (command.kind === 'followup' && lastRun && asksToCreateTicket(text)) command = { kind: 'new', requirement: DRAFT_FROM_CHAT };
+      else if (command.kind === 'followup' && lastRun && asksToCreateReq(text)) command = { kind: 'req', text };
       const needsTicket = so.kind === 'note' || so.kind === 'amend';
       return {
         command,
@@ -512,6 +535,11 @@ export function normalize(
       return ticket && so.text ? { kind: 'note', ticket, text: so.text } : { kind: 'unknown', text: original };
     case 'new':
       return so.text ? { kind: 'new', requirement: so.text } : { kind: 'unknown', text: original };
+    case 'req':
+      // 同 run：一律用原话——提出人的原话要原样进需求记录，分类器的转述会丢细节
+      return { kind: 'req', text: original };
+    case 'pool':
+      return { kind: 'pool' };
     default:
       return { kind: 'unknown', text: original };
   }

@@ -347,7 +347,7 @@ describe('指令解析', () => {
   it('分类提示词写明 run 与 new 的分界（要改代码就建工单）', () => {
     const p = buildClassifyPrompt('这个仓库的鉴权在哪', []);
     expect(p).toContain('run：单次执行');
-    expect(p).toContain('要改代码就是 new');
+    expect(p).toContain('想要系统多一个功能或改一个行为就是 req');
   });
 
   it('分类提示词写明带工单号的「继续」是 resume（实测「继续 LS-013」曾被判 unknown@30%，人被迫退回斜杠命令）', () => {

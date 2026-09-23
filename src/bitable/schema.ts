@@ -120,6 +120,23 @@ export const GLOSSARY_FIELDS: FieldDef[] = [
 ];
 
 /** 关联字段单独加：需要工单表的 table_id，建表后再补 */
+/** 需求池表：一行一条需求（REQ-001），看板视图按「状态」分组。单向投影，决定走卡片（设计稿 2026-09-23-requirements-pool.md §3） */
+export const REQ_TABLE = '需求池';
+export const REQ_STATUS_OPTIONS = ['梳理中', '待确认', '待排期', '已排期', '已转工单', '已交付', '重复', '搁置', '不做'];
+export const REQ_FIELDS: FieldDef[] = [
+  text('需求号'), // 主字段
+  text('项目'),
+  text('标题'),
+  sel('状态', REQ_STATUS_OPTIONS),
+  text('提出人'),
+  text('建议拆分'),
+  text('关联工单'),
+  text('备注'),
+  text('需求说明'),
+  date('创建时间'),
+  date('最后更新'),
+];
+
 export const nodeLinkField = (ticketTableId: string): FieldDef => ({
   field_name: '工单',
   type: 18,

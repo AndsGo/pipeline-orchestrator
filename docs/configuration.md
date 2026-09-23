@@ -36,6 +36,7 @@ PIPELINE_PROJECTS={"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS","gitl
 | `jenkins` | | Jenkins 任务名（支持 `folder/job`）。配了才走 CI 阶段。**不再兜底全局 `JENKINS_JOB`**——曾差点用 A 项目的工单触发 B 项目的构建 |
 | `wikiArchive` / `wikiKnowledge` | | 交付文档与知识条目的 wiki 归档节点 |
 | `chatId` | | 绑定的飞书群。群里 `/bind <别名>` 会写进来，不用手填 |
+| `owner` | | 项目负责人的 open_id：需求池的排期卡只认他。不配则任何人都可以排期（卡上会注明） |
 
 群里 `/addproject` 或终端 `npx tsx scripts/add-project.ts` 会帮你写这一行并热加载。
 
@@ -67,6 +68,7 @@ PIPELINE_PROJECTS={"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS","gitl
 | `BITABLE_APP_TOKEN` / `BITABLE_TICKET_TABLE_ID` / `BITABLE_NODE_TABLE_ID` | `npx tsx scripts/bitable-setup.ts` |
 | `BITABLE_KB_TABLE_ID` | `npx tsx scripts/kb-setup.ts` |
 | `BITABLE_GLOSSARY_TABLE_ID` | `npx tsx scripts/glossary-setup.ts` |
+| `BITABLE_REQ_TABLE_ID` | `npx tsx scripts/req-setup.ts`（需求池表；缺则需求照常流转，只是不进表） |
 | `WIKI_SPACE_ID` / `WIKI_ARCHIVE_NODE` / `WIKI_KNOWLEDGE_NODE` | `kb-setup.ts` |
 | `WIKI_URL` | 只用于面板展示 |
 

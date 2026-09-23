@@ -17,7 +17,7 @@ export type CommandOf<K extends Command['kind']> = Extract<Command, { kind: K }>
 export type DaemonPort = Pick<
   FeishuPort,
   'notify' | 'chooseOption' | 'confirmGate' | 'confirmCommand' | 'sendDashboard' | 'sendStatus' | 'sendResult' | 'pendingLabels'
-> & { sendFiles?: FeishuPort['sendFiles']; sheets?: FeishuPort['sheets'] };
+> & { sendFiles?: FeishuPort['sendFiles']; sheets?: FeishuPort['sheets']; openThread?: FeishuPort['openThread']; dropPending?: FeishuPort['dropPending'] };
 
 /** 单次执行的轻量台账条目：不建工单，但成本要看得见 */
 export interface AdhocEntry {
@@ -53,7 +53,7 @@ export interface DaemonContext {
     corePrompt: string,
     slashRisks: string[],
     chain: number,
-    opts?: { resumeSessionId?: string; origin?: string; chat?: ChatRef },
+    opts?: { resumeSessionId?: string; origin?: string; chat?: ChatRef; prev?: LastRun },
   ): Promise<boolean>;
   /** 续聊：把答复接回上一次单次执行 */
   runFollowup(reply: string, chat?: ChatRef, quotedMessageId?: string): Promise<void>;

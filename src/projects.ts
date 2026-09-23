@@ -19,6 +19,8 @@ export interface Project {
   wikiKnowledge?: string;
   /** 绑定的飞书群：该群消息默认按本项目处理，本项目工单通知也发到该群（/bind 设置） */
   chatId?: string;
+  /** 项目负责人 open_id：需求池的排期卡只认他（拍板 2026-09-23）；不配则谁都可以排 */
+  owner?: string;
 }
 
 function parseJson<T>(raw: string | undefined, fallback: T): T {
@@ -44,6 +46,7 @@ export function loadProjects(env: NodeJS.ProcessEnv = process.env): Project[] {
     wikiArchive: p.wikiArchive,
     wikiKnowledge: p.wikiKnowledge,
     chatId: p.chatId,
+    owner: p.owner,
   }));
   if (list.length) return list.filter((p) => p.repo);
 

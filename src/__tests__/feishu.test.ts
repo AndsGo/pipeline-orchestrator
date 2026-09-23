@@ -156,7 +156,7 @@ describe('FeishuPort 回调路由（不触网）', () => {
 
     // 点 Q2 的"不通过"→ 返回重绘卡：Q2 变 ✅，Q1/Q3 仍有按钮
     const q2Buttons = groups[1].actions as El[];
-    const updated = port.handleCardAction(q2Buttons[1].value as CardAction)!;
+    const updated = port.handleCardAction(q2Buttons[1].value as CardAction) as Record<string, unknown>;
     expect((updated.elements as El[]).filter((e) => e.tag === 'action')).toHaveLength(2);
     const s = JSON.stringify(updated);
     expect(s).toContain('已回答');
@@ -222,6 +222,33 @@ describe('FeishuPort 回调路由（不触网）', () => {
     expect(port.handleCardAction(approve)).toBeNull();
     expect(port.handleCardAction(undefined)).toBeNull();
     await p;
+  });
+
+  it('只认指定人的卡（需求排期）：别人点 → denied 且卡仍待答；指定人点才归位', async () => {
+    const { port, sent } = portWithSpy();
+    const p = port.confirmGate('REQ-001', '需求确认', 's', [], undefined, { allowed: ['ou_owner'] });
+    const approve = actionsOf(cardOf(sent[0]))[0];
+    expect(port.handleCardAction(approve, undefined, 'ou_other')).toBe('denied');
+    expect(port.pendingLabels('REQ-001')).toEqual(['需求确认']);
+    expect(port.handleCardAction(approve, undefined, 'ou_owner')).not.toBeNull();
+    expect((await p).approved).toBe(true);
+  });
+
+  it('只认指定人的卡：旁人打字「通过」不落位', async () => {
+    const { port } = portWithSpy();
+    const p = port.confirmGate('REQ-001', '需求确认', 's', [], undefined, { allowed: ['ou_req'] });
+    expect(port.tryAnswerByText('通过', false, 'REQ-001', 'ou_other')).toEqual({ status: 'none' });
+    expect(port.tryAnswerByText('通过', false, 'REQ-001', 'ou_req')).toMatchObject({ status: 'resolved' });
+    expect((await p).approved).toBe(true);
+  });
+
+  it('dropPending：作废某需求的全部待答卡，等待方拿到 dropped', async () => {
+    const { port } = portWithSpy();
+    const p = port.confirmGate('REQ-002', '需求确认', 's', []);
+    void port.confirmGate('LS-001', 'plan-approval', 's', []);
+    expect(port.dropPending('REQ-002')).toBe(1);
+    expect(await p).toMatchObject({ approved: false, dropped: true });
+    expect(port.pendingLabels()).toEqual(['plan-approval']);
   });
 });
 

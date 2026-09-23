@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { asksToCreateTicket, type Command } from './commands.js';
+import { asksToCreateReq, asksToCreateTicket, type Command } from './commands.js';
 import type { LastRun, Round } from './followup.js';
 import { dataDir } from './paths.js';
 
@@ -15,6 +15,8 @@ export interface ThreadRec {
   project?: string;
   /** 工单话题：该话题里的每句话都确定属于这张单 */
   ticket?: string;
+  /** 需求话题：访谈在这里进行（需求池，src/requirements.ts）。与 ticket 二选一 */
+  req?: string;
   /** 对话会话：最近一轮 /run（含 sessionId） */
   run?: LastRun;
   createdAt: string;
@@ -121,6 +123,21 @@ export function bindTicketThread(rootId: string, ticket: string, chatId: string,
   writeThreads(all, file, now);
 }
 
+/** 需求绑到话题上（主线开需求时是 bot 新发的根消息；会话话题里开需求时就是那个话题，会话照旧续） */
+export function bindReqThread(rootId: string, req: string, chatId: string, project: string, file = threadsFile(), now = Date.now()): void {
+  const all = readThreads(file);
+  const at = new Date(now).toISOString();
+  const prev = all[rootId];
+  all[rootId] = { ...prev, chatId, project, req, createdAt: prev?.createdAt ?? at, lastAt: at, turns: prev?.turns ?? 0 };
+  writeThreads(all, file, now);
+}
+
+/** 需求 → 话题根 */
+export function threadOfReq(req: string, file = threadsFile()): { rootId: string; rec: ThreadRec } | null {
+  for (const [rootId, rec] of Object.entries(readThreads(file))) if (rec.req === req) return { rootId, rec };
+  return null;
+}
+
 /** 一轮 /run 在话题里跑完：会话记到话题上，轮次 +1（首轮建记录） */
 export function rememberThreadRun(rootId: string, chatId: string, run: LastRun, file = threadsFile(), now = Date.now()): void {
   const all = readThreads(file);
@@ -132,6 +149,7 @@ export function rememberThreadRun(rootId: string, chatId: string, run: LastRun, 
     chatId,
     project: run.project,
     ticket: prev?.ticket,
+    req: prev?.req,
     // 过程留一份压缩版（最近 12 轮、每轮几百字）：会话到期重开时靠它接手。此前不存 transcript，重开的会话只拿到
     // 上次输出前 600 字——2026-09-12 真机：第 29 轮用内网生图接口跑了 282 张图，第 31 轮（新会话）却说「环境里没有生图工具」
     run: { ...run, output: run.output.slice(0, STORED_OUTPUT_CAP), transcript: compactRounds(run.transcript ?? [{ command: run.command, output: run.output }]) },
@@ -203,7 +221,10 @@ export function routeInThread(cmd: Command, th: ThreadRec | null, text: string, 
   // 会话话题里分类器猜出的 new 也按续聊：那多半是在给会话提意见（2026-09-11 真机：同事一句「服装类目不用指定模特…更换背景就行」
   // 被判 new@65%，差点建成工单）。人明确说「建单/开工单」或亲手打 /new 的仍然建单
   const guessedNew = cmd.kind === 'new' && !text.trim().startsWith('/') && !asksToCreateTicket(text);
-  if ((th?.run || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown' || guessedNew)) {
+  // 需求同理：会话话题里猜出的 req 多半是在补充意见；人明确说「整理成需求 / 进需求池」或打 /req 才以本话题开需求。
+  // 已经是需求话题的，再说什么都是在接着访谈
+  const guessedReq = cmd.kind === 'req' && (!!th?.req || (!text.trim().startsWith('/') && !asksToCreateReq(text)));
+  if ((th?.run || th?.req || rootIsRunCard) && (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'unknown' || guessedNew || guessedReq)) {
     // 话题里人习惯照旧打 /run、/re（真机 2026-09-10）：续聊正文不该带着指令前缀。
     // 分类器判出的对外副作用要带过去：run 变成 followup 不能把部署/推送的确认闸门一起变没
     const sideEffect = cmd.kind === 'run' || cmd.kind === 'followup' ? cmd.sideEffect : undefined;
