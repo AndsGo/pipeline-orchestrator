@@ -67,6 +67,16 @@ function asTarget(to?: ChatRef | { chatId?: string; rootId?: string }): { chatId
   return { chatId: to.chatId, rootId: to.rootId };
 }
 
+/**
+ * 普通消息的载体：纯文本消息不渲染 markdown，**加粗** 会原样显示成星号（2026-09-23 用户反馈）。
+ * 改用富文本消息的 md 标签——仍是一条普通消息而不是卡片。正文带尖括号（「/new <需求>」这类用法示例）时退回纯文本：
+ * md 会把它当标签吞掉；@ 人的 <at …></at> 两种载体都认，不算
+ */
+export function textMessage(text: string): { msgType: 'text' | 'post'; content: string } {
+  if (/<(?!at\s|\/at>)/.test(text)) return { msgType: 'text', content: JSON.stringify({ text }) };
+  return { msgType: 'post', content: JSON.stringify({ zh_cn: { content: [[{ tag: 'md', text }]] } }) };
+}
+
 const APPROVE = /^(通过|同意|批准|可以|没问题|ok|approve|yes|y)/i;
 const REJECT = /^(驳回|不通过|拒绝|否决|reject|no|n)/i;
 
@@ -238,7 +248,7 @@ export class FeishuPort implements InteractionPort {
   private async pointMain(ticket: string, what: string): Promise<void> {
     const { chatId, rootId } = this.targetFor(ticket);
     if (!rootId || !this.quietMain?.(ticket)) return;
-    await this.post('text', JSON.stringify({ text: `[${ticket}] 需要你决策：${what}（卡在 ${ticket} 的话题里）` }), { chatId });
+    await this.postMsg(`[${ticket}] 需要你决策：${what}（卡在 ${ticket} 的话题里）`, { chatId });
   }
 
   private chatFor(ticketOrAlias: string, explicit?: ChatRef): string | undefined {
@@ -333,6 +343,19 @@ export class FeishuPort implements InteractionPort {
       }
     }
     return { sent, failed };
+  }
+
+  /** 发一条普通消息（markdown 能渲染就渲染，见 textMessage） */
+  private async postMsg(text: string, to: { chatId?: string; rootId?: string }): Promise<string | undefined> {
+    const m = textMessage(text);
+    if (m.msgType === 'text') return this.post(m.msgType, m.content, to);
+    try {
+      return await this.post(m.msgType, m.content, to);
+    } catch (e) {
+      // 富文本被拒（md 内容不合法等）：退回纯文本，宁可不高亮也不能丢消息
+      console.warn(`[feishu] 富文本消息发送失败，改发纯文本：${(e as Error).message.slice(0, 120)}`);
+      return this.post('text', JSON.stringify({ text }), to);
+    }
   }
 
   private async post(msgType: string, content: string, to: { chatId?: string; rootId?: string }): Promise<string | undefined> {
@@ -590,12 +613,12 @@ export class FeishuPort implements InteractionPort {
     if (!rootId) return this.notify(ticket, message);
     // 安静主线：过程只进话题；force（收尾/挂起/上线）照旧两边都发
     if (!force && this.quietMain?.(ticket)) {
-      await this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), { rootId });
+      await this.postMsg(`[${ticket}] ${message}`, { rootId });
       return;
     }
     await Promise.all([
-      this.post('text', JSON.stringify({ text: `[${ticket}] ${message}\n（卡片与详情在 ${ticket} 的话题里）` }), { chatId: this.routeChat?.(ticket) }),
-      this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), { rootId }),
+      this.postMsg(`[${ticket}] ${message}\n（卡片与详情在 ${ticket} 的话题里）`, { chatId: this.routeChat?.(ticket) }),
+      this.postMsg(`[${ticket}] ${message}`, { rootId }),
     ]);
   }
 
@@ -604,17 +627,17 @@ export class FeishuPort implements InteractionPort {
    * 第一条话题回复才真正建出话题（飞书没有「空话题」）
    */
   async openTicketThread(ticket: string, headline: string): Promise<string | undefined> {
-    return this.post('text', JSON.stringify({ text: `[${ticket}] ${headline}` }), { chatId: this.routeChat?.(ticket) });
+    return this.postMsg(`[${ticket}] ${headline}`, { chatId: this.routeChat?.(ticket) });
   }
 
   /** 在指定群发一条根消息（需求话题用），返回 message_id；此后回复进它就是话题 */
   async openThread(chatId: string, text: string): Promise<string | undefined> {
-    return this.post('text', JSON.stringify({ text }), { chatId });
+    return this.postMsg(text, { chatId });
   }
 
   /** 发纯文本，返回 message_id（结果卡要记「这条消息 ↔ 哪次会话」，引用它就能精确续聊） */
   private postText(ticket: string, message: string, to?: ChatRef): Promise<string | undefined> {
-    return this.post('text', JSON.stringify({ text: `[${ticket}] ${message}` }), this.targetFor(ticket, to));
+    return this.postMsg(`[${ticket}] ${message}`, this.targetFor(ticket, to));
   }
 
   /** 结构化报告（验收 AC 结果表等）：复用结果卡的长文渲染 */
@@ -880,7 +903,7 @@ function renderPost(content: string | undefined, imgMark: (key?: string) => stri
     if (p.title?.trim()) runs.push(p.title.trim());
     for (const para of p.content ?? []) {
       const line = para
-        .map((r) => (r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : r.tag === 'img' ? imgMark(r.image_key) : ''))
+        .map((r) => (r.tag === 'text' || r.tag === 'a' || r.tag === 'md' ? (r.text ?? '') : r.tag === 'img' ? imgMark(r.image_key) : ''))
         .join('');
       if (line.trim()) runs.push(line.trim());
     }
@@ -920,7 +943,7 @@ export function parseMessageText(
                 return '';
               }
               if (r.tag === 'img' && r.image_key) images.push(r.image_key);
-              return r.tag === 'text' || r.tag === 'a' ? (r.text ?? '') : '';
+              return r.tag === 'text' || r.tag === 'a' || r.tag === 'md' ? (r.text ?? '') : '';
             })
             .join('');
           if (line.trim()) lines.push(line.trim());

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gateCard, questionCard, statusCard, type CardAction } from '../feishu/card.js';
-import { attachmentRef, FeishuPort, isBotMentioned, parseMessageText, renderQuotedItems, splitTrailingRequest, type QuotedItem } from '../feishu/port.js';
+import { attachmentRef, FeishuPort, isBotMentioned, parseMessageText, renderQuotedItems, splitTrailingRequest, textMessage, type QuotedItem } from '../feishu/port.js';
 import type { OpenQuestion } from '../types.js';
 
 const q: OpenQuestion = {
@@ -523,7 +523,9 @@ describe('安静主线（拍板 2026-09-14：业务受众的工单，过程只�
     expect(q.main).toHaveLength(1);
     expect(q.main[0]).toContain('需要你决策');
     expect(q.main[0]).toContain('需求确认');
-    expect(JSON.parse(q.main[0]).text).not.toContain('"tag"');
+    // 指路是一条普通消息（md 富文本），不是第二张卡
+    expect(JSON.parse(q.main[0]).zh_cn.content[0][0]).toMatchObject({ tag: 'md' });
+    expect(q.main[0]).not.toContain('"elements"');
     q.port.tryAnswerByText('通过');
     await p;
     const loud = threadedPort(false);
@@ -532,5 +534,43 @@ describe('安静主线（拍板 2026-09-14：业务受众的工单，过程只�
     expect(loud.main).toHaveLength(0);
     loud.port.tryAnswerByText('通过');
     await p2;
+  });
+});
+
+describe('普通消息载体（markdown 渲染，2026-09-23 用户反馈纯文本不高亮）', () => {
+  it('默认走富文本 md 标签，加粗/列表能渲染；@ 人照常', () => {
+    const text = '**REQ-001** 已进池 <at user_id="ou_x"></at>\n- 第一项';
+    const m = textMessage(text);
+    expect(m.msgType).toBe('post');
+    expect(JSON.parse(m.content).zh_cn.content[0][0]).toEqual({ tag: 'md', text });
+  });
+
+  it('正文带尖括号用法示例 → 退回纯文本（md 会把 <需求> 当标签吞掉）', () => {
+    const m = textMessage('「/new」后面要跟需求原文：/new <需求>');
+    expect(m.msgType).toBe('text');
+    expect(JSON.parse(m.content).text).toContain('<需求>');
+  });
+
+  it('引用 bot 的富文本回复时读得出 md 里的字', () => {
+    const content = JSON.stringify({ content: [[{ tag: 'md', text: '**结论**：没有这个功能' }]] });
+    expect(renderQuotedItems([{ msg_type: 'post', body: { content } }]).text).toContain('没有这个功能');
+  });
+
+  it('富文本发送失败 → 自动改发纯文本，不丢消息', async () => {
+    const sent: Array<{ msg_type: string }> = [];
+    const fakeClient = {
+      im: {
+        message: {
+          create: async (req: { data: { msg_type: string } }) => {
+            if (req.data.msg_type === 'post') throw new Error('invalid post content');
+            sent.push(req.data);
+            return {};
+          },
+        },
+      },
+    };
+    const port = new FeishuPort(fakeClient as never, null, { appId: 'a', appSecret: 's', chatId: 'c' });
+    await port.notify('T-1', '**加粗**');
+    expect(sent.map((x) => x.msg_type)).toEqual(['text']);
   });
 });
