@@ -90,6 +90,16 @@ if (Test-Path $whPidFile) {
   }
 }
 
+# ①c 控制台守护（同上：仅当存在 data\console.pid）
+$csPidFile = Join-Path $root 'data\console.pid'
+if (Test-Path $csPidFile) {
+  $csPid = Get-Content $csPidFile
+  if (-not (Get-Process -Id $csPid -ErrorAction SilentlyContinue)) {
+    WdLog 'RESTART-CONSOLE (dead)'
+    & (Join-Path $PSScriptRoot 'start-console.ps1') | Out-Null
+  }
+}
+
 # ① 进程存活
 $daemonPid = if (Test-Path $pidFile) { Get-Content $pidFile } else { $null }
 $alive = IsOurDaemon $daemonPid

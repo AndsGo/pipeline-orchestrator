@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>流水线控制台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav class="side">
+  <div class="brand">流水线控制台</div>
+  <a href="#/" data-route="">总览</a>
+  <a href="#/tickets" data-route="tickets">任务</a>
+  <a href="#/reqs" data-route="reqs">需求</a>
+  <a href="#/docs" data-route="docs">文档</a>
+  <a href="#/logs" data-route="logs">日志</a>
+  <div class="sep">配置</div>
+  <a href="#/env" data-route="env">环境配置</a>
+  <a href="#/projects" data-route="projects">项目配置</a>
+  <a href="#/stages" data-route="stages">阶段参数</a>
+  <a href="#/restart" data-route="restart">重启</a>
+  <div class="grow"></div>
+  <button class="link" id="logout">退出</button>
+</nav>
+<main id="main"><p class="muted">加载中…</p></main>
+<div id="toast" class="toast" hidden></div>
+<script src="/vendor/marked.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

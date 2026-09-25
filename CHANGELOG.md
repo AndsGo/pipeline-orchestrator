@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### 新增
+- **控制台**（`npm run console`，:8378，口令 `CONSOLE_TOKEN`）：内网网页，管环境 / 项目配置并热重载（daemon 10 秒内消费 `data/env.reload`，启动时冻结的键标「需重启」）、一键重启（写停止信号，页面跟踪心跳消失与看门狗拉起）、任务 / 需求 / 文档 / 日志只读、工单暂停与继续、体检。独立进程，看门狗一并守护；daemon 新增 `data/runtime.json` 心跳。设计讨论见 `docs/design/2026-09-25-admin-console.md`。
 - **Linux / macOS 进程脚本**：`start-daemon.sh` / `start-webhook.sh` / `start-watchdog.sh` / `daemon-watchdog.sh` / `start-ticket.sh`，与 PowerShell 版行为对应（单实例检查、`.env` 装载、日志轮转、启动核实、停止信号、看门狗的死亡/僵死检测与每日备份）；共用 `_lib.sh`。只用 bash 3.2 特性，Ubuntu 上按功能逐项验证。
 - `doctor` 在非 Windows 上检查 cron / 循环看门狗；孤儿进程与重启提示按平台给命令。`.gitattributes` 钉 `.sh` 为 LF、`.ps1` 为 CRLF。
 

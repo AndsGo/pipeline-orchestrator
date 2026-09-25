@@ -61,6 +61,13 @@ if [ -f "$wh_pid_file" ] && ! pid_exists "$(cat "$wh_pid_file")"; then
   "$here/start-webhook.sh" >/dev/null 2>&1
 fi
 
+# ①c 控制台守护（同上：仅当存在 data/console.pid）
+cs_pid_file="$root/data/console.pid"
+if [ -f "$cs_pid_file" ] && ! pid_exists "$(cat "$cs_pid_file")"; then
+  wdlog 'RESTART-CONSOLE (dead)'
+  "$here/start-console.sh" >/dev/null 2>&1
+fi
+
 # ① 进程存活
 daemon_pid="$([ -f "$pid_file" ] && cat "$pid_file" || true)"
 if ! is_our_daemon "$daemon_pid"; then

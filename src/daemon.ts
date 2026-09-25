@@ -33,7 +33,7 @@ import { draftRequirementFromChat, execAdhoc, runFollowup } from './daemon/adhoc
 import { announceInterruptedTickets } from './daemon/boot.js';
 import type { DaemonContext } from './daemon/context.js';
 import { dispatch } from './daemon/handlers/index.js';
-import { inflight, startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
+import { inflight, startConsoleSignals, startHeartbeat, startKbAudit, startStopFilePoller } from './daemon/lifecycle.js';
 import { recoverReqs, reqEventListener, startReqTicker } from './daemon/reqFlow.js';
 import { readReq, REQ_RE } from './requirements.js';
 import { runTicket } from './ticketRunner.js';
@@ -519,3 +519,6 @@ recoverReqs(ctx);
 startReqTicker(ctx);
 startKbAudit(ctx);
 startStopFilePoller(ctx, path.join(dataDir(), 'daemon.stop'));
+// 控制台（src/console）：运行态心跳 + .env 热重载信号 + 动作队列，进程间只有文件
+startHeartbeat(ctx, path.join(dataDir(), 'runtime.json'));
+startConsoleSignals(ctx, { reload: path.join(dataDir(), 'env.reload'), queue: path.join(dataDir(), 'console.queue.jsonl') });

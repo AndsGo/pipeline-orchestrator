@@ -52,6 +52,16 @@ PIPELINE_PROJECTS={"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS","gitl
 | `GITLAB_WEBHOOK_PORT` | 默认 8377，同时承载结果预览页 |
 | `PREVIEW_BASE_URL` | 业务人员点开预览页的地址，如 `http://10.0.x.x:8377`。不配则卡片只写文件路径 |
 
+### 控制台（可选）
+
+| 键 | 说明 |
+|---|---|
+| `CONSOLE_TOKEN` | 控制台口令，至少 8 位。**等价于管理员权限**（能改 `.env`、发起重启），别复用别处的密码；控制台不启动就不需要 |
+| `CONSOLE_PORT` | 默认 8378 |
+| `CONSOLE_BIND` | 默认 `0.0.0.0`（内网可达）；只想本机用改 `127.0.0.1` |
+
+控制台改 `.env` 后 daemon 10 秒内热重载：按调用时读的键直接生效，启动时冻结的键（飞书三键、`PIPELINE_MAX_CONCURRENCY`、`PIPELINE_DEFAULT_REPO`、两个路径）页面上标「需重启」。哪些键属于哪档见 `src/envKeys.ts`。
+
 ### Jenkins
 
 | 键 | 说明 |

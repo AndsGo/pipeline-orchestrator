@@ -7,6 +7,9 @@
 | daemon | `npm run daemon` → `tsx src/daemon.ts` | 单实例；pid 在 `data/daemon.pid` |
 | 看门狗 | `scripts/daemon-watchdog.ps1` / `.sh` | 每 2 分钟一次；pid（循环方式启动时）在 `data/watchdog.pid`；bash 版的重启节流时间戳在 `data/watchdog.last-restart` |
 | webhook / 预览服务 | `npm run webhook` → `src/gitlab/service.ts` | 可选；:8377；pid 在 `data/webhook.pid` |
+| 控制台 | `npm run console` → `src/console/service.ts` | 可选；:8378；pid 在 `data/console.pid`；日志 `logs/console.log` |
+| 运行态心跳 | `data/runtime.json` | daemon 每 10 秒写：闸门占用、在跑工单、待答卡片。控制台与人都可读 |
+| 热重载信号 / 动作队列 | `data/env.reload`、`data/console.queue.jsonl` | 控制台写、daemon 10 秒内消费 |
 | daemon 日志 | `logs/daemon.log` | 追加写；>1MB 启动时轮转，保留 14 天 |
 | 看门狗日志 | `logs/watchdog.log` | 重启记录、备份结果、跳过原因 |
 | Node 致命错误报告 | `logs/reports/` | `--report-on-fatalerror`；无声退出时唯一的取现场手段 |
@@ -83,7 +86,22 @@ date -Iseconds > data/daemon.stop        # 或 scripts/start-daemon.sh --stop，
 
 daemon 每 10 秒看一眼信号文件：**没有阶段会话在执行时**自行退出，看门狗 2 分钟内以新代码拉起。有会话在跑就等它结束再退（日志会记「收到停止信号，但有 N 个阶段会话在执行」）；有卡片在等人的工单不算忙——卡点卡会原样重发、问题卡由「继续」重问，但为了不吞掉刚发出去的卡，会最多等 5 分钟。启动时清掉残留信号文件，防止起来就自杀。
 
-只改了 `pipeline-plugin` 的 skill **不需要重启**：会话每次启动时现读。只改了目标仓库的 `PIPELINE.md` 也不需要重启。改了 `.env` 需要重启。
+只改了 `pipeline-plugin` 的 skill **不需要重启**：会话每次启动时现读。只改了目标仓库的 `PIPELINE.md` 也不需要重启。改了 `.env`：从控制台改的会热重载（见下）；手改的写一下 `data/env.reload` 也能热重载，或者重启。启动时冻结的键（飞书三键、并发数、默认项目、路径）只能重启。
+
+## 控制台
+
+内网网页（默认 :8378，口令 `CONSOLE_TOKEN`）：总览与体检、任务 / 需求 / 文档 / 日志只读，环境与项目配置可改并热重载，重启按钮，工单暂停 / 继续。
+
+```powershell
+.\scripts\start-console.ps1          # 启动（需 .env 里有 CONSOLE_TOKEN）；有 pid 文件后看门狗一并守护
+.\scripts\start-console.ps1 -Stop
+```
+
+```bash
+scripts/start-console.sh / --stop
+```
+
+它是独立进程，与 daemon 之间只有文件：读 `data/runtime.json` 心跳，改 `.env` 后写 `data/env.reload`，重启 = 写 `data/daemon.stop`（与手工部署同一条路，同样受「有会话在跑就等」和看门狗 10 分钟节流约束），继续工单 = 追加 `data/console.queue.jsonl`。凭据值永不下发到浏览器；`.env` 每次改动前整份备份进 `backups/`。
 
 ## 体检
 
