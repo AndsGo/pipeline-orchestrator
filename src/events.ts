@@ -66,6 +66,12 @@ export function appendEvent(e: Omit<PipelineEvent, 'ts'>): PipelineEvent {
   return full;
 }
 
+/**
+ * 工单闭环事件：type 'done' 且摘要含「闭环」。compound 的「交付文档已生成」也是 done，要排除；
+ * 快车道闭环没有 compound 阶段，只认得出这一条（控制台曾因只看 compound 把 LS-010 标成等人工）
+ */
+export const isClosure = (e: Pick<PipelineEvent, 'type' | 'summary'>): boolean => e.type === 'done' && /闭环/.test(e.summary);
+
 export function readEvents(ticket: string): PipelineEvent[] {
   const f = eventFile(ticket);
   if (!fs.existsSync(f)) return [];

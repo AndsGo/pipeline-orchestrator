@@ -1,5 +1,5 @@
 import { buildDashboard, renderDashboard, type TicketRow } from '../../dashboard.js';
-import { listTickets, readEvents, totalCost } from '../../events.js';
+import { isClosure, listTickets, readEvents, totalCost } from '../../events.js';
 import { computeMetrics, metricsDashItems, readAllSnapshots } from '../../metrics.js';
 import { readSnapshot } from '../../ticket.js';
 import type { ChatRef } from '../../ports.js';
@@ -10,7 +10,8 @@ export async function handle(ctx: DaemonContext, _c: CommandOf<'dashboard'>, _se
   const rows: TicketRow[] = listTickets().map((t) => {
     const st = readSnapshot(t);
     const evs = readEvents(t);
-    const closed = st?.runs.some((r) => r.stage === 'compound' && r.status === 'DONE');
+    // 快车道闭环没有 compound，只有「闭环」done 事件（LS-010 曾因此被标成等人工）
+    const closed = st?.runs.some((r) => r.stage === 'compound' && r.status === 'DONE') || evs.some(isClosure);
     return {
       ticket: t,
       project: st?.project,

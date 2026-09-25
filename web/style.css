@@ -27,7 +27,7 @@
   --good: #5cbb85; --warn: #e0b04a; --bad: #ef6f66; --info: #7aa6e0;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); display: flex; min-height: 100vh; }
 a { color: var(--info); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -46,7 +46,7 @@ pre { background: var(--surface-2); padding: 12px; border-radius: 4px; overflow-
 .side a.on { border-left-color: var(--accent); background: var(--surface-2); font-weight: 600; }
 .side .sep { padding: 16px 20px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .side .grow { flex: 1; }
-main { flex: 1; min-width: 0; padding: 24px 32px 48px; max-width: 1200px; }
+main { flex: 1; min-width: 0; padding: 24px 32px 48px; max-width: 1280px; }
 
 button, .btn { font: inherit; padding: 6px 14px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; }
 button:hover { background: var(--surface-2); }
@@ -132,3 +132,14 @@ body.login h1 { margin: 0; }
   .timeline li { grid-template-columns: 1fr; gap: 2px; }
 }
 @media (prefers-reduced-motion: no-preference) { .side a, button { transition: background .12s; } }
+
+/* 第二轮：可读性与对齐 */
+.row.between { justify-content: space-between; }
+.small { font-size: 12px; }
+.lead { font-size: 15px; margin: -8px 0 16px; color: var(--muted); max-width: 90ch; }
+.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.tickets, table.attn { table-layout: fixed; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 0 0 12px; }
+.meta b { font-weight: 600; color: var(--text); margin-right: 4px; font-family: var(--mono); }
+.cardtitle { margin: 0 0 12px; font-size: 15px; }
+.doclinks { display: flex; flex-wrap: wrap; gap: 6px 14px; }

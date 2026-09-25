@@ -1,16 +1,20 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyEnvReload, envKeySpec, parseEnvText } from '../envKeys.js';
 import {
+  attentionItems,
   buildOverview,
   docLocalPath,
   lastRestartFrom,
   listTicketDocs,
   projectsJson,
   readEnvView,
+  readDoc,
   readProjectsView,
+  recentSenders,
   tailLog,
   ticketDetail,
   ticketRows,
@@ -168,10 +172,42 @@ describe('任务视图', () => {
     appendEvent({ ticket: 'DM-001', type: 'stage.end', stage: 'clarify', summary: 'clarify 完成', payload: { costUsd: 2 } });
     const rows = ticketRows(rt({ pending: { 'DM-004': ['PRD 确认'] } }));
     const by = Object.fromEntries(rows.map((r) => [r.ticket, r]));
-    expect(by['DM-001']).toMatchObject({ state: '在跑', cost: 2, waiting: 'clarify 完成', stage: 'plan' });
+    // 成本以快照台账为准（事件里的 $2 只是部分阶段），与闭环摘要同源
+    expect(by['DM-001']).toMatchObject({ state: '在跑', cost: 1.5, waiting: 'clarify 完成', stage: 'plan' });
     expect(by['DM-002']).toMatchObject({ state: '挂起', waiting: '挂起：预算超限', cost: 1.5 });
-    expect(by['DM-003']).toMatchObject({ state: '闭环', stage: '已闭环' });
+    expect(by['DM-003']).toMatchObject({ state: '闭环', stage: '—' });
     expect(by['DM-004']).toMatchObject({ state: '等人工', waiting: '等回答：PRD 确认' });
+  });
+
+  it('快车道闭环（只有「闭环」done 事件、没有 compound）也算闭环；「交付文档已生成」不算', () => {
+    saveTicket(snap('DM-005', { lane: 'fast' }));
+    appendEvent({ ticket: 'DM-005', type: 'ticket.created', summary: '工单建立：修掉  TestNormalizeMaxRows\n测试' });
+    appendEvent({ ticket: 'DM-005', type: 'done', summary: '快车道闭环' });
+    saveTicket(snap('DM-006'));
+    appendEvent({ ticket: 'DM-006', type: 'done', summary: '交付文档已生成（30 块）' });
+    const by = Object.fromEntries(ticketRows(null).map((r) => [r.ticket, r]));
+    expect(by['DM-005']).toMatchObject({ state: '闭环', title: '修掉 TestNormalizeMaxRows 测试' });
+    expect(by['DM-006'].state).toBe('等人工');
+  });
+
+  it('需要处理：挂起 > 等回答 > 需求待确认/待排期 > 久未推进；闭环和最近有动静的不列', () => {
+    const old = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    saveTicket(snap('DM-001'));
+    saveTicket(snap('DM-002', { haltedReason: '评审打回已达上限' }));
+    saveTicket(snap('DM-003'));
+    saveTicket(snap('DM-004'));
+    saveTicket(snap('DM-007'));
+    const ev = (ticket: string, ts: string) =>
+      fs.appendFileSync(path.join(process.env.PIPELINE_DATA_DIR!, `${ticket}.events.jsonl`), JSON.stringify({ ts, ticket, type: 'stage.end', summary: `${ticket} 最近一步` }) + '\n');
+    ev('DM-003', old); // 久未推进
+    ev('DM-004', new Date().toISOString()); // 刚有动静，不列
+    ev('DM-007', old);
+    appendEvent({ ticket: 'DM-007', type: 'done', summary: '闭环：3 次会话，$1' });
+    const reqDir = path.join(process.env.PIPELINE_DATA_DIR!, 'requirements');
+    fs.mkdirSync(reqDir);
+    fs.writeFileSync(path.join(reqDir, 'REQ-001.json'), JSON.stringify({ id: 'REQ-001', project: 'demo', title: '导出报表', status: '待排期', updatedAt: old, tickets: [], rounds: 1 }));
+    const items = attentionItems(rt({ active: [], pending: { 'DM-001': ['PRD 确认'] } }));
+    expect(items.map((a) => `${a.kind}:${a.ref}`)).toEqual(['挂起:DM-002', '等回答:DM-001', '需求待排期:REQ-001', '久未推进:DM-003']);
   });
   it('详情带事件、暂停态与文档清单；无此工单返回 null', () => {
     saveTicket(snap('DM-001'));
@@ -218,7 +254,50 @@ describe('文档路径防线', () => {
     expect(docLocalPath(tmp, '')).toBeNull();
   });
   it('listTicketDocs 无目录返回空', () => {
-    expect(listTicketDocs(tmp, 'DM-404')).toEqual([]);
+    expect(listTicketDocs(tmp, 'DM-404')).toEqual({ files: [] });
+  });
+
+  it('在途工单：工作区缺的工件从功能分支补进清单，读取时工作区优先、缺了从分支取', () => {
+    const repo = path.join(tmp, 'repo');
+    const g = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'ignore' });
+    fs.mkdirSync(path.join(repo, 'docs', 'pipeline', 'DM-001'), { recursive: true });
+    g('init', '-q', '-b', 'main');
+    g('config', 'user.email', 't@t');
+    g('config', 'user.name', 't');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'x');
+    g('add', '.');
+    g('commit', '-qm', 'init');
+    g('checkout', '-qb', 'feat/DM-001-x');
+    fs.writeFileSync(path.join(repo, 'docs', 'pipeline', 'DM-001', '10-prd.md'), '# 分支上的 PRD');
+    fs.writeFileSync(path.join(repo, 'docs', 'pipeline', 'DM-001', 'run.exe'), 'no');
+    g('add', '.');
+    g('commit', '-qm', 'prd');
+    g('checkout', '-q', 'main');
+    fs.mkdirSync(path.join(repo, 'docs', 'pipeline', 'DM-001'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'docs', 'pipeline', 'DM-001', '30-review-r3.md'), '# 工作区里的评审');
+    saveTicket(snap('DM-001', { repo, branch: 'feat/DM-001-x' }));
+
+    expect(listTicketDocs(repo, 'DM-001', 'feat/DM-001-x')).toEqual({ files: ['10-prd.md', '30-review-r3.md'], fromBranch: 'feat/DM-001-x' });
+    expect(readDoc(repo, 'DM-001/10-prd.md')).toBe('# 分支上的 PRD');
+    expect(readDoc(repo, 'DM-001/30-review-r3.md')).toBe('# 工作区里的评审');
+    expect(readDoc(repo, 'DM-001/../../README.md')).toBeNull();
+    // 分支名里有 shell 元字符 → 不碰 git
+    expect(listTicketDocs(repo, 'DM-001', 'x;rm -rf')).toEqual({ files: ['30-review-r3.md'] });
+  });
+});
+
+describe('负责人候选', () => {
+  it('从 daemon.log 及轮转文件统计 @ 过机器人的人，按次数排', () => {
+    const logs = path.join(tmp, 'logs');
+    fs.mkdirSync(logs);
+    fs.writeFileSync(path.join(logs, 'daemon.log'), ['[daemon] 2026-09-25T01:00:00.000Z 收到消息 by ou_aaa（@我）: 你好', '[daemon] 2026-09-25T02:00:00.000Z 收到消息 by ou_bbb（@我）: x', '[info]: noise'].join('\n'));
+    fs.writeFileSync(path.join(logs, 'daemon-20260901-000000.log'), '[daemon] 2026-09-01T00:00:00.000Z 收到消息 by ou_bbb（@我）: y\n');
+    fs.writeFileSync(path.join(logs, 'watchdog.log'), '收到消息 by ou_ccc\n');
+    expect(recentSenders(logs)).toEqual([
+      { openId: 'ou_bbb', messages: 2, lastAt: '2026-09-25T02:00:00.000Z' },
+      { openId: 'ou_aaa', messages: 1, lastAt: '2026-09-25T01:00:00.000Z' },
+    ]);
+    expect(recentSenders(path.join(tmp, 'none'))).toEqual([]);
   });
 });
 

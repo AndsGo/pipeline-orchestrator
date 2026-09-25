@@ -166,8 +166,7 @@ else if (FEISHU_APP_ID && FEISHU_APP_SECRET) {
 
 const isWin = process.platform === 'win32';
 const stopHint = isWin ? 'start-daemon.ps1 -Stop' : 'scripts/start-daemon.sh --stop';
-console.log('
-== daemon ==');
+console.log('\n== daemon ==');
 const pidFile = path.join(root, 'data', 'daemon.pid');
 if (!fs.existsSync(pidFile)) add('⚠️', 'daemon', '未在运行（无 pid 文件）');
 else {

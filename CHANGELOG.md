@@ -6,6 +6,12 @@
 
 ### 新增
 - **控制台**（`npm run console`，:8378，口令 `CONSOLE_TOKEN`）：内网网页，管环境 / 项目配置并热重载（daemon 10 秒内消费 `data/env.reload`，启动时冻结的键标「需重启」）、一键重启（写停止信号，页面跟踪心跳消失与看门狗拉起）、任务 / 需求 / 文档 / 日志只读、工单暂停与继续、体检。独立进程，看门狗一并守护；daemon 新增 `data/runtime.json` 心跳。设计讨论见 `docs/design/2026-09-25-admin-console.md`。
+- 控制台第二轮（产品走查后）：总览首屏「需要你处理」（挂起 / 等回答 / 需求待确认待排期 / 等人工超 3 天）并每 10 秒刷新；任务列表默认隐藏已闭环、需处理排前、带需求标题；负责人从候选人里选（群成员需开通 im:chat.members:read，未开通时列最近 @ 过机器人的人）；文档显示中文名，在途工单的工件从功能分支读取；工件头部元数据剥成一行；日志时间换成本地；侧边栏吸顶修复。
+
+### 修复
+- 闭环判断漏掉快车道：只认 compound 跑成功，LS-010 / OP-004 这类「快车道闭环」被标成等人工（控制台与群里 /dashboard 同病）；改认「闭环」done 事件（isClosure 挪进 events.ts）。
+- 控制台工单成本改用快照台账：事件流早期没记阶段成本，LS-002/003 少算 0+。
+- scripts/doctor.ts 第 169 行字符串里混进真换行，体检整个跑不起来。
 - **Linux / macOS 进程脚本**：`start-daemon.sh` / `start-webhook.sh` / `start-watchdog.sh` / `daemon-watchdog.sh` / `start-ticket.sh`，与 PowerShell 版行为对应（单实例检查、`.env` 装载、日志轮转、启动核实、停止信号、看门狗的死亡/僵死检测与每日备份）；共用 `_lib.sh`。只用 bash 3.2 特性，Ubuntu 上按功能逐项验证。
 - `doctor` 在非 Windows 上检查 cron / 循环看门狗；孤儿进程与重启提示按平台给命令。`.gitattributes` 钉 `.sh` 为 LF、`.ps1` 为 CRLF。
 

@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
+import * as lark from '@larksuiteoapi/node-sdk';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +12,9 @@ import { setPaused } from '../pause.js';
 import { listReqs, readReq, REQ_RE } from '../requirements.js';
 import {
   buildOverview,
-  docLocalPath,
+  readDoc,
+  recentSenders,
+  type PersonHint,
   listDocTickets,
   listProjectDocs,
   listTicketDocs,
@@ -26,6 +29,7 @@ import {
   writeProjects,
 } from './api.js';
 import type { Project } from '../projects.js';
+import { readSnapshot } from '../ticket.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -124,6 +128,50 @@ function runDoctor(): Promise<{ lines: string[]; code: number | null }> {
   });
 }
 
+/**
+ * 负责人候选：优先读群成员（主群 + 各项目绑定群，需应用开通 im:chat.members:read），读不到就退回
+ * 「最近 @ 过机器人的人」。这是控制台唯一一处调飞书，只读，结果缓存 10 分钟。
+ */
+interface PeopleResult {
+  source: 'members' | 'logs';
+  people: PersonHint[];
+  /** 读不到群成员时给出的原因（不含凭据） */
+  note?: string;
+}
+let peopleCache: { at: number; v: PeopleResult } | null = null;
+
+async function peopleHints(): Promise<PeopleResult> {
+  if (peopleCache && Date.now() - peopleCache.at < 10 * 60_000) return peopleCache.v;
+  const senders = recentSenders(logsDir);
+  const byId = new Map(senders.map((p) => [p.openId, { ...p }]));
+  let note: string | undefined;
+  let gotMembers = false;
+  const { FEISHU_APP_ID: appId, FEISHU_APP_SECRET: appSecret, FEISHU_CHAT_ID: mainChat } = process.env;
+  if (appId && appSecret) {
+    const client = new lark.Client({ appId, appSecret, loggerLevel: lark.LoggerLevel.error });
+    const chats = [...new Set([mainChat, ...projectsNow().map((p) => p.chatId)].filter((c): c is string => !!c))];
+    for (const chat_id of chats) {
+      try {
+        const r = await client.im.chatMembers.get({ path: { chat_id }, params: { member_id_type: 'open_id', page_size: 100 } });
+        for (const m of r.data?.items ?? []) {
+          if (!m.member_id) continue;
+          const p = byId.get(m.member_id) ?? { openId: m.member_id, messages: 0 };
+          p.name = m.name ?? p.name;
+          byId.set(m.member_id, p);
+          gotMembers = true;
+        }
+      } catch (e) {
+        const code = (e as { response?: { data?: { code?: number } } }).response?.data?.code;
+        note = code === 99991672 ? '机器人未开通 im:chat.members:read，读不到群成员名单；下面是最近 @ 过机器人的人' : `读群成员失败（${code ?? (e as Error).message.slice(0, 60)}）`;
+        break;
+      }
+    }
+  }
+  const v: PeopleResult = { source: gotMembers ? 'members' : 'logs', people: [...byId.values()].sort((a, b) => b.messages - a.messages), note };
+  peopleCache = { at: Date.now(), v };
+  return v;
+}
+
 async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void> {
   const p = url.pathname;
   const method = req.method ?? 'GET';
@@ -180,7 +228,8 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
     if (!TICKET_RE.test(ticket)) return json(res, 400, { error: '工单号不合法' });
     if (!m[2] && method === 'GET') {
       const d = ticketDetail(ticket, readRuntime(dir));
-      return d ? json(res, 200, d) : json(res, 404, { error: '无此工单' });
+      // 结果预览走 webhook 服务的 /preview/ 路由；控制台只给链接前缀，不代理
+      return d ? json(res, 200, { ...d, previewBase: process.env.PREVIEW_BASE_URL?.trim().replace(/\/+$/, '') || undefined }) : json(res, 404, { error: '无此工单' });
     }
     if (method !== 'POST') return json(res, 405, { error: 'method' });
     if (m[2] === 'pause') {
@@ -216,12 +265,14 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
     if (m[3]) {
       const ticket = decodeURIComponent(m[3]);
       if (!TICKET_RE.test(ticket)) return json(res, 400, { error: '工单号不合法' });
-      return json(res, 200, listTicketDocs(pr.repo, ticket));
+      return json(res, 200, listTicketDocs(pr.repo, ticket, readSnapshot(ticket)?.branch));
     }
-    const file = docLocalPath(pr.repo, url.searchParams.get('path') ?? '');
-    if (!file || !fs.existsSync(file)) return json(res, 404, { error: '无此文件' });
-    return text(res, 200, fs.readFileSync(file, 'utf-8')); // 一律按纯文本给：仓库里的 html 不在控制台源下执行
+    const body = readDoc(pr.repo, url.searchParams.get('path') ?? '');
+    if (body === null) return json(res, 404, { error: '无此文件' });
+    return text(res, 200, body); // 一律按纯文本给：仓库里的 html 不在控制台源下执行
   }
+
+  if (p === '/api/people' && method === 'GET') return json(res, 200, await peopleHints());
 
   if (p === '/api/logs' && method === 'GET') {
     const name = url.searchParams.get('file') ?? 'daemon';

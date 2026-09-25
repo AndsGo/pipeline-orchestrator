@@ -1,6 +1,6 @@
 import { fetchGlossaryBrief } from '../bitable/sync.js';
 import { projectReq } from '../bitable/reqSync.js';
-import { listTickets, readEvents, type PipelineEvent } from '../events.js';
+import { isClosure, listTickets, readEvents, type PipelineEvent } from '../events.js';
 import { DROPPED } from '../feishu/port.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, mentionedProject, nextTicketId, projectOfTicket, resolveProject, type Project } from '../projects.js';
@@ -228,7 +228,7 @@ export async function scheduleLoop(ctx: DaemonContext, id: string, opts: { annou
 // ── 转工单与排队 ─────────────────────────────────────────────
 
 /** 工单真正闭环的事件（compound 生成交付文档时也发 type=done，那个不算） */
-export const isClosure = (e: Pick<PipelineEvent, 'type' | 'summary'>): boolean => e.type === 'done' && /闭环/.test(e.summary);
+export { isClosure };
 
 function ticketLoads(ctx: DaemonContext): TicketLoad[] {
   return listTickets().map((t) => {

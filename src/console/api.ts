@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FIX_ROUND_CAP, IMPLEMENT_AUTO_CONTINUE_CAP, STAGE_EFFORT, STAGES } from '../config.js';
 import { ENV_GROUPS, envKeySpec, parseEnvText, type EnvKeySpec } from '../envKeys.js';
-import { listTickets, readEvents, totalCost, type PipelineEvent } from '../events.js';
+import { isClosure, listTickets, readEvents, totalCost, type PipelineEvent } from '../events.js';
 import { readEnvVar, upsertEnvVar } from '../onboarding.js';
 import { isPaused } from '../pause.js';
 import { dataDir } from '../paths.js';
@@ -146,6 +147,8 @@ export interface Overview {
   reqs: { total: number; open: number };
   /** 今日（本地日期）stage.end 成本合计 */
   todayCost: number;
+  /** 需要人处理的事，按紧急程度排 */
+  attention: AttentionItem[];
 }
 
 export function readRuntime(dir = dataDir(), now = Date.now()): Overview['runtime'] {
@@ -179,8 +182,66 @@ export function lastRestartFrom(watchdogLog: string, now = Date.now()): Overview
   return null;
 }
 
-function isClosed(st: TicketState | null): boolean {
-  return !!st?.runs.some((r) => r.stage === 'compound' && r.status === 'DONE');
+/** 闭环：compound 跑成功，或有「闭环」done 事件（快车道没有 compound，只认后者） */
+function isClosed(st: TicketState | null, evs: PipelineEvent[]): boolean {
+  return !!st?.runs.some((r) => r.stage === 'compound' && r.status === 'DONE') || evs.some(isClosure);
+}
+
+/**
+ * 工单成本：以快照台账为准（与闭环摘要「N 次会话，$X」同源）；事件流早期没有记 stage.end 成本
+ * （LS-002/003 实测差出 $20+），只在没有快照时兜底
+ */
+function ticketCost(t: string, st: TicketState | null): number {
+  return st?.runs.length ? st.runs.reduce((s, r) => s + r.costUsd, 0) : totalCost(t);
+}
+
+/** 工单标题：建单事件里的需求原文（「工单建立：」之后），截到一行 */
+function ticketTitle(evs: PipelineEvent[]): string | undefined {
+  const created = evs.find((e) => e.type === 'ticket.created');
+  return created?.summary.replace(/^工单建立[：:]\s*/, '').replace(/\s+/g, ' ').slice(0, 60) || undefined;
+}
+
+type RowState = '在跑' | '挂起' | '闭环' | '等人工' | '已暂停';
+
+function rowState(t: string, st: TicketState | null, evs: PipelineEvent[], active: Set<string>): RowState {
+  if (active.has(t)) return '在跑';
+  if (st?.haltedReason) return '挂起';
+  if (isClosed(st, evs)) return '闭环';
+  return isPaused(t) ? '已暂停' : '等人工';
+}
+
+/** 需要人处理的一件事：总览首屏列出来，按紧急程度排 */
+export interface AttentionItem {
+  kind: '挂起' | '等回答' | '久未推进' | '需求待确认' | '需求待排期';
+  ref: string;
+  title?: string;
+  detail: string;
+  since?: string;
+}
+
+/** 等人工超过这么久没有任何事件，算久未推进 */
+export const STALE_TICKET_MS = 3 * 86_400_000;
+
+export function attentionItems(runtime: RuntimeSnapshot | null, now = Date.now()): AttentionItem[] {
+  const out: AttentionItem[] = [];
+  const active = new Set(runtime?.active ?? []);
+  for (const t of listTickets()) {
+    const st = readSnapshot(t);
+    const evs = readEvents(t);
+    const state = rowState(t, st, evs, active);
+    const title = ticketTitle(evs);
+    const last = evs.at(-1);
+    const pending = runtime?.pending[t] ?? [];
+    if (state === '挂起') out.push({ kind: '挂起', ref: t, title, detail: st!.haltedReason!, since: last?.ts });
+    else if (pending.length) out.push({ kind: '等回答', ref: t, title, detail: pending.join('、'), since: last?.ts });
+    else if (state === '等人工' && last && now - Date.parse(last.ts) > STALE_TICKET_MS) out.push({ kind: '久未推进', ref: t, title, detail: last.summary, since: last.ts });
+  }
+  for (const r of listReqs()) {
+    if (r.status === '待确认') out.push({ kind: '需求待确认', ref: r.id, title: r.title, detail: `${r.project} · 等提出人或负责人确认需求说明`, since: r.updatedAt });
+    else if (r.status === '待排期') out.push({ kind: '需求待排期', ref: r.id, title: r.title, detail: `${r.project} · 等负责人排期`, since: r.updatedAt });
+  }
+  const rank: Record<AttentionItem['kind'], number> = { 挂起: 0, 等回答: 1, 需求待确认: 2, 需求待排期: 3, 久未推进: 4 };
+  return out.sort((a, b) => rank[a.kind] - rank[b.kind] || (a.since ?? '').localeCompare(b.since ?? ''));
 }
 
 export function buildOverview(opts: { dir: string; watchdogLog: string; now?: number }): Overview {
@@ -188,7 +249,7 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
   const runtime = readRuntime(opts.dir, now);
   let pid: number | null = null;
   try {
-    pid = Number(fs.readFileSync(path.join(opts.dir, 'daemon.pid'), 'utf-8').trim()) || null;
+    pid = Number(fs.readFileSync(path.join(opts.dir, 'daemon.pid'), 'utf-8').replace(/^﻿/, '').trim()) || null;
   } catch {
     /* 无 pid 文件 */
   }
@@ -201,10 +262,12 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
   for (const t of listTickets()) {
     tickets.total++;
     const st = readSnapshot(t);
-    if (active.has(t)) tickets.running++;
-    else if (st?.haltedReason) tickets.halted++;
-    else if (isClosed(st)) tickets.closed++;
-    for (const e of readEvents(t)) {
+    const evs = readEvents(t);
+    const state = rowState(t, st, evs, active);
+    if (state === '在跑') tickets.running++;
+    else if (state === '挂起') tickets.halted++;
+    else if (state === '闭环') tickets.closed++;
+    for (const e of evs) {
       const ts = Date.parse(e.ts);
       if (e.type === 'stage.end' && ts >= dayStart && ts < dayStart + 86_400_000) todayCost += Number(e.payload?.costUsd) || 0;
     }
@@ -219,6 +282,7 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
     tickets,
     reqs: { total: reqs.length, open: reqs.filter((r) => ['梳理中', '待确认', '待排期', '已排期', '已转工单'].includes(r.status)).length },
     todayCost,
+    attention: attentionItems(runtime, now),
   };
 }
 
@@ -227,8 +291,9 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
 export interface TicketRowView {
   ticket: string;
   project?: string;
+  title?: string;
   stage: string;
-  state: '在跑' | '挂起' | '闭环' | '等人工' | '已暂停';
+  state: RowState;
   cost: number;
   waiting?: string;
   lastAt?: string;
@@ -239,14 +304,15 @@ export function ticketRows(runtime: RuntimeSnapshot | null): TicketRowView[] {
   return listTickets().map((t) => {
     const st = readSnapshot(t);
     const evs = readEvents(t);
-    const closed = isClosed(st);
+    const state = rowState(t, st, evs, active);
     const pending = runtime?.pending[t] ?? [];
     return {
       ticket: t,
       project: st?.project,
-      stage: closed ? '已闭环' : (st?.cursor ?? '?'),
-      state: active.has(t) ? '在跑' : st?.haltedReason ? '挂起' : closed ? '闭环' : isPaused(t) ? '已暂停' : '等人工',
-      cost: totalCost(t) || (st?.runs.reduce((s, r) => s + r.costUsd, 0) ?? 0),
+      title: ticketTitle(evs),
+      stage: state === '闭环' ? '—' : (st?.cursor ?? '?'),
+      state,
+      cost: ticketCost(t, st),
       waiting: st?.haltedReason ? `挂起：${st.haltedReason}` : pending.length ? `等回答：${pending.join('、')}` : evs.at(-1)?.summary,
       lastAt: evs.at(-1)?.ts,
     };
@@ -256,10 +322,15 @@ export function ticketRows(runtime: RuntimeSnapshot | null): TicketRowView[] {
 export interface TicketDetail {
   snapshot: TicketState | null;
   events: PipelineEvent[];
+  title?: string;
+  state: RowState;
+  cost: number;
   paused: boolean;
   running: boolean;
   pending: string[];
   docs: string[];
+  /** 文档里有来自功能分支（工作区没有）的 */
+  docsFromBranch?: string;
 }
 
 export function ticketDetail(ticket: string, runtime: RuntimeSnapshot | null): TicketDetail | null {
@@ -267,13 +338,18 @@ export function ticketDetail(ticket: string, runtime: RuntimeSnapshot | null): T
   const events = readEvents(ticket);
   if (!snapshot && !events.length) return null;
   const repo = snapshot?.mainRepo ?? snapshot?.repo;
+  const docs = repo ? listTicketDocs(repo, ticket, snapshot?.branch) : { files: [] };
   return {
     snapshot,
     events,
+    title: ticketTitle(events),
+    state: rowState(ticket, snapshot, events, new Set(runtime?.active ?? [])),
+    cost: ticketCost(ticket, snapshot),
     paused: isPaused(ticket),
     running: !!runtime?.active.includes(ticket),
     pending: runtime?.pending[ticket] ?? [],
-    docs: repo ? listTicketDocs(repo, ticket) : [],
+    docs: docs.files,
+    docsFromBranch: docs.fromBranch,
   };
 }
 
@@ -281,16 +357,57 @@ export function ticketDetail(ticket: string, runtime: RuntimeSnapshot | null): T
 
 const DOC_EXT = new Set(['.md', '.json', '.txt', '.csv', '.html']);
 
-/** 工单目录下的文件（相对工单目录，含 prototype/ 一层） */
-export function listTicketDocs(repo: string, ticket: string): string[] {
-  const dir = path.join(repo, 'docs', 'pipeline', ticket);
-  if (!fs.existsSync(dir)) return [];
-  const out: string[] = [];
-  for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (f.isFile() && DOC_EXT.has(path.extname(f.name).toLowerCase())) out.push(f.name);
-    else if (f.isDirectory() && f.name === 'prototype' && fs.existsSync(path.join(dir, f.name, 'index.html'))) out.push('prototype/index.html');
+function git(repo: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+  } catch {
+    return null;
   }
-  return out.sort();
+}
+
+/** 分支名只收 git 合法的常见字符：它来自快照，但最终拼进命令行参数 */
+const BRANCH_RE = /^[A-Za-z0-9._/-]{1,200}$/;
+
+/**
+ * 工单目录下的文件（相对工单目录，含 prototype/index.html）。
+ * 在途工单的工件提交在功能分支上，主仓库工作区里往往只有零星几个（OP-003 实测 2 个 vs 分支上 14 个），
+ * 所以把分支树并进来；读取时工作区优先，没有再从分支取。
+ */
+export function listTicketDocs(repo: string, ticket: string, branch?: string): { files: string[]; fromBranch?: string } {
+  const out = new Set<string>();
+  const dir = path.join(repo, 'docs', 'pipeline', ticket);
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (f.isFile() && DOC_EXT.has(path.extname(f.name).toLowerCase())) out.add(f.name);
+      else if (f.isDirectory() && f.name === 'prototype' && fs.existsSync(path.join(dir, f.name, 'index.html'))) out.add('prototype/index.html');
+    }
+  }
+  let fromBranch: string | undefined;
+  if (branch && BRANCH_RE.test(branch)) {
+    const tree = git(repo, ['ls-tree', '-r', '--name-only', branch, '--', `docs/pipeline/${ticket}/`]);
+    const prefix = `docs/pipeline/${ticket}/`;
+    for (const line of tree?.split('\n') ?? []) {
+      const rel = line.trim().slice(prefix.length);
+      if (!line.startsWith(prefix) || !rel) continue;
+      const ok = rel === 'prototype/index.html' || (!rel.includes('/') && DOC_EXT.has(path.extname(rel).toLowerCase()));
+      if (ok && !out.has(rel)) {
+        out.add(rel);
+        fromBranch = branch;
+      }
+    }
+  }
+  return { files: [...out].sort(), fromBranch };
+}
+
+/** 读文档：工作区优先，工作区没有且工单有分支时从分支取（rel 已过 docLocalPath 的防线） */
+export function readDoc(repo: string, rel: string): string | null {
+  const file = docLocalPath(repo, rel);
+  if (!file) return null;
+  if (fs.existsSync(file)) return fs.readFileSync(file, 'utf-8');
+  const ticket = rel.split('/')[0];
+  const branch = /^[A-Za-z]{1,6}-\d{1,6}$/.test(ticket) ? readSnapshot(ticket)?.branch : undefined;
+  if (!branch || !BRANCH_RE.test(branch)) return null;
+  return git(repo, ['show', `${branch}:docs/pipeline/${rel}`]);
 }
 
 /** 项目级文档：PROJECT-BRIEF / PIPELINE.md / 系统地图页 */
@@ -357,4 +474,34 @@ export function stagesView(): { effort: string; fixRoundCap: number; autoContinu
     autoContinueCap: IMPLEMENT_AUTO_CONTINUE_CAP,
     stages: Object.entries(STAGES).map(([stage, c]) => ({ stage, ...c })),
   };
+}
+
+// ---------- 人（负责人下拉的候选） ----------
+
+export interface PersonHint {
+  openId: string;
+  name?: string;
+  /** 近期日志里发过几条 @ 机器人的消息 */
+  messages: number;
+  lastAt?: string;
+}
+
+/**
+ * 最近在群里 @ 过机器人的人（daemon.log 及轮转文件里的「收到消息 by ou_x」）。
+ * 机器人没开 im:chat.members:read 时读不到群成员名单，这是能拿到的最好替代：负责人通常就是常来提需求的人。
+ */
+export function recentSenders(logsDir: string): PersonHint[] {
+  const files = fs.existsSync(logsDir) ? fs.readdirSync(logsDir).filter((f) => /^daemon(-\d{8}-\d{6})?\.log$/.test(f)) : [];
+  const map = new Map<string, PersonHint>();
+  for (const f of files) {
+    for (const line of fs.readFileSync(path.join(logsDir, f), 'utf-8').split(/\r?\n/)) {
+      const m = /^\[daemon\] (\S+) 收到消息 by (ou_[0-9a-f]+)/.exec(line);
+      if (!m) continue;
+      const p = map.get(m[2]) ?? { openId: m[2], messages: 0 };
+      p.messages++;
+      if (!p.lastAt || m[1] > p.lastAt) p.lastAt = m[1];
+      map.set(m[2], p);
+    }
+  }
+  return [...map.values()].sort((a, b) => b.messages - a.messages);
 }
