@@ -33,7 +33,7 @@ is_our_daemon() {
   [ -n "$p" ] || return 1
   pid_exists "$p" || return 1
   args="$(ps -o args= -p "$p" 2>/dev/null)"
-  case "$args" in *"npm run daemon"*) return 0 ;; esac
+  case "$args" in *"src/daemon.ts"*|*"npm run daemon"*) return 0 ;; esac
   wdlog "pid $p 是「$(printf '%s' "$args" | cut -c1-60)」不是 daemon 启动器（pid 被复用），视为已死"
   return 1
 }
@@ -54,18 +54,23 @@ if [ ! -f "$bak" ] && [ -d "$root/data" ]; then
   fi
 fi
 
-# ①b webhook 守护（仅当用 start-webhook.sh 启动过、存在 pid 文件时）
-wh_pid_file="$root/data/webhook.pid"
-if [ -f "$wh_pid_file" ] && ! pid_exists "$(cat "$wh_pid_file")"; then
-  wdlog 'RESTART-WEBHOOK (dead)'
-  "$here/start-webhook.sh" >/dev/null 2>&1
+# ①b 迁移（2026-09-25 webhook 与控制台合并为 web 服务）：旧 pid 文件还在 → 停掉旧进程、拉起 web。只会触发一次
+migrated=0
+for old in webhook console; do
+  f="$root/data/$old.pid"
+  [ -f "$f" ] || continue
+  op="$(cat "$f")"; [ -n "$op" ] && kill_tree "$op"
+  rm -f "$f"; wdlog "MIGRATE $old → web（已停旧进程 $op）"; migrated=1
+done
+if [ "$migrated" = 1 ] && [ ! -f "$root/data/web.pid" ]; then
+  wdlog "start-web → $("$here/start-web.sh" 2>&1 | head -n 1)"
 fi
 
-# ①c 控制台守护（同上：仅当存在 data/console.pid）
-cs_pid_file="$root/data/console.pid"
-if [ -f "$cs_pid_file" ] && ! pid_exists "$(cat "$cs_pid_file")"; then
-  wdlog 'RESTART-CONSOLE (dead)'
-  "$here/start-console.sh" >/dev/null 2>&1
+# ①c web 服务守护（仅当用 start-web.sh 启动过、存在 pid 文件时）：进程死了就拉起；也是 web 的部署路径（写 data/web.stop 它自退）
+web_pid_file="$root/data/web.pid"
+if [ -f "$web_pid_file" ] && ! pid_exists "$(cat "$web_pid_file")"; then
+  wdlog 'RESTART-WEB (dead)'
+  "$here/start-web.sh" >/dev/null 2>&1
 fi
 
 # ① 进程存活
@@ -81,12 +86,12 @@ err_after="$(tail -n 300 "$log" | awk '/ws client ready/{n=0; next} /getaddrinfo
 [ "$err_after" -ge 3 ] || exit 0
 
 # 安全闸：daemon 进程树下有阶段会话在跑 → 只记录不重启，宁可聋不杀活。
-# 启动器本身就是 bash（外层记录退出码的那层），要排除；npm 起的 sh 不算会话
+# 启动器本身就是 bash（外层记录退出码的那层，命令行含 src/daemon.ts），要排除
 busy=0
 for k in $(descendants "$daemon_pid"); do
   comm="$(ps -o comm= -p "$k" 2>/dev/null | sed 's#.*/##')"
   args="$(ps -o args= -p "$k" 2>/dev/null)"
-  case "$args" in *"npm run daemon"*) continue ;; esac
+  case "$args" in *"src/daemon.ts"*|*"npm run daemon"*) continue ;; esac
   case "$comm" in claude|codex) busy=1; break ;; esac
   case "$args" in *claude*|*codex*) busy=1; break ;; esac
   [ "$comm" = "bash" ] && { busy=1; break; }

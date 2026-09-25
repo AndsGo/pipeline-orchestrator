@@ -159,4 +159,4 @@ ledger.md             实现进度台账
 | 有测试环境、让运营真验 | `PIPELINE.md` 设 `testEnv: <url>`、`acceptor: ops` | 同上 |
 | 用 Codex 做独立评审 | `codex login`，`PIPELINE.md` 设 `engine.review: codex` | [configuration.md](configuration.md#执行引擎) |
 | 多项目、每项目一个群 | 群里 `/addproject` 接入，到目标群 `/bind` 绑定 | [ONBOARDING.md](../ONBOARDING.md) |
-| 用 MR 评论触发独立评审（不走流水线） | `npm run webhook` + GitLab webhook | [configuration.md](configuration.md#gitlab) |
+| 用 MR 评论触发独立评审（不走流水线） | `scripts/start-web.*`（web 服务）+ GitLab webhook | [configuration.md](configuration.md#gitlab) |

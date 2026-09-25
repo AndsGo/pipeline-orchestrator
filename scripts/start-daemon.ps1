@@ -75,7 +75,7 @@ try {
 $reports = Join-Path $root 'logs\reports'
 New-Item -ItemType Directory -Force $reports | Out-Null
 $env:NODE_OPTIONS = "--report-on-fatalerror --report-directory=$reports"
-$p = Start-Process -FilePath 'cmd' -ArgumentList "/v:on /c `"npm run daemon >> `"$log`" 2>&1 & echo [wrapper] !DATE! !TIME! daemon exited code=!ERRORLEVEL! >> `"$log`"`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$p = Start-Process -FilePath 'cmd' -ArgumentList "/v:on /c `"node --import tsx src/daemon.ts >> `"$log`" 2>&1 & echo [wrapper] !DATE! !TIME! daemon exited code=!ERRORLEVEL! >> `"$log`"`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Set-Content -Path $pidFile -Value $p.Id -Encoding utf8
 
 # 启动核实：Start-Process 拿到 pid 就返回，子进程秒死也一样返回——不核实就会报假成功

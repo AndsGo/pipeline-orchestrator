@@ -22,7 +22,7 @@ flowchart LR
   subgraph HOST["执行机（内网）"]
     D["编排 daemon<br/>状态机 · 项目路由 · 指令通道"]
     S["阶段会话<br/>claude / codex · 每阶段独立"]
-    W["webhook + 预览页<br/>:8377"]
+    W["web 服务：webhook + 预览页 + 控制台<br/>:8377"]
   end
   D -- "出站 wss" --> FS
   FS -- "事件回传" --> D
@@ -137,8 +137,8 @@ docs/                    文档与设计稿
 ## 状态与边界
 
 - **生产在用**：三个项目、15+ 张真实工单闭环、约 $550 模型成本（2026-08 至 09）。
-- **控制台**：可选的内网网页（`npm run console`），配置热更新、重启、任务 / 需求 / 文档 / 日志一屏看；与 daemon 之间只有文件，不碰飞书。
-- **三平台**：daemon 本体与测试跨平台；启动、看门狗、webhook、工单脚本各有 PowerShell 与 bash 两版（`scripts/*.ps1` / `scripts/*.sh`）。生产执行机是 Windows，bash 版在 Ubuntu 上按功能逐项验证过，尚未长期跑生产。
+- **控制台**：可选的内网网页（挂在 web 服务上，:8377），配置热更新、重启、任务 / 需求 / 文档 / 日志一屏看；与 daemon 之间只有文件，不碰飞书。
+- **三平台**：daemon 本体与测试跨平台；启动、看门狗、web 服务、工单脚本各有 PowerShell 与 bash 两版（`scripts/*.ps1` / `scripts/*.sh`）。生产执行机是 Windows，bash 版在 Ubuntu 上按功能逐项验证过，尚未长期跑生产。
 - **单实例**：飞书长连接一个应用只能一条，daemon 必须单实例；多工单并行靠单进程内的异步任务 + git worktree 隔离。
 - **交互层绑定飞书**：`InteractionPort` 是四方法接口，换聊天平台需要新写一个实现（已有 CLI 与自动放行两个非飞书实现可参考）。
 - **状态是本地文件**：`data/` 下 JSON + jsonl，无数据库，不做多机高可用。

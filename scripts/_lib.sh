@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 进程脚本共用函数（Linux / macOS）。被 start-daemon.sh / start-webhook.sh / start-watchdog.sh /
+# 进程脚本共用函数（Linux / macOS）。被 start-daemon.sh / start-web.sh / start-watchdog.sh /
 # daemon-watchdog.sh / start-ticket.sh source，不单独执行。只用 bash 3.2 也有的特性（macOS 自带版本）。
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

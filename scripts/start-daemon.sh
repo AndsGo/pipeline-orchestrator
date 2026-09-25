@@ -42,7 +42,7 @@ rotate_log "$log" daemon
 export NODE_OPTIONS="--report-on-fatalerror --report-directory=$root/logs/reports"
 cd "$root" || exit 1
 # 外层 bash 记录 node 退出码：有这一行 = node 自己死的；连这一行都没有 = 整棵树被外力杀掉
-nohup bash -c 'npm run daemon >> "$1" 2>&1; code=$?; echo "[wrapper] $(date +%Y-%m-%dT%H:%M:%S) daemon exited code=$code" >> "$1"' _ "$log" >/dev/null 2>&1 &
+nohup bash -c 'node --import tsx src/daemon.ts >> "$1" 2>&1; code=$?; echo "[wrapper] $(date +%Y-%m-%dT%H:%M:%S) daemon exited code=$code" >> "$1"' _ "$log" >/dev/null 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$pid_file"
 

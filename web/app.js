@@ -173,8 +173,9 @@
     const st = d.snapshot;
     const state = d.state;
     const closed = state === '闭环';
+    // 预览与控制台同在 web 服务里，同源相对链接即可
     const docLink = (f) => f === 'prototype/index.html'
-      ? (d.previewBase ? `<a href="${esc(d.previewBase)}/preview/${esc(id)}/" target="_blank" rel="noopener">${esc(docName(f))} ↗</a>` : `<span class="muted" title="配置 PREVIEW_BASE_URL 后可点">${esc(docName(f))}</span>`)
+      ? `<a href="/preview/${esc(id)}/" target="_blank" rel="noopener">${esc(docName(f))} ↗</a>`
       : `<a href="#/docs/${esc(st?.project || '')}/${esc(id)}/${esc(f)}" title="${esc(f)}">${esc(docName(f))}</a>`;
     main.innerHTML = `
       <h1>${esc(id)} ${pill(state, stateClass[state])}</h1>
@@ -263,7 +264,7 @@
       if (li.dataset.t) location.hash = `#/docs/${alias}/${li.dataset.t}`;
       else if (li.dataset.f === 'prototype/index.html' && ticket) {
         // 原型是可交互的 html：不在控制台源下渲染，交给 webhook 服务的预览路由
-        api(`/api/tickets/${encodeURIComponent(ticket)}`).then((d) => d.previewBase ? window.open(`${d.previewBase}/preview/${ticket}/`, '_blank', 'noopener') : toast('未配置 PREVIEW_BASE_URL，打不开结果预览', true)).catch((e) => toast(e.message, true));
+        window.open(`/preview/${encodeURIComponent(ticket)}/`, '_blank', 'noopener');
       } else if (li.dataset.f) location.hash = ticket ? `#/docs/${alias}/${ticket}/${li.dataset.f}` : `#/docs/${alias}/-/${li.dataset.f}`;
     };
     if (file && pr) {
@@ -380,7 +381,8 @@
     const o = await api('/api/overview');
     const rt = o.runtime;
     const throttled = o.lastRestart && o.lastRestart.minutesAgo < 10;
-    main.innerHTML = `<h1>重启 daemon</h1>
+    main.innerHTML = `<h1>重启</h1>
+      <h2>daemon（飞书机器人与流水线）</h2>
       <div class="card">
         <p>重启 = 写入 <code>data/daemon.stop</code>。daemon 每 10 秒看一眼：<b>没有阶段会话在执行</b>时自行退出（有卡片等人最多再等 5 分钟），看门狗 2 分钟内以最新代码拉起。</p>
         <ul>
@@ -390,9 +392,15 @@
           <li>空窗约 2 分钟：这期间群里的消息会丢；看门狗只在有人登录本机时运行。</li>
         </ul>
         ${o.stopPending ? '<div class="notice">停止信号已在，等 daemon 退出。</div>' : ''}
-        <div class="actions"><button class="danger" id="doRestart" ${o.stopPending ? 'disabled' : ''}>写入停止信号</button></div>
+        <div class="actions"><button class="danger" id="doRestart" ${o.stopPending ? 'disabled' : ''}>重启 daemon</button></div>
+        <h3 class="small muted" style="margin:16px 0 4px">进度</h3><div class="log" id="rlog">（点了之后这里每 5 秒刷新：心跳消失 → 看门狗 RESTART → 心跳恢复）</div>
       </div>
-      <h2>进度</h2><div class="log" id="rlog">（写入后这里每 5 秒刷新：心跳消失 → 看门狗 RESTART → 心跳恢复）</div>`;
+      <h2>web 服务（本控制台 + GitLab 评审 + 结果预览）</h2>
+      <div class="card">
+        <p>改了标着「需重启 web」的配置（如 GitLab 触发词、端口、控制台口令）后用这个。web 服务 5 秒内退出（有 MR 评审在跑会等它跑完），看门狗 2 分钟内拉起。</p>
+        <p class="muted">这个页面本身会断开，重新拉起后要重新输一次口令。</p>
+        <div class="actions"><button class="danger" id="doRestartWeb">重启 web 服务</button></div>
+      </div>`;
     let timer;
     const watch = async () => {
       const x = await api('/api/overview');
@@ -400,9 +408,14 @@
       $('#rlog').textContent += `\n${line}`;
     };
     $('#doRestart').onclick = async (e) => {
-      if (!confirm('确定写入停止信号？')) return;
+      if (!confirm('确定重启 daemon？空闲时才会退出，空窗约 2 分钟。')) return;
       e.target.disabled = true;
-      try { await post('/api/restart'); toast('已写入停止信号'); $('#rlog').textContent = '已写入停止信号'; timer = setInterval(watch, 5000); } catch (err) { toast(err.message, true); }
+      try { await post('/api/restart'); toast('已发出重启'); $('#rlog').textContent = '已写入停止信号'; timer = setInterval(watch, 5000); } catch (err) { toast(err.message, true); }
+    };
+    $('#doRestartWeb').onclick = async (e) => {
+      if (!confirm('确定重启 web 服务？本页面会断开约 2 分钟。')) return;
+      e.target.disabled = true;
+      try { await post('/api/restart-web'); toast('web 服务即将重启，约 2 分钟后刷新本页'); } catch (err) { toast(err.message, true); }
     };
     window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
   }

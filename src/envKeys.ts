@@ -13,7 +13,7 @@ export interface EnvKeySpec {
   desc: string;
   secret?: boolean;
   /** 改后需重启哪个进程；缺省 = 热生效 */
-  restart?: 'daemon' | 'webhook' | 'console';
+  restart?: 'daemon' | 'web';
 }
 
 export interface EnvGroup {
@@ -40,10 +40,10 @@ export const ENV_GROUPS: EnvGroup[] = [
     keys: [
       { key: 'GITLAB_URL', desc: 'GitLab 地址' },
       { key: 'GITLAB_API_TOKEN', desc: 'API token', secret: true },
-      { key: 'GITLAB_WEBHOOK_SECRET', desc: 'webhook 校验密钥', secret: true, restart: 'webhook' },
+      { key: 'GITLAB_WEBHOOK_SECRET', desc: 'webhook 校验密钥', secret: true, restart: 'web' },
       { key: 'GITLAB_REPO_MAP', desc: 'GitLab 项目路径 → 本地仓库（一行 JSON）' },
-      { key: 'GITLAB_TRIGGER', desc: 'MR 评论触发词（默认 @ai-review）', restart: 'webhook' },
-      { key: 'GITLAB_WEBHOOK_PORT', desc: 'webhook / 预览服务端口（默认 8377）', restart: 'webhook' },
+      { key: 'GITLAB_TRIGGER', desc: 'MR 评论触发词（默认 @ai-review）', restart: 'web' },
+      { key: 'GITLAB_WEBHOOK_PORT', desc: 'web 服务端口：GitLab 评审 / 结果预览 / 控制台共用（默认 8377）', restart: 'web' },
       { key: 'GITLAB_DEFAULT_BRANCH', desc: '默认分支名（看板链接用，默认 master）' },
     ],
   },
@@ -107,10 +107,8 @@ export const ENV_GROUPS: EnvGroup[] = [
   {
     name: '预览与控制台',
     keys: [
-      { key: 'PREVIEW_BASE_URL', desc: '结果预览外链前缀（webhook 服务地址）' },
-      { key: 'CONSOLE_TOKEN', desc: '控制台访问口令', secret: true, restart: 'console' },
-      { key: 'CONSOLE_PORT', desc: '控制台端口（默认 8378）', restart: 'console' },
-      { key: 'CONSOLE_BIND', desc: '控制台监听地址（默认 0.0.0.0）', restart: 'console' },
+      { key: 'PREVIEW_BASE_URL', desc: '飞书卡片里结果预览的外链前缀（web 服务地址，如 http://10.0.x.x:8377）' },
+      { key: 'CONSOLE_TOKEN', desc: '控制台访问口令（至少 8 位；不配则 web 服务不挂控制台）', secret: true, restart: 'web' },
     ],
   },
 ];

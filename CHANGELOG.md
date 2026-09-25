@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更
+- **webhook 与控制台合并为一个 web 服务**（`src/web/`，:8377）：GitLab 评审 `/gitlab`、结果预览 `/preview/`、控制台 `/` 三组路由按配置挂载，缺哪组配置就不挂哪组。常驻从 3 个服务 2 个端口降到 2 个服务 1 个端口，:8378 停用；`start-webhook.*` / `start-console.*` 由 `start-web.*` 取代；`CONSOLE_PORT` / `CONSOLE_BIND` 删除。web 也有停止信号 `data/web.stop`，控制台重启页新增「重启 web 服务」。看门狗带一次性迁移：见到旧 `webhook.pid` / `console.pid` 就停掉旧进程、拉起 web。
+- **daemon 与 web 直接 `node --import tsx` 启动**，不经 npm / tsx 命令行：每个服务从 6～7 个进程降到 3 个，各省约 110MB 包装层内存。
+
 ### 新增
 - **控制台**（`npm run console`，:8378，口令 `CONSOLE_TOKEN`）：内网网页，管环境 / 项目配置并热重载（daemon 10 秒内消费 `data/env.reload`，启动时冻结的键标「需重启」）、一键重启（写停止信号，页面跟踪心跳消失与看门狗拉起）、任务 / 需求 / 文档 / 日志只读、工单暂停与继续、体检。独立进程，看门狗一并守护；daemon 新增 `data/runtime.json` 心跳。设计讨论见 `docs/design/2026-09-25-admin-console.md`。
 - 控制台第二轮（产品走查后）：总览首屏「需要你处理」（挂起 / 等回答 / 需求待确认待排期 / 等人工超 3 天）并每 10 秒刷新；任务列表默认隐藏已闭环、需处理排前、带需求标题；负责人从候选人里选（群成员需开通 im:chat.members:read，未开通时列最近 @ 过机器人的人）；文档显示中文名，在途工单的工件从功能分支读取；工件头部元数据剥成一行；日志时间换成本地；侧边栏吸顶修复。

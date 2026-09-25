@@ -1,10 +1,11 @@
-// 控制台：管环境 / 项目配置、看任务 / 需求 / 文档、发起重启。独立进程，与 daemon 只通过 data/ 下的文件说话。
-// 启动：npm run console（需 CONSOLE_TOKEN；端口 CONSOLE_PORT 默认 8378，监听 CONSOLE_BIND 默认 0.0.0.0）
+// 控制台路由：管环境 / 项目配置、看任务 / 需求 / 文档、发起重启。与 daemon 只通过 data/ 下的文件说话。
+// 由 src/web/server.ts 挂载（与 GitLab webhook、结果预览同一进程同一端口）；没有 CONSOLE_TOKEN 就不挂。
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import * as lark from '@larksuiteoapi/node-sdk';
-import http from 'node:http';
+import type http from 'node:http';
+import type { Route } from '../gitlab/routes.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dataDir } from '../paths.js';
@@ -36,19 +37,11 @@ const root = path.resolve(here, '../..');
 const envFile = path.join(root, '.env');
 const webDir = path.join(root, 'web');
 const logsDir = path.join(root, 'logs');
-const log = (m: string) => console.log(`[console] ${new Date().toISOString()} ${m}`);
+let log = (m: string) => console.log(`[console] ${new Date().toISOString()} ${m}`);
 
-const token = process.env.CONSOLE_TOKEN?.trim();
-if (!token || token.length < 8) {
-  console.error('控制台需要 .env 里的 CONSOLE_TOKEN（至少 8 位）；没有口令就不起服务');
-  process.exit(1);
-}
-const port = Number(process.env.CONSOLE_PORT ?? 8378);
-const bind = process.env.CONSOLE_BIND ?? '0.0.0.0';
-
-// 会话 cookie = sha256(口令 + 本进程随机盐)：控制台一重启旧 cookie 全部失效，口令本身不进浏览器
-const salt = randomBytes(16).toString('hex');
-const session = createHash('sha256').update(`${token}:${salt}`).digest('hex');
+// 口令与会话在 createConsoleRoute 里定：会话 cookie = sha256(口令 + 本进程随机盐)，进程一重启旧 cookie 全部失效，口令本身不进浏览器
+let token = '';
+let session = '';
 const COOKIE = 'console_session';
 
 function safeEqual(a: string, b: string): boolean {
@@ -221,6 +214,13 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
     return json(res, 200, { ok: true });
   }
 
+  if (p === '/api/restart-web' && method === 'POST') {
+    // 重启的就是本进程：写信号后 5 秒内退出（有 MR 评审在跑则等），看门狗 2 分钟内拉起——页面会断开一会儿
+    fs.writeFileSync(path.join(dir, 'web.stop'), new Date().toISOString(), 'utf-8');
+    log('已写 web 停止信号 data/web.stop（控制台发起重启 web 服务）');
+    return json(res, 200, { ok: true });
+  }
+
   if (p === '/api/tickets' && method === 'GET') return json(res, 200, ticketRows(readRuntime(dir)));
   let m = /^\/api\/tickets\/([^/]+)(?:\/(pause|resume))?$/.exec(p);
   if (m) {
@@ -228,8 +228,7 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
     if (!TICKET_RE.test(ticket)) return json(res, 400, { error: '工单号不合法' });
     if (!m[2] && method === 'GET') {
       const d = ticketDetail(ticket, readRuntime(dir));
-      // 结果预览走 webhook 服务的 /preview/ 路由；控制台只给链接前缀，不代理
-      return d ? json(res, 200, { ...d, previewBase: process.env.PREVIEW_BASE_URL?.trim().replace(/\/+$/, '') || undefined }) : json(res, 404, { error: '无此工单' });
+      return d ? json(res, 200, d) : json(res, 404, { error: '无此工单' });
     }
     if (method !== 'POST') return json(res, 405, { error: 'method' });
     if (m[2] === 'pause') {
@@ -283,34 +282,50 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
   json(res, 404, { error: 'not found' });
 }
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://x');
-  void (async () => {
+/**
+ * 控制台路由：兜底路由（web 服务里排在预览、GitLab 之后），未登录一律给登录页。
+ * 口令至少 8 位，不够就不挂——没有口令的控制台等于把 .env 交给内网任何人。
+ */
+export function createConsoleRoute(consoleToken: string, logger: (m: string) => void): Route {
+  token = consoleToken;
+  session = createHash('sha256').update(`${token}:${randomBytes(16).toString('hex')}`).digest('hex');
+  log = logger;
+  return async (req, res, url) => {
     try {
       if (url.pathname === '/api/login' && req.method === 'POST') {
         const b = (await readBody(req)) as { token?: string };
         if (typeof b.token === 'string' && safeEqual(b.token, token)) {
           res.writeHead(200, { 'set-cookie': `${COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${7 * 86400}` }).end('ok');
           log(`登录成功（来自 ${req.socket.remoteAddress}）`);
-          return;
+          return true;
         }
         log(`登录失败（来自 ${req.socket.remoteAddress}）`);
         await new Promise((r) => setTimeout(r, 1000)); // 错一次等一秒：挡住暴力试口令
-        return text(res, 401, 'unauthorized');
+        text(res, 401, 'unauthorized');
+        return true;
       }
       if (url.pathname === '/api/logout' && req.method === 'POST') {
-        return void res.writeHead(200, { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` }).end('ok');
+        res.writeHead(200, { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` }).end('ok');
+        return true;
       }
-      if (url.pathname === '/style.css') return serveStatic(url.pathname, res); // 登录页也要样式
-      if (!authed(req)) return url.pathname.startsWith('/api/') ? json(res, 401, { error: 'unauthorized' }) : text(res, 200, LOGIN_PAGE, 'text/html; charset=utf-8');
-      if (url.pathname.startsWith('/api/')) return await api(req, res, url);
+      if (url.pathname === '/style.css') {
+        serveStatic(url.pathname, res); // 登录页也要样式
+        return true;
+      }
+      if (!authed(req)) {
+        if (url.pathname.startsWith('/api/')) json(res, 401, { error: 'unauthorized' });
+        else text(res, 200, LOGIN_PAGE, 'text/html; charset=utf-8');
+        return true;
+      }
+      if (url.pathname.startsWith('/api/')) {
+        await api(req, res, url);
+        return true;
+      }
       serveStatic(url.pathname, res);
     } catch (e) {
       log(`${req.method} ${url.pathname} 失败：${(e as Error).message}`);
       if (!res.headersSent) json(res, 500, { error: (e as Error).message });
     }
-  })();
-});
-
-server.listen(port, bind, () => log(`控制台已启动：http://${bind === '0.0.0.0' ? '<本机IP>' : bind}:${port}（数据目录 ${dataDir()}）`));
-process.on('SIGTERM', () => process.exit(0));
+    return true;
+  };
+}

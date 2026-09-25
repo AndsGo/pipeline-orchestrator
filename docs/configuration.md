@@ -49,16 +49,16 @@ PIPELINE_PROJECTS={"lakeghost":{"repo":"D:/work/lake_spirit","prefix":"LS","gitl
 | `GITLAB_WEBHOOK_SECRET` | MR 评论评审服务的 webhook 校验 |
 | `GITLAB_REPO_MAP` | `{"group/project":"D:/work/local-clone"}`，评审服务用 |
 | `GITLAB_TRIGGER` | MR 评论触发词，默认 `@ai-review` |
-| `GITLAB_WEBHOOK_PORT` | 默认 8377，同时承载结果预览页 |
+| `GITLAB_WEBHOOK_PORT` | web 服务端口，默认 8377：GitLab 评审、结果预览、控制台共用 |
 | `PREVIEW_BASE_URL` | 业务人员点开预览页的地址，如 `http://10.0.x.x:8377`。不配则卡片只写文件路径 |
 
 ### 控制台（可选）
 
 | 键 | 说明 |
 |---|---|
-| `CONSOLE_TOKEN` | 控制台口令，至少 8 位。**等价于管理员权限**（能改 `.env`、发起重启），别复用别处的密码；控制台不启动就不需要 |
-| `CONSOLE_PORT` | 默认 8378 |
-| `CONSOLE_BIND` | 默认 `0.0.0.0`（内网可达）；只想本机用改 `127.0.0.1` |
+| `CONSOLE_TOKEN` | 控制台口令，至少 8 位。**等价于管理员权限**（能改 `.env`、发起重启），别复用别处的密码。不配则 web 服务不挂控制台 |
+
+控制台挂在 web 服务上（与 GitLab 评审、结果预览同一端口），没有单独的端口配置。
 
 控制台改 `.env` 后 daemon 10 秒内热重载：按调用时读的键直接生效，启动时冻结的键（飞书三键、`PIPELINE_MAX_CONCURRENCY`、`PIPELINE_DEFAULT_REPO`、两个路径）页面上标「需重启」。哪些键属于哪档见 `src/envKeys.ts`。
 

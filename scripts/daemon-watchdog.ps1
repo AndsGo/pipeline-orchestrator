@@ -41,7 +41,7 @@ function RestartDaemon([string]$reason) {
 
 # pid 文件里的进程是不是我们那个 daemon 启动器：机器重启后旧 pid 可能被别的进程占用，
 # 光看 Get-Process 会把陌生进程当活 daemon（2026-09-07 重启后 14:41～14:49 五轮没拉起）。
-# 判据：进程名是 cmd（start-daemon 用 cmd /c npm run daemon 起的），且启动时间不晚于 pid 文件写入时间 + 10 秒
+# 判据：进程名是 cmd（start-daemon 用 cmd /c node --import tsx src/daemon.ts 起的），且启动时间不晚于 pid 文件写入时间 + 10 秒
 function IsOurDaemon([string]$daemonPid) {
   if (-not $daemonPid) { return $false }
   $p = Get-Process -Id $daemonPid -ErrorAction SilentlyContinue
@@ -80,23 +80,32 @@ if (-not (Test-Path $bak)) {
   } catch { WdLog "备份失败：$($_.Exception.Message)" }
 }
 
-# ①b webhook 守护（仅当用 start-webhook.ps1 启动过、存在 pid 文件时）：进程死了就拉起
-$whPidFile = Join-Path $root 'data\webhook.pid'
-if (Test-Path $whPidFile) {
-  $whPid = Get-Content $whPidFile
-  if (-not (Get-Process -Id $whPid -ErrorAction SilentlyContinue)) {
-    WdLog 'RESTART-WEBHOOK (dead)'
-    & (Join-Path $PSScriptRoot 'start-webhook.ps1') | Out-Null
-  }
+# ①b 迁移（2026-09-25 webhook 与控制台合并为 web 服务）：旧 pid 文件还在 → 停掉旧进程、拉起 web。
+# 放在看门狗里做，是因为旧 webhook 是本任务拉起的提权进程，普通 shell 杀不动。只会触发一次（旧 pid 文件随即删除）
+$migrated = $false
+foreach ($old in 'webhook', 'console') {
+  $oldPidFile = Join-Path $root "data\$old.pid"
+  if (-not (Test-Path $oldPidFile)) { continue }
+  $oldPid = (Get-Content $oldPidFile -Raw).Trim([char]0xFEFF).Trim()
+  if ($oldPid) { cmd /c "taskkill /PID $oldPid /T /F 2>nul" | Out-Null }
+  Remove-Item $oldPidFile -Force -ErrorAction SilentlyContinue
+  WdLog "MIGRATE $old → web（已停旧进程 $oldPid）"
+  $migrated = $true
+}
+if ($migrated -and -not (Test-Path (Join-Path $root 'data\web.pid'))) {
+  Start-Sleep -Seconds 2
+  $out = (& (Join-Path $PSScriptRoot 'start-web.ps1') *>&1 | Out-String).Trim()
+  WdLog "start-web → $(($out -split "`r?`n" | Select-Object -First 1))"
 }
 
-# ①c 控制台守护（同上：仅当存在 data\console.pid）
-$csPidFile = Join-Path $root 'data\console.pid'
-if (Test-Path $csPidFile) {
-  $csPid = Get-Content $csPidFile
-  if (-not (Get-Process -Id $csPid -ErrorAction SilentlyContinue)) {
-    WdLog 'RESTART-CONSOLE (dead)'
-    & (Join-Path $PSScriptRoot 'start-console.ps1') | Out-Null
+# ①c web 服务守护（GitLab 评审 + 结果预览 + 控制台；仅当用 start-web.ps1 启动过、存在 pid 文件时）：进程死了就拉起。
+# 也是 web 的部署路径：写 data\web.stop 它自退，这里拉起
+$webPidFile = Join-Path $root 'data\web.pid'
+if (Test-Path $webPidFile) {
+  $webPid = (Get-Content $webPidFile -Raw).Trim([char]0xFEFF).Trim()
+  if (-not (Get-Process -Id $webPid -ErrorAction SilentlyContinue)) {
+    WdLog 'RESTART-WEB (dead)'
+    & (Join-Path $PSScriptRoot 'start-web.ps1') | Out-Null
   }
 }
 
