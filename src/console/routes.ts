@@ -141,7 +141,8 @@ async function peopleHints(): Promise<PeopleResult> {
   let gotMembers = false;
   const { FEISHU_APP_ID: appId, FEISHU_APP_SECRET: appSecret, FEISHU_CHAT_ID: mainChat } = process.env;
   if (appId && appSecret) {
-    const client = new lark.Client({ appId, appSecret, loggerLevel: lark.LoggerLevel.fatal }) // 权限错误我们自己捕获并降级，别让 SDK 整段打进日志;
+    // 权限错误我们自己捕获并降级，别让 SDK 整段打进日志
+    const client = new lark.Client({ appId, appSecret, loggerLevel: lark.LoggerLevel.fatal });
     const chats = [...new Set([mainChat, ...projectsNow().map((p) => p.chatId)].filter((c): c is string => !!c))];
     for (const chat_id of chats) {
       try {
