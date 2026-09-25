@@ -43,12 +43,14 @@ bash 版的 `.env` 装载与 `doctor.ts` 同一口径（逐行按第一个 `=` �
 
 处理两类故障：**进程死了** → 拉起；**进程活着但飞书长连接僵死**（DNS 抖动后 SDK 重试不自愈，实测过）→ 无在跑会话时重启。安全约束：daemon 树下有 `bash` / `claude` 子进程（阶段会话在跑）时绝不重启；10 分钟内不重复重启。顺带每日备份 `data/`、修剪自身日志、守护 webhook 进程。
 
-**注册为计划任务**（管理员终端，随开机自启）：
+**注册为计划任务**（管理员终端，随开机自启；已注册过的再跑一次即更新）：
 
 ```powershell
-schtasks /Create /TN "PipelineDaemonWatchdog" /SC MINUTE /MO 2 /F `
-  /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\work\demo\pipeline-orchestrator\scripts\daemon-watchdog.ps1\""
+.\scripts\register-watchdog.ps1         # 只在有人登录时运行
+.\scripts\register-watchdog.ps1 -S4U    # 不管有没有人登录都运行（机器重启后无人登录也能拉起 daemon）
 ```
+
+动作是 `conhost.exe --headless powershell.exe …`：直接跑 `powershell.exe` 会每 2 分钟在桌面弹一个黑框，重启时要跑十来秒尤其显眼。任务已存在时脚本只替换动作（`-S4U` 时连登录方式），触发器不动。
 
 或不注册、跑一个循环（不随开机自启）：
 

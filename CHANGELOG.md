@@ -6,6 +6,7 @@
 
 ### 变更
 - **webhook 与控制台合并为一个 web 服务**（`src/web/`，:8377）：GitLab 评审 `/gitlab`、结果预览 `/preview/`、控制台 `/` 三组路由按配置挂载，缺哪组配置就不挂哪组。常驻从 3 个服务 2 个端口降到 2 个服务 1 个端口，:8378 停用；`start-webhook.*` / `start-console.*` 由 `start-web.*` 取代；`CONSOLE_PORT` / `CONSOLE_BIND` 删除。web 也有停止信号 `data/web.stop`，控制台重启页新增「重启 web 服务」。看门狗带一次性迁移：见到旧 `webhook.pid` / `console.pid` 就停掉旧进程、拉起 web。
+- **看门狗计划任务不再弹黑框**：新增 `scripts/register-watchdog.ps1`，动作改为 `conhost.exe --headless powershell.exe …`；`-S4U` 可让任务在无人登录时也运行。已注册的任务在管理员终端跑一次即更新（只换动作，触发器不动）。
 - **daemon 与 web 直接 `node --import tsx` 启动**，不经 npm / tsx 命令行：每个服务从 6～7 个进程降到 3 个，各省约 110MB 包装层内存。
 
 ### 新增

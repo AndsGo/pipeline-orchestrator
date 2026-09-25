@@ -135,6 +135,7 @@ scripts/start-ticket.sh --repo /work/x --ticket LS-003 --start review
 | `start-daemon.ps1 [-Stop]` / `start-daemon.sh [--stop]` | 启停 daemon（单实例检查、`.env` 装载、日志轮转、启动核实、停止信号） |
 | `start-watchdog.ps1 [-Stop]` / `start-watchdog.sh [--stop]` | 以循环方式跑看门狗（不随开机自启；开机自启用 `schtasks` / cron，见 [operations.md](operations.md#看门狗)） |
 | `daemon-watchdog.ps1` / `daemon-watchdog.sh` | 看门狗本体（计划任务 / cron 调它） |
+| `register-watchdog.ps1 [-S4U]` | 注册 / 更新看门狗计划任务（管理员终端；无窗口；`-S4U` 不登录也运行） |
 | `start-web.ps1 [-Stop]` / `start-web.sh [--stop]` | 启停 web 服务（有 pid 文件时看门狗一并守护；杀不动时写停止信号） |
 | `start-ticket.ps1` / `start-ticket.sh` | `npm run orchestrate` 的后台包装 |
 | `_lib.sh` | bash 版共用函数（`.env` 装载、进程树、日志轮转），不单独执行 |

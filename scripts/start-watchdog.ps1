@@ -1,8 +1,7 @@
 ﻿# 启动常驻看门狗循环（计划任务注册需要管理员权限时的替代方案）
 #   .\scripts\start-watchdog.ps1          # 启动（每 2 分钟检查一次 daemon）
 #   .\scripts\start-watchdog.ps1 -Stop    # 停止
-# 注意：本方式不随开机自启。要开机自启，在管理员终端注册计划任务：
-#   schtasks /Create /TN "PipelineDaemonWatchdog" /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\work\demo\pipeline-orchestrator\scripts\daemon-watchdog.ps1\"" /SC MINUTE /MO 2 /F
+# 注意：本方式不随开机自启。要开机自启，在管理员终端跑 .\scripts\register-watchdog.ps1（无窗口的计划任务）
 param([switch]$Stop)
 
 $root = Split-Path $PSScriptRoot -Parent
