@@ -141,6 +141,8 @@ export interface Overview {
   daemon: { pid: number | null; alive: boolean };
   /** 看门狗最后一次 RESTART 的时间（ISO，本地时区无 Z）与距今分钟数 */
   lastRestart: { at: string; minutesAgo: number } | null;
+  /** 看门狗最近一次巡检（data/watchdog.last-run；旧版看门狗不写这个文件时为 null） */
+  watchdog: { at: string; ageSec: number; session?: number; interactive?: boolean } | null;
   stopPending: boolean;
   reloadPending: boolean;
   tickets: { total: number; running: number; halted: number; closed: number };
@@ -166,6 +168,16 @@ export function pidAlive(pid: number): boolean {
     return true;
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+export function readWatchdogStamp(dir: string, now = Date.now()): Overview['watchdog'] {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(dir, 'watchdog.last-run'), 'utf-8').replace(/^﻿/, '')) as { at: string; session?: number; interactive?: boolean };
+    const t = Date.parse(s.at);
+    return Number.isNaN(t) ? null : { ...s, ageSec: Math.max(0, Math.round((now - t) / 1000)) };
+  } catch {
+    return null;
   }
 }
 
@@ -277,6 +289,7 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
     runtime,
     daemon: { pid, alive },
     lastRestart: lastRestartFrom(opts.watchdogLog, now),
+    watchdog: readWatchdogStamp(opts.dir, now),
     stopPending: fs.existsSync(path.join(opts.dir, 'daemon.stop')),
     reloadPending: fs.existsSync(path.join(opts.dir, 'env.reload')),
     tickets,

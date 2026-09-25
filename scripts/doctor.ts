@@ -89,8 +89,21 @@ console.log('\n== 项目配置 ==');
 const projects = loadProjects();
 if (!projects.length) add('❌', 'PIPELINE_PROJECTS', '解析不出任何项目');
 const cfg = projectCfgFromEnv();
+// 看门狗按 S4U 注册时（register-watchdog.ps1 -S4U），它拉起的 daemon 跑在无密码的后台会话里，
+// Windows 凭据管理器解不开——HTTP 远端 + credential.helper=manager 的仓库推分支会失败或卡住（2026-09-26 排查）
+// 不用 schtasks /xml：它输出 UTF-16，按 UTF-8 读正则永远匹配不上
+const wdS4U =
+  process.platform === 'win32' &&
+  /S4U/.test(tryExec('powershell -NoProfile -Command "(Get-ScheduledTask PipelineDaemonWatchdog -ErrorAction SilentlyContinue).Principal.LogonType"') ?? '');
 for (const p of projects) {
   const probs: string[] = [];
+  if (wdS4U && fs.existsSync(path.join(p.repo, '.git'))) {
+    const url = tryExec(`git -C "${p.repo}" remote get-url --push origin`) ?? '';
+    const helper = tryExec(`git -C "${p.repo}" config --get credential.helper`) ?? '';
+    if (/^https?:\/\//.test(url) && /manager/.test(helper) && !/\/\/[^/]*@/.test(url)) {
+      probs.push('看门狗是 S4U，但 origin 是 HTTP + 凭据管理器（S4U 下读不到，推分支会失败）；改用 SSH 远端：git remote set-url origin git@<host>:<group>/<repo>.git');
+    }
+  }
   if (!fs.existsSync(p.repo)) probs.push('仓库路径不存在');
   else if (!fs.existsSync(path.join(p.repo, '.git'))) probs.push('不是 git 仓库');
   else if (!fs.existsSync(path.join(p.repo, 'CLAUDE.md'))) probs.push('无 CLAUDE.md（建议补）');
@@ -109,7 +122,7 @@ for (const p of projects) {
   if (ciJob && (!process.env.JENKINS_USER || !process.env.JENKINS_TOKEN)) probs.push('配了 CI 任务但缺 JENKINS_USER/TOKEN');
   const dup = projects.filter((q) => q.prefix.toLowerCase() === p.prefix.toLowerCase()).length > 1;
   if (dup) probs.push(`前缀 ${p.prefix} 与其他项目冲突（路由会把工单派错仓库）`);
-  const fatal = probs.some((s) => s.includes('不存在') || s.includes('不是 git') || s.includes('冲突') || s.includes('缺 JENKINS'));
+  const fatal = probs.some((s) => s.includes('不存在') || s.includes('不是 git') || s.includes('冲突') || s.includes('缺 JENKINS') || s.includes('S4U'));
   add(probs.length ? (fatal ? '❌' : '⚠️') : '✅', `项目 ${p.alias}（${p.prefix}-）`, probs.join('；') || `${p.repo}${ciJob ? ` · CI ${ciJob}${p.jenkins ? '' : '（单项目全局兜底）'}` : ' · 无 CI（工单直达验收；要走 CI 请给该项目配 jenkins 字段）'}`);
 }
 

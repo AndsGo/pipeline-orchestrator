@@ -119,7 +119,8 @@
         <div class="tile"><div class="k">工单</div><div class="v">${o.tickets.total}</div><div class="s">挂起 ${o.tickets.halted} · 闭环 ${o.tickets.closed}</div></div>
         <div class="tile"><div class="k">需求池</div><div class="v">${o.reqs.open}</div><div class="s">进行中 / 共 ${o.reqs.total}</div></div>
         <div class="tile"><div class="k">今日阶段成本</div><div class="v">${money(o.todayCost)}</div><div class="s">${rt?.adhoc.count ? `本次运行临时执行 ${rt.adhoc.count} 次 · ${money(rt.adhoc.cost)}` : '—'}</div></div>
-        <div class="tile"><div class="k">上次看门狗重启</div><div class="v">${o.lastRestart ? fmtAgo(o.lastRestart.minutesAgo * 60000) : '无记录'}</div><div class="s">${o.lastRestart ? esc(o.lastRestart.at.replace('T', ' ')) : ''}</div></div>
+        <div class="tile"><div class="k">看门狗</div><div class="v">${o.watchdog ? `<span class="dot ${o.watchdog.ageSec < 300 ? 'good' : 'bad'}"></span>${o.watchdog.ageSec < 60 ? `${o.watchdog.ageSec} 秒前` : fmtAgo(o.watchdog.ageSec * 1000)}` : '–'}</div>
+          <div class="s">${o.watchdog ? `上次巡检${o.watchdog.ageSec >= 300 ? '（超过 5 分钟没跑，查计划任务）' : ''}` : '未记录巡检（看门狗是旧版）'} · ${o.lastRestart ? `上次重启 ${fmtAgo(o.lastRestart.minutesAgo * 60000)}` : '无重启记录'}</div></div>
       </div>
       </section>
       <div class="split wide-left">

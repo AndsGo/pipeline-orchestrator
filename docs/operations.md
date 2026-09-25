@@ -52,6 +52,8 @@ bash 版的 `.env` 装载与 `doctor.ts` 同一口径（逐行按第一个 `=` �
 
 动作是 `conhost.exe --headless powershell.exe …`：直接跑 `powershell.exe` 会每 2 分钟在桌面弹一个黑框，重启时要跑十来秒尤其显眼。任务已存在时脚本只替换动作（`-S4U` 时连登录方式），触发器不动。
 
+用 `-S4U` 前确认：daemon 会跑在无密码的后台会话里，**Windows 凭据管理器解不开**。项目仓库若是 HTTP 远端 + Git Credential Manager，阶段会话推分支会失败，先把 origin 换成 SSH（`git remote set-url origin git@<host>:<group>/<repo>.git`）；Claude / Codex 的登录态是文件，不受影响。`doctor` 会检查这一项。看门狗每轮写 `data/watchdog.last-run`（时间与会话号，S4U 下是 session 0），控制台总览据此显示上次巡检时间。
+
 或不注册、跑一个循环（不随开机自启）：
 
 ```powershell
