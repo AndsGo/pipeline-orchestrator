@@ -275,7 +275,7 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
 
   if (p === '/api/logs' && method === 'GET') {
     const name = url.searchParams.get('file') ?? 'daemon';
-    if (!/^(daemon|watchdog|webhook|console)$/.test(name)) return json(res, 400, { error: 'file' });
+    if (!/^(daemon|web|watchdog|webhook|console)$/.test(name)) return json(res, 400, { error: 'file' });
     return json(res, 200, tailLog(path.join(logsDir, `${name}.log`), Number(url.searchParams.get('lines') ?? 200), url.searchParams.get('q') ?? undefined));
   }
 
