@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.8.0-rc.1] — 2026-10-14
+
+### 新增与变更
+- Claude Code、Codex 和 OpenCode 共用命名执行配置，可按全局、项目和入口选择；工单与续聊冻结模型、参数和原生身份，在明确阶段边界切换。
+- 新任务默认使用 Codex；OpenCode 未指定模型时优先内置免费模型 `opencode/space-bunny-free`，显式模型优先，不自动切换付费模型。
+- 控制台支持执行配置及用途验证；使用 `AGENTS.md` 通用规则和 `docs/pipeline/PROJECT-KNOWLEDGE.md` 项目知识，兼容既有 Claude 输入。
+- 增加原生调用记录、成本未知状态、恢复与回滚检查，以及三引擎验收脚本和证据。
+
+### 验证与发布状态
+- 47 个测试文件、598 项测试、TypeScript 类型检查和前端语法检查通过。
+- Claude 和本地供应商 OpenCode 的完整工单及角色证据通过；OpenCode 内置免费模型实际 run JSON 调用通过。
+- 候选版：真实 Codex 工单仍受 Windows 原生沙箱阻挡；OpenCode 免费服务拒绝禁用工具或只读探测，完整用途验证未通过；Astra 最终统一验收尚未完成。
+- 合并和发布不代表生产部署。详见 `docs/acceptance/2026-10-13-release-closure.md`。
+
 ## [0.7.0] — 2026-09-26
 
 ### 新增
