@@ -1,0 +1,32 @@
+{
+  "startedAt": "2026-10-13T15:05:54.726Z",
+  "scope": "Actual native Codex sandbox commands; no model requests, no saved native sandbox configuration changes",
+  "mode": "mxc",
+  "fixture": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx",
+  "checks": [
+    "Native command startup"
+  ],
+  "processEvidence": {
+    "calls": [
+      {
+        "file": "processes/001.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx\\repo",
+        "code": 0
+      },
+      {
+        "file": "processes/002.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx\\repo",
+        "code": 3221225794
+      }
+    ],
+    "errors": []
+  },
+  "tools": {
+    "code": 3221225794,
+    "stdout": "",
+    "stderr": "���Զԡ�FileSystem���ṩ����ִ�� InitializeDefaultDrives ����ʧ�ܡ�\r\n      0 [main] bash (34096) C:\\Program Files\\Git\\bin\\..\\usr\\bin\\bash.exe: *** fatal error - NtCreateDirectoryObject(\\BaseNamedObjects\\msys-2.0S5-1888ae32e00d56aa): 0xC0000022\n"
+  },
+  "status": "NOT_PASS",
+  "error": "Bash / original SDD scripts / unmodified npm test failed",
+  "finishedAt": "2026-10-13T15:05:56.087Z"
+}

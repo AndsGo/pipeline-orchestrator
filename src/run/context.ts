@@ -4,7 +4,7 @@ import type { Project } from '../projects.js';
 import { generatePrototype } from '../prototype.js';
 import { engineFor } from '../engine/index.js';
 import type { runStage } from '../runner.js';
-import { saveTicket } from '../ticket.js';
+import { saveTicket, readSnapshot } from '../ticket.js';
 import type { RunTicketOpts } from '../ticketRunner.js';
 import { TRANSIENT_RETRY_DELAY_MS } from '../transient.js';
 import type { Stage, TicketState } from '../types.js';
@@ -46,16 +46,18 @@ export class TicketRun {
     this.ticket = opts.ticket;
     this.port = opts.port;
     this.project = opts.project;
-    // 缺省按仓库的流程约定选引擎（engine / engine.<stage>），每次调用时读——中途改 PIPELINE.md 下一阶段就生效
-    this.stageRunner = opts.stageRunner ?? ((repo, ticket, stage, extraArgs, model) => engineFor(repo, stage).runStage(repo, ticket, stage, extraArgs, model));
-    this.prototype = opts.prototype ?? generatePrototype;
+    // Existing tickets always use their frozen stage snapshot; explicit switches occur at boundaries.
+    this.stageRunner = opts.stageRunner ?? ((repo, ticket, stage, extraArgs, model) => engineFor(repo, stage, this.state.executionPlan?.[stage]).runStage(repo, ticket, stage, extraArgs, model));
+    this.prototype = opts.prototype ?? ((repo, ticket) => generatePrototype(repo, ticket, this.state.executionPlan?.prototype));
     this.transientRetryDelayMs = opts.transientRetryDelayMs ?? TRANSIENT_RETRY_DELAY_MS;
     this.state = state;
     // 续跑时恢复上次未用掉的阶段参数（暂停/重启不能丢掉修复轮的 findings 指针）
     this.extraArgs = state.pendingExtraArgs ?? '';
   }
 
-  save(): void {
+  save(consumeRewind = false): void {
+    const disk = readSnapshot(this.ticket);
+    if (!consumeRewind && disk?.pendingRewind) this.state = { ...this.state, pendingRewind: disk.pendingRewind };
     saveTicket(this.state);
   }
 

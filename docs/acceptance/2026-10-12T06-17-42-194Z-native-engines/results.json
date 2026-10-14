@@ -1,0 +1,218 @@
+{
+  "startedAt": "2026-10-12T06:17:42.195Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-native-engines-wG3JoV",
+  "scope": "User-approved native constraints; real draft validation and isolated activation; no production changes",
+  "engines": {
+    "codex": {
+      "plan": {
+        "profile": "d24a5c24c9265df5742c9cd3cb79d2593755489a63bf41efaa68c1ce53c5b6e1",
+        "entries": [
+          "run",
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "run",
+            "model": "gpt-6.1-sol",
+            "calls": 4,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+              "turns": {
+                "requested": 40,
+                "enforced": false,
+                "scope": "无原生轮数上限"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "windowsSandbox": "unelevated",
+              "effort": {
+                "requested": "low",
+                "applied": true,
+                "scope": "model_reasoning_effort，max 映射为 xhigh"
+              },
+              "subagents": "原生 spawn_agent；角色模型依原生配置"
+            }
+          },
+          {
+            "entry": "implement",
+            "model": "gpt-6.1-sol",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+              "turns": {
+                "requested": 40,
+                "enforced": false,
+                "scope": "无原生轮数上限"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "windowsSandbox": "unelevated",
+              "effort": {
+                "requested": "low",
+                "applied": true,
+                "scope": "model_reasoning_effort，max 映射为 xhigh"
+              },
+              "subagents": "原生 spawn_agent；角色模型依原生配置"
+            }
+          }
+        ],
+        "calls": 9,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "b98528b2888dc329597997613645b0912b16404726ee3d4c186e4866686add50"
+      },
+      "validation": {
+        "ok": false,
+        "profileId": "native-codex",
+        "at": "2026-10-12T06:17:42.198Z",
+        "checks": [
+          "CLI 可执行：codex-cli 0.162.1",
+          "run / gpt-6.1-sol：JSON 契约通过",
+          "run / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+          "run / gpt-6.1-sol：原生只读权限拒绝写入通过",
+          "implement / gpt-6.1-sol：JSON 契约通过",
+          "implement / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+          "implement / gpt-6.1-sol：原生只读权限拒绝写入通过"
+        ],
+        "errors": [
+          "子代理探测缺少原生工具调用与独立结果证据"
+        ],
+        "costUsd": 0,
+        "resolved": {
+          "run": "gpt-6.1-sol",
+          "implement": "gpt-6.1-sol"
+        },
+        "costStatus": "unknown",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+            "turns": {
+              "requested": 40,
+              "enforced": false,
+              "scope": "无原生轮数上限"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "windowsSandbox": "unelevated",
+            "effort": {
+              "requested": "low",
+              "applied": true,
+              "scope": "model_reasoning_effort，max 映射为 xhigh"
+            },
+            "subagents": "原生 spawn_agent；角色模型依原生配置"
+          },
+          {
+            "mode": "native",
+            "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+            "turns": {
+              "requested": 40,
+              "enforced": false,
+              "scope": "无原生轮数上限"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "windowsSandbox": "unelevated",
+            "effort": {
+              "requested": "low",
+              "applied": true,
+              "scope": "model_reasoning_effort，max 映射为 xhigh"
+            },
+            "subagents": "原生 spawn_agent；角色模型依原生配置"
+          }
+        ],
+        "cliVersion": "codex-cli 0.162.1",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+        "credentialContext": "cf402cc1bd671b1cbf96bdc1c21c6b061eb237c6e01cc4e68fbc01ba0d91d0ca",
+        "childEvidence": {
+          "secretReturned": true,
+          "events": [
+            {
+              "type": "thread.started",
+              "keys": []
+            },
+            {
+              "type": "turn.started",
+              "keys": []
+            },
+            {
+              "type": "item.completed",
+              "itemType": "agent_message",
+              "keys": [
+                "id",
+                "type",
+                "text"
+              ]
+            },
+            {
+              "type": "item.started",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.completed",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.completed",
+              "itemType": "agent_message",
+              "keys": [
+                "id",
+                "type",
+                "text"
+              ]
+            },
+            {
+              "type": "turn.completed",
+              "keys": []
+            }
+          ]
+        }
+      },
+      "isolatedProfileState": "draft"
+    }
+  },
+  "finishedAt": "2026-10-12T06:21:01.366Z",
+  "productionConfigurationChanged": false
+}

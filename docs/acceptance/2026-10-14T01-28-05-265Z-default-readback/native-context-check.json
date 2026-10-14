@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-10-14T01:33:38.737Z",
+  "default": "codex-default",
+  "revision": 3,
+  "validationAt": "2026-10-13T14:53:31.033Z",
+  "accountMatches": true,
+  "commandMatches": true,
+  "versionMatches": true,
+  "credentialContextMatches": false,
+  "profile": {
+    "model": "gpt-6.1-sol",
+    "effort": "native",
+    "windowsSandbox": "unelevated"
+  },
+  "nativeConfig": {
+    "file": "C:\\Users\\Administrator\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\config.toml",
+    "lastWriteTime": "2026-10-14T01:03:45.494Z",
+    "model": "gpt-6-astra",
+    "modelReasoningEffort": "low",
+    "sandbox": "elevated"
+  },
+  "authFileLastWriteTime": "2026-10-13T10:09:35.157Z"
+}

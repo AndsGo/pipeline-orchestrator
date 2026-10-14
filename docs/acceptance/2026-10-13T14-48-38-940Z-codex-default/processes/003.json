@@ -1,0 +1,7 @@
+{
+  "command": "D:\\Programs\\nodejs\\node.exe",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-zAMd4j",
+  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a135bc-f143-7073-b122-857a96ab4253\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"nonce\\\":\\\"9a5b3c91-acdb-498d-ac31-06f22c7f8070\\\"}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15780,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":37,\"reasoning_output_tokens\":0}}\n",
+  "stderr": "",
+  "code": 0
+}

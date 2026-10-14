@@ -168,11 +168,23 @@ export function timeline(ticket: string, limit = 20): string {
   return head + shown.map((e) => `${ICON[e.type] ?? '·'} \`${hhmm(e.ts)}\` ${e.summary}`).join('\n');
 }
 
-/** 工单成本合计（从 stage.end 事件累加，与快照台账互为校验） */
+/** Reported costs of failed calls; unknown unreported usage is not fabricated. */
+export function failureCost(ticket: string): number {
+  return readEvents(ticket).filter(e => e.type === 'error').reduce((sum, e) => sum + (Number(e.payload?.costUsd) || 0), 0);
+}
+/** 工单已报告成本合计：正常阶段与失败调用。 */
 export function totalCost(ticket: string): number {
   return readEvents(ticket)
-    .filter((e) => e.type === 'stage.end')
+    .filter((e) => e.type === 'stage.end' || e.type === 'error' || e.type === 'triage')
     .reduce((s, e) => s + (Number(e.payload?.costUsd) || 0), 0);
+}
+export function ticketCostStatus(ticket: string): 'reported' | 'partial' | 'unknown' {
+  const billed = readEvents(ticket).filter(e => e.type === 'stage.end' || e.type === 'error' || e.type === 'triage');
+  if (!billed.some(e => e.payload?.costStatus === 'unknown' || e.payload?.costStatus === 'partial')) return 'reported';
+  return billed.some(e => typeof e.payload?.costUsd === 'number' && e.payload.costStatus !== 'unknown') ? 'partial' : 'unknown';
+}
+export function triageCost(ticket: string): number {
+  return readEvents(ticket).filter(e => e.type === 'triage').reduce((sum, e) => sum + (Number(e.payload?.costUsd) || 0), 0);
 }
 
 /**

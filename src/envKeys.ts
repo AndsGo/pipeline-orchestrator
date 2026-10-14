@@ -98,10 +98,18 @@ export const ENV_GROUPS: EnvGroup[] = [
     name: 'Codex',
     keys: [
       { key: 'PIPELINE_CODEX_BIN', desc: 'codex 可执行文件' },
+      { key: 'PIPELINE_CODEX_HOME', desc: '编排器使用的既有 Codex 原生目录；改变后须重启服务并重新验证执行配置', restart: 'daemon' },
       { key: 'PIPELINE_CODEX_MODEL', desc: 'codex 模型' },
       { key: 'PIPELINE_CODEX_PRICE_IN', desc: '输入单价（$/M tokens）' },
       { key: 'PIPELINE_CODEX_PRICE_CACHED', desc: '缓存命中单价' },
       { key: 'PIPELINE_CODEX_PRICE_OUT', desc: '输出单价' },
+    ],
+  },
+  {
+    name: 'OpenCode',
+    keys: [
+      { key: 'PIPELINE_OPENCODE_BIN', desc: 'opencode 可执行文件' },
+      { key: 'PIPELINE_OPENCODE_MODEL', desc: '模型覆盖；留空默认 opencode/space-bunny-free，命名配置中的模型优先' },
     ],
   },
   {

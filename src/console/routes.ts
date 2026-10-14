@@ -31,6 +31,10 @@ import {
 } from './api.js';
 import type { Project } from '../projects.js';
 import { readSnapshot } from '../ticket.js';
+import { capabilities, ENTRIES, freezePlan, profileFingerprint, readConfiguration, writeConfiguration, type Configuration, type AgentProfile, type Entry, ExecutionConfigError } from '../engine/configuration.js';
+import { recordValidation, validateProfile, validationPlan } from '../engine/validation.js';
+const runningProbes = new Set<string>();
+import { queueExecutionSwitch, pendingSwitch } from '../engine/tickets.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -170,6 +174,68 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
   const p = url.pathname;
   const method = req.method ?? 'GET';
   const dir = dataDir();
+
+  if (p === '/api/agents' && method === 'GET') {
+    const configuration = readConfiguration();
+    return json(res, 200, { configuration, entries: ENTRIES, capabilities: Object.fromEntries(['claude', 'codex', 'opencode'].map(cli => [cli, capabilities(cli as AgentProfile['cli'])])), projects: projectsNow().map(project => ({ alias: project.alias, repo: project.repo })) });
+  }
+  if (p === '/api/agents' && method === 'PUT') {
+    const b = await readBody(req) as { revision: number; configuration: Configuration };
+    const previous = readConfiguration();
+    if (!b.configuration || !Array.isArray(b.configuration.profiles)) return json(res, 400, { error: '执行配置格式不合法' });
+    const profiles = b.configuration.profiles.map(profile => {
+      const old = previous.profiles.find(candidate => candidate.id === profile.id);
+      // Clients cannot forge probe evidence or activate modified content.
+      if (old && profileFingerprint(old) === profileFingerprint(profile)) return { ...profile, state: old.state, validation: old.validation };
+      return { ...profile, state: 'draft' as const, validation: undefined };
+    });
+    return json(res, 200, writeConfiguration({ ...b.configuration, profiles }, b.revision));
+  }
+  const planMatch = /^\/api\/agents\/([a-z][a-z0-9-]{0,63})\/validation-plan$/.exec(p);
+  if (planMatch && method === 'POST') {
+    const b = await readBody(req) as { revision: number; entries: Entry[]; browser?: boolean };
+    const configuration = readConfiguration();
+    if (configuration.revision !== b.revision) return json(res, 409, { error: '配置已变更，请刷新' });
+    const profile = configuration.profiles.find(candidate => candidate.id === planMatch[1]);
+    if (!profile) return json(res, 404, { error: '无此执行配置' });
+    if (!Array.isArray(b.entries) || b.entries.some(entry => !ENTRIES.includes(entry))) return json(res, 400, { error: '验证入口不合法' });
+    if (b.browser !== undefined && typeof b.browser !== 'boolean') return json(res, 400, { error: 'browser 必须为布尔值' });
+    return json(res, 200, validationPlan(profile, b.entries, { browser: b.browser }));
+  }
+  let agentMatch = /^\/api\/agents\/([a-z][a-z0-9-]{0,63})\/validate$/.exec(p);
+  if (agentMatch && method === 'POST') {
+    const b = await readBody(req) as { revision: number; entries: Entry[]; confirmCost: boolean; planToken?: string; browser?: boolean };
+    if (!b.confirmCost) return json(res, 400, { error: '真实能力验证可能调用模型，请明确确认费用后触发' });
+    const configuration = readConfiguration();
+    if (configuration.revision !== b.revision) return json(res, 409, { error: '配置已变更，请刷新' });
+    const profile = configuration.profiles.find(candidate => candidate.id === agentMatch![1]);
+    if (!profile) return json(res, 404, { error: '无此执行配置' });
+    if (!Array.isArray(b.entries) || b.entries.some(entry => !ENTRIES.includes(entry))) return json(res, 400, { error: '验证入口不合法' });
+    if (b.browser !== undefined && typeof b.browser !== 'boolean') return json(res, 400, { error: 'browser 必须为布尔值' });
+    const plan = validationPlan(profile, b.entries, { browser: b.browser });
+    if (plan.calls && b.planToken !== plan.token) return json(res, 409, { error: '请先查看并确认本次验证计划' });
+    if (runningProbes.has(profile.id)) return json(res, 409, { error: '此配置正在验证，请勿重复提交' });
+    runningProbes.add(profile.id);
+    try {
+      const report = await validateProfile(profile, b.entries, { browser: b.browser });
+      recordValidation(profile, b.revision, b.entries, report);
+      return json(res, 200, report);
+    } finally { runningProbes.delete(profile.id); }
+  }
+  agentMatch = /^\/api\/tickets\/([A-Za-z]{1,6}-\d{1,6})\/execution$/.exec(p);
+  if (agentMatch) {
+    const state = readSnapshot(agentMatch[1]);
+    if (!state) return json(res, 404, { error: '无此工单' });
+    if (method === 'GET') return json(res, 200, { plan: state.executionPlan, pending: pendingSwitch(state.ticket) });
+    if (method === 'POST') {
+      const b = await readBody(req) as { reason: string; revision: number };
+      const configuration = readConfiguration();
+      if (configuration.revision !== b.revision) return json(res, 409, { error: '配置已变更，请刷新' });
+      const request = queueExecutionSwitch(state, freezePlan(state.mainRepo || state.repo, configuration, state.repo), '控制台', String(b.reason ?? ''));
+      return json(res, 200, { ok: true, request, note: '当前阶段及重试保持原配置，下一阶段边界生效' });
+    }
+    return json(res, 405, { error: 'method' });
+  }
 
   if (p === '/api/overview' && method === 'GET') return json(res, 200, buildOverview({ dir, watchdogLog: path.join(logsDir, 'watchdog.log') }));
   if (p === '/api/doctor' && method === 'POST') return json(res, 200, await runDoctor());
@@ -325,7 +391,7 @@ export function createConsoleRoute(consoleToken: string, logger: (m: string) => 
       serveStatic(url.pathname, res);
     } catch (e) {
       log(`${req.method} ${url.pathname} 失败：${(e as Error).message}`);
-      if (!res.headersSent) json(res, 500, { error: (e as Error).message });
+      if (!res.headersSent) json(res, e instanceof ExecutionConfigError ? 400 : 500, { error: (e as Error).message });
     }
     return true;
   };

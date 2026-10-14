@@ -1,0 +1,7 @@
+{
+  "command": "opencode",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-GazqSr",
+  "stdout": "{\"type\":\"step_start\",\"timestamp\":1791887351344,\"sessionID\":\"ses_ecb30ee5effeyg3cJVWIFp7nQX\",\"part\":{\"id\":\"prt_134cf1e30001NZZfjOBr9wTXpG\",\"sessionID\":\"ses_ecb30ee5effeyg3cJVWIFp7nQX\",\"messageID\":\"msg_134cf1650001RamX7TP1FQfjg6\",\"type\":\"step-start\",\"snapshot\":\"11774bffca038bb2005542ee5d6e26eab276961c\"}}\n{\"type\":\"text\",\"timestamp\":1791887352175,\"sessionID\":\"ses_ecb30ee5effeyg3cJVWIFp7nQX\",\"part\":{\"id\":\"prt_134cf1fee001tP7PPx2zmZbKat\",\"sessionID\":\"ses_ecb30ee5effeyg3cJVWIFp7nQX\",\"messageID\":\"msg_134cf1650001RamX7TP1FQfjg6\",\"type\":\"text\",\"text\":\"{\\\"nonce\\\":\\\"7ae6ef29-0c61-43be-8d55-4a3162aacfe4\\\"}\",\"time\":{\"start\":1791887351790,\"end\":1791887352175}}}\n",
+  "stderr": "",
+  "code": 0
+}

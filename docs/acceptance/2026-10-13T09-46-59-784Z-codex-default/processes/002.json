@@ -1,0 +1,7 @@
+{
+  "command": "D:\\Programs\\nodejs\\node.exe",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-Ci8OQp",
+  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a134a8-7e4e-7862-aab7-0ebf44e4faf3\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"nonce\\\":\\\"8bca1ae2-66bb-4489-a1d5-5bde86591a2e\\\"}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":16573,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":39,\"reasoning_output_tokens\":0}}\n",
+  "stderr": "2026-10-13T09:47:05.053212Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out\n",
+  "code": 0
+}

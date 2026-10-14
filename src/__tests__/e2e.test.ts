@@ -47,4 +47,9 @@ describe('浏览器 e2e 开关（PIPELINE.md 的 e2e: playwright，2026-09-05 �
     expect(e2eBriefLine('http://localhost:5173')).toContain('browser_navigate');
     expect(e2eBriefLine(undefined)).not.toContain('测试环境 ');
   });
+  it('native constraints retain the user provider configuration when declaring Playwright', () => {
+    const args = codexE2eArgs(true);
+    expect(args).not.toContain('--ignore-user-config');
+    expect(args.join(' ')).toContain('mcp_servers.playwright.command="npx"');
+  });
 });

@@ -13,6 +13,7 @@ import {
   projectsJson,
   readEnvView,
   readDoc,
+  readWatchdogStamp,
   readProjectsView,
   recentSenders,
   tailLog,
@@ -235,6 +236,15 @@ describe('任务视图', () => {
     // 「今日」以 now 所在的本地日期为准：把 now 挪到别的日子，刚写的事件就不算
     expect(buildOverview({ dir: process.env.PIPELINE_DATA_DIR!, watchdogLog: wd, now: Date.parse('2026-09-20T12:00:00') }).todayCost).toBe(0);
   });
+  it('看门狗巡检戳：读时间与会话、算距今秒数；没有文件或坏文件返回 null（BOM 也能读）', () => {
+    const dir = process.env.PIPELINE_DATA_DIR!;
+    expect(readWatchdogStamp(dir)).toBeNull();
+    fs.writeFileSync(path.join(dir, 'watchdog.last-run'), '﻿' + JSON.stringify({ at: '2026-09-26T00:37:01+08:00', session: 0, interactive: false }));
+    expect(readWatchdogStamp(dir, Date.parse('2026-09-26T00:38:01+08:00'))).toEqual({ at: '2026-09-26T00:37:01+08:00', session: 0, interactive: false, ageSec: 60 });
+    fs.writeFileSync(path.join(dir, 'watchdog.last-run'), 'garbage');
+    expect(readWatchdogStamp(dir)).toBeNull();
+  });
+
   it('lastRestartFrom 大小写敏感：skip 行的小写 restart 不算', () => {
     const wd = path.join(tmp, 'w.log');
     fs.writeFileSync(wd, '2026-09-25T10:00:00 skip restart (x)\n');

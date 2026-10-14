@@ -1,7 +1,7 @@
-import { execSync, spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { RUNNER_SETTINGS, STAGE_EFFORT } from '../config.js';
+import { engineFor } from '../engine/index.js';
 import { buildReviewPrompt, formatComment, MR_REVIEW_SCHEMA, type GitlabConfig, type MrNoteEvent, type MrReviewResult } from './core.js';
 
 const REVIEW_MODEL = 'opus';
@@ -20,6 +20,7 @@ function sh(cmd: string, cwd: string): string {
 
 /** MR 评论触发的独立 review：fetch MR head → 临时 worktree → claude 评审 → 回帖 → 清理 */
 export async function runMrReview(cfg: GitlabConfig, ev: MrNoteEvent, repo: string, log: (m: string) => void): Promise<void> {
+  const engine = engineFor(repo, 'mr-review');
   const proj = encodeURIComponent(ev.projectPath);
 
   // diff 基点从 MR 的 diff_refs 取（与 GitLab 展示口径一致）
@@ -41,7 +42,8 @@ export async function runMrReview(cfg: GitlabConfig, ev: MrNoteEvent, repo: stri
     fs.writeFileSync(diffFile, sh(`git diff ${baseSha}...${headSha}`, wt), 'utf-8');
     log(`MR !${ev.mrIid} diff 就绪（base ${baseSha.slice(0, 7)}），启动评审会话`);
 
-    const result = await runClaudeReview(wt, buildReviewPrompt(ev, '.mr-diff.txt'));
+    const { envelope } = await engine.runJson({ cwd: wt, prompt: buildReviewPrompt(ev, '.mr-diff.txt'), tools: 'Read,Grep,Glob,Bash', model: REVIEW_MODEL, maxTurns: 80, budgetUsd: REVIEW_BUDGET, schema: MR_REVIEW_SCHEMA });
+    const result = envelope.structured_output as unknown as MrReviewResult;
     log(`评审完成：${result.verdict}，findings ${result.findings.length} 条`);
 
     const noteRes = await api(cfg, `/projects/${proj}/merge_requests/${ev.mrIid}/notes`, {
@@ -73,58 +75,4 @@ function removeWorktree(repo: string, wt: string): void {
   } catch {
     /* prune 失败无碍 */
   }
-}
-
-function runClaudeReview(cwd: string, prompt: string): Promise<MrReviewResult> {
-  const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
-  const schemaFile = path.join(cwd, '.mr-review-schema.json');
-  fs.writeFileSync(schemaFile, JSON.stringify(MR_REVIEW_SCHEMA), 'utf-8');
-  const args = [
-    'claude',
-    '-p',
-    shq(prompt),
-    '--settings',
-    shq(RUNNER_SETTINGS.replace(/\\/g, '/')),
-    '--output-format',
-    'json',
-    '--allowedTools',
-    shq('Read,Grep,Glob,Bash'),
-    '--model',
-    REVIEW_MODEL,
-    '--effort',
-    STAGE_EFFORT,
-    '--max-turns',
-    '80',
-    '--max-budget-usd',
-    String(REVIEW_BUDGET),
-    '--json-schema',
-    `"$(cat ${shq(schemaFile.replace(/\\/g, '/'))})"`,
-  ].join(' ');
-
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-c', args], {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*' },
-    });
-    let out = '';
-    child.stdout.on('data', (d: Buffer) => (out += d.toString('utf-8')));
-    child.on('error', reject);
-    child.on('close', () => {
-      try {
-        const start = out.indexOf('{"');
-        const envelope = JSON.parse(out.slice(start)) as { structured_output?: MrReviewResult; result?: string };
-        if (!envelope.structured_output) throw new Error(envelope.result ?? '无结构化返回');
-        resolve(envelope.structured_output);
-      } catch (e) {
-        reject(new Error(`评审会话解析失败：${(e as Error).message}`));
-      } finally {
-        try {
-          fs.unlinkSync(schemaFile);
-        } catch {
-          /* 已随 worktree 清理 */
-        }
-      }
-    });
-  });
 }

@@ -1,0 +1,155 @@
+{
+  "startedAt": "2026-10-12T06:05:17.244Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-native-engines-32N0nH",
+  "scope": "User-approved native constraints; real draft validation and isolated activation; no production changes",
+  "engines": {
+    "opencode": {
+      "plan": {
+        "profile": "ea131df611dd5d04a434b2b2310753bbbc60238443551dea420d5abc6cbb307c",
+        "entries": [
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "implement",
+            "model": "acceptance-local/loaded",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+              "turns": {
+                "requested": 40,
+                "enforced": true,
+                "scope": "各代理每条消息的模型步骤，末步不提供工具"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "effort": {
+                "requested": "CLI 默认",
+                "applied": false,
+                "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+              },
+              "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+            }
+          }
+        ],
+        "calls": 5,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "38509110199bfb56860d5fe25ba80e3fde961e200d61f1dc0a8f231dbf0f569f"
+      },
+      "validation": {
+        "ok": false,
+        "profileId": "native-opencode",
+        "at": "2026-10-12T06:05:18.095Z",
+        "checks": [
+          "CLI 可执行：opencode v2.0.6",
+          "implement / acceptance-local/loaded：JSON 契约通过",
+          "implement / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+          "implement / acceptance-local/loaded：原生只读权限拒绝写入通过"
+        ],
+        "errors": [
+          "子代理探测缺少原生工具调用与独立结果证据"
+        ],
+        "costUsd": 0,
+        "resolved": {
+          "implement": "acceptance-local/loaded"
+        },
+        "costStatus": "unknown",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+            "turns": {
+              "requested": 40,
+              "enforced": true,
+              "scope": "各代理每条消息的模型步骤，末步不提供工具"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "effort": {
+              "requested": "CLI 默认",
+              "applied": false,
+              "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+            },
+            "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+          }
+        ],
+        "cliVersion": "opencode v2.0.6",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+        "credentialContext": "a254c2c9a75d7424c4fc1afeabaaa553b992095d44d1b77bfb8bd6b56a83699e",
+        "childEvidence": {
+          "secretReturned": false,
+          "events": [
+            {
+              "type": "step_start",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type"
+              ]
+            },
+            {
+              "type": "tool_use",
+              "tool": "subagent",
+              "keys": [
+                "partID",
+                "sessionID",
+                "messageID",
+                "type",
+                "id",
+                "tool",
+                "state"
+              ]
+            },
+            {
+              "type": "step_finish",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "reason",
+                "cost",
+                "tokens"
+              ]
+            },
+            {
+              "type": "step_start",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type"
+              ]
+            },
+            {
+              "type": "text",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "text",
+                "time"
+              ]
+            }
+          ]
+        }
+      },
+      "isolatedProfileState": "draft"
+    }
+  },
+  "finishedAt": "2026-10-12T06:05:59.744Z",
+  "productionConfigurationChanged": false
+}

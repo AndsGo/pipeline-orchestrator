@@ -25,9 +25,12 @@ import { askPostReleaseChecks, runRelease } from './run/release.js';
 import type { runStage } from './runner.js';
 import { validateResult } from './schema.js';
 import { loadTicket, readSnapshot, saveTicket } from './ticket.js';
+import { ensureExecutionPlan, pendingSwitch, clearExecutionSwitch, applyExecutionSwitch, switchReady } from './engine/tickets.js';
 import { isTransientApiError } from './transient.js';
 import type { Envelope, Stage, StageResult, TicketState } from './types.js';
 import { broadcast } from './ports.js';
+import { withInvocationTicket } from './engine/invocations.js';
+import { CliExecutionError, failureUsage } from './engine/errors.js';
 import { type Audience, audienceOf, endLine as bizEndLine, errorLine, progressLine, staleBlockWarning } from './voice.js';
 
 export { ensureRejectionEvidence } from './run/actions.js';
@@ -191,18 +194,52 @@ async function runCiStage(repo: string, ticket: string, port: InteractionPort, p
  * → 路由落账 → 动作分发（run/actions.ts）。
  */
 export async function runTicket(opts: RunTicketOpts): Promise<void> {
+  try { await withInvocationTicket(opts.ticket, () => runTicketImpl(opts)); }
+  catch (e) {
+    const state = readSnapshot(opts.ticket);
+    const message = `执行失败：${(e as Error).message}`;
+    if (state) saveTicket({ ...state, haltedReason: message });
+    appendEvent({ ticket: opts.ticket, type: 'error', stage: state?.cursor, summary: message.slice(0, 300), payload: e instanceof CliExecutionError ? failureUsage(e.envelope) : { costStatus: 'unknown' } });
+    await opts.port.notify(opts.ticket, message);
+  }
+}
+async function runTicketImpl(opts: RunTicketOpts): Promise<void> {
   const { repo, ticket, port, project } = opts;
   ensureIntake(repo, ticket, opts.requirement, opts.intakeContext);
   let state = loadTicket(repo, ticket, opts.startStage ?? 'clarify', project);
+  if (!opts.stageRunner) {
+    const migrationChoice = !state.executionPlan ? pendingSwitch(ticket) : undefined;
+    if (migrationChoice) {
+      state = { ...state, executionPlan: migrationChoice.plan, haltedReason: undefined };
+      saveTicket(state);
+      appendEvent({ ticket, type: 'human.message', summary: `旧工单显式指定执行配置：${migrationChoice.reason}`, payload: { by: migrationChoice.by, plan: migrationChoice.plan } });
+      clearExecutionSwitch(ticket, migrationChoice.requestId || migrationChoice.requestedAt);
+    }
+    try { state = ensureExecutionPlan(state); }
+    catch (e) {
+      // An explicit, validated switch must also recover a historical plan that
+      // the current version cannot execute. Keep its original snapshot in audit.
+      const request = pendingSwitch(ticket);
+      if (!request || !switchReady(state, request)) { state.haltedReason = (e as Error).message; saveTicket(state); await port.notify(ticket, state.haltedReason); return; }
+      const recovery = new TicketRun(opts, state);
+      await applyExecutionSwitch(recovery);
+      state = ensureExecutionPlan(recovery.state);
+    }
+    saveTicket(state);
+  }
   if (project && state.project !== project.alias) {
     state = { ...state, project: project.alias }; // 项目归属随工单固化，后续阶段与投影都读它
     saveTicket(state);
   }
   const run = new TicketRun(opts, state);
+  run.save();
+
+  await applyExecutionSwitch(run);
 
   if (await triageAndFastlane(run)) return;
 
   for (;;) {
+    await applyExecutionSwitch(run);
     // 指令通道会在会话运行期间直接改盘上的状态（暂停/回退/需求变更），
     // 而本 runner 手里是自己的内存副本——不回读就会在下次 saveTicket 时把人的指令悄悄覆盖掉。
     const disk = readSnapshot(ticket);
@@ -213,7 +250,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       const { to, reason, feedbackPath } = run.state.pendingRewind;
       run.state = { ...run.state, cursor: to, pendingRewind: undefined, haltedReason: undefined };
       if (feedbackPath) run.extraArgs = `feedback=${feedbackPath}`;
-      run.save();
+      run.save(true);
       appendEvent({ ticket, type: 'rewind', stage: to, summary: `回退到 ${to}：${reason}` });
       await port.notify(ticket, `已回退到 ${to} 重跑（${reason}）`);
     }
@@ -268,6 +305,8 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
           ? runCiStage(repo, ticket, port, project)
           : run.stageRunner(repo, ticket, stage, run.extraArgs, stageModel).then((r) => r.envelope),
       );
+    } catch (e) {
+      envelope = e instanceof CliExecutionError ? { ...e.envelope, is_error: true, result: e.message, structured_output: undefined } : { is_error: true, result: (e as Error).message, num_turns: 0, total_cost_usd: 0, costStatus: 'unknown', session_id: '', permission_denials: [] };
     } finally {
       ledgerWatch?.stop();
     }
@@ -275,7 +314,14 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     // 双评审取严
     if (stage === 'review' && process.env.PIPELINE_DOUBLE_REVIEW === '1' && envelope.structured_output?.verdict) {
       await port.notify(ticket, '双评审模式：启动第二轮独立评审…');
-      const second = await run.withGate(() => run.stageRunner(repo, ticket, 'review', run.extraArgs));
+      let second: Awaited<ReturnType<typeof runStage>>;
+      try { second = await run.withGate(() => run.stageRunner(repo, ticket, 'review', run.extraArgs)); }
+      catch (e) {
+        const failed = e instanceof CliExecutionError ? e.envelope : { total_cost_usd: 0, num_turns: 0 };
+        throw new CliExecutionError(`第二轮评审失败：${(e as Error).message}`, { ...envelope, is_error: true, structured_output: undefined, total_cost_usd: envelope.total_cost_usd + failed.total_cost_usd, num_turns: envelope.num_turns + failed.num_turns,
+          ...(!(e instanceof CliExecutionError) || e.envelope.costStatus === 'unknown' || e.envelope.costStatus === 'partial' ? { costStatus: 'partial' as const } : {}) });
+      }
+      if (second.envelope.is_error || !second.envelope.structured_output) throw new CliExecutionError(second.envelope.result || '第二轮评审未产生有效结果', { ...second.envelope, total_cost_usd: envelope.total_cost_usd + second.envelope.total_cost_usd, num_turns: envelope.num_turns + second.envelope.num_turns });
       if (second.envelope.structured_output?.verdict) {
         envelope = {
           ...envelope,
@@ -295,7 +341,7 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
       if (envelope.is_error && isTransientApiError(envelope.result ?? '') && !run.retriedTransient.has(stage)) {
         run.retriedTransient.add(stage);
         const minutes = Math.round(run.transientRetryDelayMs / 60_000);
-        appendEvent({ ticket, type: 'error', stage, summary: `${msg.slice(0, 200)}｜疑似瞬时故障，${minutes} 分钟后自动重试一次` });
+        appendEvent({ ticket, type: 'error', stage, summary: `${msg.slice(0, 200)}｜疑似瞬时故障，${minutes} 分钟后自动重试一次`, payload: failureUsage(envelope) });
         await port.notify(
           ticket,
           audienceOf(profile) === 'business'
@@ -306,7 +352,9 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
         run.extraArgs = usedExtraArgs; // 带着同样的参数（fix=/feedback=）重跑
         continue;
       }
-      appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300) });
+      appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300), payload: failureUsage(envelope) });
+      run.state = { ...run.state, haltedReason: msg };
+      run.save();
       // 挂起消息教人怎么恢复，异常消息也必须教——否则人只看到一句 API Error，不知道下一步说什么
       await port.notify(
         ticket,
@@ -320,13 +368,23 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     const schemaErrors = res.stage === 'ci' ? [] : validateResult(res);
     if (schemaErrors.length) {
       const msg = `回程校验失败：${schemaErrors.join('; ')}`;
-      appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300) });
+      appendEvent({ ticket, type: 'error', stage, summary: msg.slice(0, 300), payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, sessionId: envelope.session_id } });
+      run.state = { ...run.state, haltedReason: msg };
+      run.save();
       await port.notify(ticket, msg);
       return;
     }
 
     const action = route(run.state, res);
     run.state = applyResult(run.state, res, action, envelope.total_cost_usd, envelope.num_turns, envelope.session_id, stageModel);
+    if (envelope.outputCorrection) run.state.runs.at(-1)!.outputCorrection = envelope.outputCorrection;
+    run.state.runs.at(-1)!.costStatus = envelope.costStatus ?? 'reported';
+    const actualExecution = stage === 'ci' ? undefined : run.state.executionPlan?.[stage];
+    if (actualExecution) {
+      const record = run.state.runs.at(-1)!;
+      record.execution = actualExecution;
+      record.model = actualExecution.model;
+    }
     // 分支名由实现会话自己取，只能事后认；认到就固化，供看板显示与人工 checkout
     if (stage === 'implement' && !run.state.branch) {
       const b = detectTicketBranch(repo, ticket);
@@ -336,16 +394,17 @@ export async function runTicket(opts: RunTicketOpts): Promise<void> {
     const axesLine = res.axes
       ? `｜AC ${res.axes.spec.total - res.axes.spec.failed}/${res.axes.spec.total} · 质量 C${res.axes.quality.critical}/I${res.axes.quality.important}/M${res.axes.quality.minor}`
       : '';
-    const endLine = `${res.stage} → ${res.status}${res.verdict ? ` / ${res.verdict}` : ''}${axesLine}（$${envelope.total_cost_usd.toFixed(2)}，${envelope.num_turns} 轮）`;
+    const fee = envelope.costStatus === 'unknown' ? '美元费用未知' : `$${envelope.total_cost_usd.toFixed(2)}${envelope.costStatus === 'partial' ? '（仅已报告部分）' : ''}`;
+    const endLine = `${res.stage} → ${res.status}${res.verdict ? ` / ${res.verdict}` : ''}${axesLine}（${fee}，${envelope.num_turns} 轮）`;
     appendEvent({
       ticket,
       type: 'stage.end',
       stage,
       summary: endLine,
-      payload: { costUsd: envelope.total_cost_usd, turns: envelope.num_turns, handoff: res.handoff_path },
+      payload: { ...failureUsage(envelope), handoff: res.handoff_path },
     });
     // 事件流永远记研发版（看板/复盘要状态码）；群里按受众：业务口吻带步骤锚 + 结尾「接下来谁做什么」
-    await broadcast(port, ticket, audienceOf(profile) === 'business' ? bizEndLine(res, envelope.total_cost_usd, action) : endLine);
+    await broadcast(port, ticket, audienceOf(profile) === 'business' && envelope.costStatus !== 'unknown' ? bizEndLine(res, envelope.total_cost_usd, action) : endLine);
     // 阶段判某条历史知识与现状矛盾：当刻标「待复核」停注入，累计进状态，闭环时一张卡定夺（run/compound.ts）
     if (res.stale_hints?.length) {
       const flagged = await flagStaleHints(ticket, stage, res.stale_hints, port);

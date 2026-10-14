@@ -1,0 +1,158 @@
+{
+  "startedAt": "2026-10-12T01:46:08.593Z",
+  "isolatedDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-real-acceptance-cpNHuy",
+  "engines": {
+    "claude": {
+      "capabilities": {
+        "text": {
+          "supported": true,
+          "reason": "原生非交互执行"
+        },
+        "structured": {
+          "supported": true,
+          "reason": "--json-schema"
+        },
+        "resume": {
+          "supported": true,
+          "reason": "原生会话 ID 续接"
+        },
+        "browser": {
+          "supported": true,
+          "reason": "显式 Playwright MCP，需实际探测"
+        },
+        "permissions": {
+          "supported": true,
+          "reason": "禁用非白名单工具"
+        },
+        "maxTurns": {
+          "supported": true,
+          "reason": "--max-turns"
+        },
+        "budget": {
+          "supported": true,
+          "reason": "--max-budget-usd，按已完成模型轮次检查，单轮可能越额"
+        },
+        "subagents": {
+          "supported": true,
+          "reason": "原生 Agent / Task；须探测独立执行和约束"
+        }
+      },
+      "model": "haiku",
+      "version": "2.1.296 (Claude Code)",
+      "requiredConstraints": "BLOCKED",
+      "constraintError": "legacy 仅用于未修改的原有 CLI 配置",
+      "json": {
+        "isError": true,
+        "sessionId": "65c35b75-cdd2-4b6d-b31e-d5806d47b9c6",
+        "turns": 1,
+        "costUsd": 0
+      },
+      "nativeSmoke": "FAIL",
+      "error": "There's an issue with the selected model (ollama/ornith-1.5:9b). It may not exist or you may not have access to it. Run --model to pick a different model."
+    },
+    "codex": {
+      "capabilities": {
+        "text": {
+          "supported": true,
+          "reason": "原生非交互执行"
+        },
+        "structured": {
+          "supported": true,
+          "reason": "--output-schema"
+        },
+        "resume": {
+          "supported": true,
+          "reason": "原生会话 ID 续接"
+        },
+        "browser": {
+          "supported": true,
+          "reason": "显式 Playwright MCP，需实际探测"
+        },
+        "permissions": {
+          "supported": false,
+          "reason": "Codex sandbox 不能等价执行入口的工具白名单"
+        },
+        "maxTurns": {
+          "supported": false,
+          "reason": "当前 Codex CLI 没有可执行的模型轮数上限"
+        },
+        "budget": {
+          "supported": false,
+          "reason": "当前适配器无法执行必需的金额预算；事后统计不能替代约束"
+        },
+        "subagents": {
+          "supported": false,
+          "reason": "尚未验证共用技能所需的子代理角色、模型分层及约束继承"
+        }
+      },
+      "model": "gpt-6.1-sol",
+      "version": "codex-cli 0.162.1",
+      "requiredConstraints": "BLOCKED",
+      "constraintError": "legacy 仅用于未修改的原有 CLI 配置",
+      "json": {
+        "isError": false,
+        "sessionId": "01a12dca-0af9-7483-a8da-3393d03a7f79",
+        "turns": 1,
+        "costUsd": null,
+        "output": {
+          "nonce": "3ff6d0b3-aca9-4533-a155-0967dd663d6c",
+          "rule": "6e6b461b-3bdf-4996-ae11-c980c908d090",
+          "knowledge": "76c23c6d-b23d-447f-962d-bac548dd2d5a"
+        }
+      },
+      "resume": {
+        "isError": true,
+        "sameSession": false,
+        "contextRestored": false,
+        "turns": 0,
+        "costUsd": null
+      },
+      "nativeSmoke": "FAIL",
+      "error": "原生续聊失败"
+    },
+    "opencode": {
+      "capabilities": {
+        "text": {
+          "supported": true,
+          "reason": "原生非交互执行"
+        },
+        "structured": {
+          "supported": true,
+          "reason": "最终 JSON + 编排器 AJV 校验"
+        },
+        "resume": {
+          "supported": true,
+          "reason": "原生会话 ID 续接"
+        },
+        "browser": {
+          "supported": true,
+          "reason": "显式 Playwright MCP，需实际探测"
+        },
+        "permissions": {
+          "supported": false,
+          "reason": "OpenCode edit 合并写入与编辑，尚未验证等价白名单与继承 MCP 隔离"
+        },
+        "maxTurns": {
+          "supported": false,
+          "reason": "OpenCode agents.steps 只限制各代理各条消息，尚未验证会话及子代理的总轮数约束"
+        },
+        "budget": {
+          "supported": false,
+          "reason": "当前适配器无法执行必需的金额预算；事后统计不能替代约束"
+        },
+        "subagents": {
+          "supported": false,
+          "reason": "尚未验证共用技能所需的子代理角色、模型分层及约束继承"
+        }
+      },
+      "model": "@cli-default",
+      "version": "opencode v2.0.6",
+      "requiredConstraints": "BLOCKED",
+      "constraintError": "legacy 仅用于未修改的原有 CLI 配置",
+      "nativeSmoke": "FAIL",
+      "error": "OpenCode 执行失败：Model exo-free has been deprecated."
+    }
+  },
+  "productionConfigurationChanged": false,
+  "finishedAt": "2026-10-12T01:46:58.029Z"
+}

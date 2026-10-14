@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { dataDir } from './paths.js';
+import { formatCost, type CostStatus } from './cost.js';
 
 /**
  * 单次执行（/run）的落盘留痕。
@@ -31,6 +32,7 @@ export interface AdhocRecord {
   prompt: string;
   output: string;
   costUsd: number;
+  costStatus?: CostStatus;
   turns: number;
   seconds: number;
   /** 会话本身报错（如中途断线）——此时 output 里是报错文案，不是执行结果 */
@@ -54,7 +56,7 @@ export function writeAdhocRecord(r: AdhocRecord): string | null {
         `- 时间：${r.at}`,
         `- 项目：${r.project}`,
         ...(r.sessionId ? [`- 会话：${r.sessionId}`] : []),
-        `- 成本：$${r.costUsd.toFixed(2)}｜轮次：${r.turns}｜耗时：${r.seconds}s`,
+        `- 成本：${formatCost(r.costUsd, r.costStatus)}｜轮次：${r.turns}｜耗时：${r.seconds}s`,
         '',
         '## 提示词',
         '',

@@ -1,0 +1,52 @@
+{
+  "startedAt": "2026-10-12T02:55:00.771Z",
+  "isolatedDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-claude-limits-uYBAI7",
+  "probes": {
+    "readonly": {
+      "isError": true,
+      "turns": 5,
+      "reportedCostUsd": 0.10480500000000001,
+      "text": "Claude 执行失败（exit 1）",
+      "advertisedTools": [
+        "Read"
+      ],
+      "requestedTools": [
+        "Read",
+        "Read",
+        "Read",
+        "Read"
+      ],
+      "resultSubtype": "error_max_turns",
+      "fileCreated": false
+    },
+    "turns": {
+      "isError": true,
+      "turns": 2,
+      "reportedCostUsd": 0.024935,
+      "text": "Claude 执行失败（exit 1）",
+      "advertisedTools": [
+        "Read"
+      ],
+      "requestedTools": [
+        "Read"
+      ],
+      "resultSubtype": "error_max_turns",
+      "fileCreated": false
+    },
+    "budget": {
+      "isError": true,
+      "turns": 1,
+      "reportedCostUsd": 0.020405,
+      "text": "Claude 执行失败（exit 1）",
+      "advertisedTools": [
+        "Read"
+      ],
+      "requestedTools": [
+        "Read"
+      ],
+      "resultSubtype": "error_max_budget_usd",
+      "fileCreated": false
+    }
+  },
+  "finishedAt": "2026-10-12T02:55:36.247Z"
+}

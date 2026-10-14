@@ -19,6 +19,9 @@ import { applyCleanup, runSheetWorker } from '../sheetWriteback.js';
 import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
+import { formatCost } from '../cost.js';
+import { CliExecutionError } from '../engine/errors.js';
+import { ExecutionConfigError } from '../engine/configuration.js';
 import { expiredSessionBrief, getThread, rememberThreadRun, sessionFresh } from '../threads.js';
 import type { DaemonContext } from './context.js';
 import { afterReqTurn, reqNudgeFor } from './reqFlow.js';
@@ -51,6 +54,7 @@ export async function execAdhoc(
   const outbox = outboxDir(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   fs.mkdirSync(outbox, { recursive: true });
   let keepOutbox = false;
+  let recorded = false;
   // 在线表（feishu/sheet.ts）：会话绑了表就把最新内容导成 outbox/sheet.csv 给它读——人可能在网页里改过
   const boundSheet = opts?.prev?.sheet;
   const sheetDir = path.join(outbox, 'sheet');
@@ -70,7 +74,9 @@ export async function execAdhoc(
   // 需求话题的访谈：第 3 轮起逼出《需求说明》（src/requirements.ts roundNudge）
   const prompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
   try {
-    const r = await engineFor(project.repo).runText({
+    if (chain > 0 && !opts?.prev?.execution) throw new ExecutionConfigError('旧会话缺少实际执行配置记录，不能根据当前默认值猜测。请发起新的 /run 会话。');
+    const engine = engineFor(project.repo, 'run', opts?.prev?.execution);
+    const r = await engine.runText({
       cwd: project.repo,
       prompt,
       tools: 'Read,Grep,Glob,Bash,Skill,WebFetch',
@@ -81,7 +87,8 @@ export async function execAdhoc(
       resumeSessionId: opts?.resumeSessionId,
     });
     const at = new Date().toISOString();
-    ctx.adhoc.push({ at, project: project.alias, text: commandText.slice(0, 200), costUsd: r.costUsd });
+    ctx.adhoc.push({ at, project: project.alias, text: commandText.slice(0, 200), costUsd: r.costUsd, costStatus: r.costStatus, sessionId: r.sessionId });
+    recorded = true;
     const seconds = Math.round((Date.now() - t0) / 1000);
     // 输出必须落盘：只记字符数的话，事后想查"到底跑没跑成"只能去翻别人的聊天窗口
     const file = writeAdhocRecord({
@@ -91,12 +98,13 @@ export async function execAdhoc(
       prompt,
       output: r.text,
       costUsd: r.costUsd,
+      costStatus: r.costStatus,
       turns: r.turns,
       seconds,
       isError: r.isError,
       sessionId: r.sessionId,
     });
-    const tail = `$${r.costUsd.toFixed(2)} · ${r.turns} 轮 · ${seconds}s`;
+    const tail = `${formatCost(r.costUsd, r.costStatus)} · ${r.turns} 轮 · ${seconds}s`;
     log(
       `/run ${r.isError ? '会话异常' : '完成'}：${tail}，输出 ${r.text.length} 字符${file ? ` → ${path.basename(file)}` : ''}`,
     );
@@ -151,6 +159,7 @@ export async function execAdhoc(
         output: r.text,
         chain,
         sessionId: r.sessionId,
+        execution: r.execution,
         origin: opts?.origin ?? commandText,
         sheet,
         // 整段对话随指针累积：续轮接在被续的那条记录后面（按卡续时是那张卡的记录，否则是本群指针）
@@ -184,12 +193,16 @@ export async function execAdhoc(
     }
     return true;
   } catch (e) {
+    const usage = e instanceof CliExecutionError ? e.envelope : undefined;
+    const at = new Date().toISOString();
+    const costStatus = usage?.costStatus ?? 'unknown';
+    if (!recorded) {
+      ctx.adhoc.push({ at, project: project.alias, text: commandText.slice(0, 200), costUsd: usage?.total_cost_usd ?? 0, costStatus, sessionId: usage?.session_id });
+      writeAdhocRecord({ at, project: project.alias, command: commandText, prompt, output: (e as Error).message, costUsd: usage?.total_cost_usd ?? 0, costStatus,
+        turns: usage?.num_turns ?? 0, seconds: Math.round((Date.now() - t0) / 1000), isError: true, sessionId: usage?.session_id });
+    }
     // resume 的启动期失败（id 失效 → CLI 纯文本报错，走不到 JSON 解析）：不打扰群，交给调用方降级。
     // 已经跑起来再失败的（isError）不在此列——那时可能已产生副作用，绝不能静默重跑
-    if (opts?.resumeSessionId) {
-      log(`续聊 resume 失败（将降级为拼接模式）：${(e as Error).message.slice(0, 160)}`);
-      return false;
-    }
     log(`/run 失败：${(e as Error).message.slice(0, 200)}`);
     await port.notify('执行', `失败：${(e as Error).message.slice(0, 300)}`, opts?.chat);
     return false;
@@ -209,7 +222,7 @@ export async function execAdhoc(
 /** 零输入建单的草拟：整段 /run 对话 → 一段需求原文。sonnet 纯文本一次调用，失败返回 null 由调用方兜底 */
 export async function draftRequirementFromChat(ctx: DaemonContext, project: Project, last: LastRun): Promise<string | null> {
   try {
-    const r = await engineFor(project.repo).runText({
+    const r = await engineFor(project.repo, 'draft').runText({
       cwd: project.repo,
       prompt: composeRequirementDraftPrompt(last),
       tools: 'Read',
@@ -218,7 +231,7 @@ export async function draftRequirementFromChat(ctx: DaemonContext, project: Proj
       budgetUsd: 0.5,
       pluginDir: PLUGIN_DIR,
     });
-    ctx.log(`建单草拟：$${r.costUsd.toFixed(3)} · ${r.turns} 轮 · ${r.text.length} 字符${r.isError ? '（会话异常）' : ''}`);
+    ctx.log(`建单草拟：${formatCost(r.costUsd, r.costStatus, 3)} · ${r.turns} 轮 · ${r.text.length} 字符${r.isError ? '（会话异常）' : ''}`);
     return r.isError || !r.text.trim() ? null : r.text.trim();
   } catch (e) {
     ctx.log(`建单草拟失败：${(e as Error).message.slice(0, 160)}`);
@@ -241,12 +254,11 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
     return;
   }
   let last = byCard ?? th?.run ?? runByCard(rootId) ?? readLastRunFor(chatId);
-  // 会话寿命（30 轮 / 7 天）：到期就不 --resume 了，新会话第一句带上旧会话的摘要
+  // 到期后由用户显式新建会话，不自动换配置或重开。
   if (th?.run && last === th.run && !sessionFresh(th)) {
-    log(`话题会话到期（${th.turns} 轮，最近 ${th.lastAt}），重开新会话并带摘要`);
-    await port.notify('执行', '这个话题的会话已到期（超 30 轮或 7 天没动），我重开一个新会话接着聊，带上之前的摘要。', chat);
-    // 摘要里已含压缩过的各轮过程，transcript 清掉：拼接提示词只渲染这一份，新一轮再从它往后累积
-    last = { ...th.run, sessionId: undefined, output: expiredSessionBrief(th) ?? th.run.output.slice(0, 600), transcript: undefined };
+    log(`话题会话到期（${th.turns} 轮，最近 ${th.lastAt}），等待用户显式新建`);
+    await port.notify('执行', '原会话已超过续聊期限。请用 /run 发起新会话；不会自动换配置或新建会话。', chat);
+    return;
   }
   if (!last) {
     // 24 小时 TTL 是为「隔天回个 1」这种含糊答复设的；人明确打了 /re 就该问一句而不是直接拒（2026-09-04 实测：
@@ -280,8 +292,8 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
   if (!rootIdOf(chat)) await port.notify('执行', `接着上次 ${describeLastRun(last)} 继续…`, chat);
   if (last.sessionId) {
     // 真续会话：完整历史在会话里，正文只需要答复本身
-    if (await execAdhoc(ctx, project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat, prev: last })) return;
-    log('  resume 未成功，改用拼接模式重试');
+    await execAdhoc(ctx, project, reply, reply, [], last.chain + 1, { resumeSessionId: last.sessionId, origin, chat, prev: last });
+    return;
   }
-  await execAdhoc(ctx, project, reply, composeFollowupPrompt(last, reply), [], last.chain + 1, { origin, chat, prev: last });
+  await port.notify('执行', '原会话缺少可恢复的 session ID。请用 /run 发起新会话。', chat);
 }

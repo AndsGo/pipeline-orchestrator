@@ -53,6 +53,13 @@ function IsOurDaemon([string]$daemonPid) {
   return $true
 }
 
+# 巡检戳：看门狗平时无事可做不写日志，「任务返回 0」证明不了脚本真跑了（2026-09-26 改 S4U 后无从确认）。
+# 每轮覆盖写一次运行时间与会话，控制台总览据此显示「看门狗 N 秒前巡检」
+try {
+  $stamp = @{ at = (Get-Date).ToString('o'); session = [Diagnostics.Process]::GetCurrentProcess().SessionId; interactive = [Environment]::UserInteractive } | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText((Join-Path $root 'data\watchdog.last-run'), $stamp)
+} catch { }
+
 # ⓪ 家务：watchdog 自身日志防膨胀（>4000 行截到最后 1000）；data/ 每日备份，保留 14 天
 if ((Test-Path $wdLog) -and ((Get-Content $wdLog | Measure-Object -Line).Lines -gt 4000)) {
   $keep = Get-Content $wdLog -Tail 1000 -Encoding UTF8

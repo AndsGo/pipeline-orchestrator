@@ -38,6 +38,9 @@ is_our_daemon() {
   return 1
 }
 
+# 巡检戳：看门狗平时无事可做不写日志；每轮覆盖写一次运行时间，控制台总览据此显示「看门狗 N 秒前巡检」
+mkdir -p "$root/data" && printf '{"at":"%s"}' "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)" > "$root/data/watchdog.last-run" 2>/dev/null || true
+
 # ⓪ 家务：watchdog 自身日志防膨胀（>4000 行截到最后 1000）；data/ 每日备份，保留 14 天
 if [ -f "$wd_log" ] && [ "$(wc -l < "$wd_log" | tr -d ' ')" -gt 4000 ]; then
   tail -n 1000 "$wd_log" > "$wd_log.tmp" && mv "$wd_log.tmp" "$wd_log"

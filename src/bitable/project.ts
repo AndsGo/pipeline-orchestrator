@@ -150,7 +150,7 @@ export function nodeRow(
 ): NodeRow | null {
   if (!PROJECTED.includes(ev.type)) return null;
   const stage = stageLabel(ev.stage);
-  const p = (ev.payload ?? {}) as { costUsd?: number; turns?: number; handoff?: string };
+  const p = (ev.payload ?? {}) as { costUsd?: number; costStatus?: import('../cost.js').CostStatus; turns?: number; handoff?: string };
 
   const isStage = ev.type === 'stage.end';
   const round = isStage && ev.stage ? roundOf(ev.stage) : 0;
@@ -172,7 +172,8 @@ export function nodeRow(
     fields['结果'] = matchOption(ev.summary, ['DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED', 'DONE']) ?? '—';
     fields['结论'] = matchOption(ev.summary, ['PASS_WITH_SUGGESTIONS', 'BLOCK', 'PASS']) ?? '—';
     fields['摘要'] = ev.summary.slice(0, 900);
-    if (typeof p.costUsd === 'number') fields['成本USD'] = Number(p.costUsd.toFixed(2));
+    if (typeof p.costUsd === 'number' && p.costStatus !== 'unknown') fields['成本USD'] = Number(p.costUsd.toFixed(2));
+    if (p.costStatus === 'unknown' || p.costStatus === 'partial') fields['摘要'] = `${fields['摘要']}（${p.costStatus === 'unknown' ? '费用未知' : '成本为已报告部分，另有未知费用'}）`;
     if (typeof p.turns === 'number') fields['轮数'] = p.turns;
     const u = artifactUrl(cfg, state, p.handoff);
     if (u && p.handoff) fields['产物'] = { text: p.handoff.split('/').pop() ?? p.handoff, link: u };

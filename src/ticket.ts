@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { jenkinsConfigFromEnv } from './jenkins.js';
 import { dataDir } from './paths.js';
 import { ciJobFor, type Project } from './projects.js';
 import type { Stage, TicketState } from './types.js';
+import { freezePlan } from './engine/configuration.js';
 
 function stateFile(ticket: string): string {
   return path.join(dataDir(), `${ticket}.json`);
@@ -51,10 +53,17 @@ export function loadTicket(repo: string, ticket: string, startStage: Stage, proj
     // 任务名按项目解析（ciJobFor）：多项目下没配自己 job 的项目不走 CI，绝不借全局 job
     ciEnabled: jenkinsConfigFromEnv(ciJobFor(project)) !== null,
     runs: [],
+    executionPlan: freezePlan(project?.repo ?? repo, undefined, repo),
+    mainRepo: project?.repo,
   };
 }
 
 export function saveTicket(state: TicketState): void {
   fs.mkdirSync(dataDir(), { recursive: true });
-  fs.writeFileSync(stateFile(state.ticket), JSON.stringify(state, null, 2), 'utf-8');
+  const file = stateFile(state.ticket);
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(state, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(temporary, file);
+  } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }

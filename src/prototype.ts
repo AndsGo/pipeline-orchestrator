@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_DIR, ticketDir } from './config.js';
 import { engineFor } from './engine/index.js';
+import type { ExecutionSnapshot } from './engine/configuration.js';
+import { CliExecutionError } from './engine/errors.js';
 
 /**
  * 结果预览（grill-me 质询定稿，2026-09-01）：prd-confirm 是决策质量最差的一环——
@@ -26,13 +28,16 @@ export interface PrototypeResult {
   ok: boolean;
   costUsd: number;
   turns: number;
+  costStatus?: import('./cost.js').CostStatus;
+  sessionId?: string;
+  execution?: ExecutionSnapshot;
   note?: string;
 }
 
-/** 生成（或修订轮重生成）结果预览。任何失败都吞成 ok:false——预览是增益件，不是流程依赖 */
-export async function generatePrototype(repo: string, ticket: string): Promise<PrototypeResult> {
+/** CLI/configuration failures remain explicit; a successful call without an artifact returns ok:false. */
+export async function generatePrototype(repo: string, ticket: string, execution?: ExecutionSnapshot): Promise<PrototypeResult> {
   try {
-    const r = await engineFor(repo).runText({
+    const r = await engineFor(repo, 'prototype', execution).runText({
       cwd: repo,
       prompt: `/pipeline-prototype ${ticket}`,
       tools: 'Read,Grep,Glob,Write,Edit,Bash',
@@ -42,8 +47,9 @@ export async function generatePrototype(repo: string, ticket: string): Promise<P
       pluginDir: PLUGIN_DIR,
     });
     const ok = fs.existsSync(prototypeFile(repo, ticket));
-    return { ok, costUsd: r.costUsd, turns: r.turns, note: ok ? undefined : (r.text || '').slice(0, 160) };
+    return { ok, costUsd: r.costUsd, turns: r.turns, costStatus: r.costStatus, sessionId: r.sessionId, execution: r.execution, note: ok ? undefined : (r.text || '').slice(0, 160) };
   } catch (e) {
-    return { ok: false, costUsd: 0, turns: 0, note: (e as Error).message.slice(0, 160) };
+    if (e instanceof CliExecutionError) throw e;
+    throw new Error(`原型执行失败：${(e as Error).message}`);
   }
 }

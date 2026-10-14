@@ -5,7 +5,9 @@
 # 动作用 conhost.exe --headless 包一层：计划任务直接跑 powershell.exe 会在桌面弹一个黑框，
 # 平时一闪而过，重启 daemon / web 时脚本要跑十来秒就很显眼（2026-09-26 用户反馈）。
 # -S4U 的取舍：任务在后台会话里跑，本来就没有窗口；以同一账号运行，~/.claude 登录态、git 配置照常可用，
-# 但拿不到访问网络共享的凭据（本流水线只用本地盘和出站 HTTPS，不受影响）。
+# 但拿不到访问网络共享的凭据，也解不开 Windows 凭据管理器——项目仓库若是 HTTP 远端 + Git Credential Manager，
+# daemon 在后台会话里推分支会失败。用 -S4U 前把 origin 换成 SSH（git remote set-url origin git@<host>:<group>/<repo>.git），
+# doctor 会检查这一项（2026-09-26 本机三个仓库已切换）。
 param([switch]$S4U)
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

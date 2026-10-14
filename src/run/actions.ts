@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { appendAnswers, type Answer } from '../backfill.js';
 import { ticketDir } from '../config.js';
-import { appendEvent } from '../events.js';
+import { appendEvent, failureCost, triageCost, ticketCostStatus } from '../events.js';
 import { appendFeedback, feedbackRelPath, FEEDBACK_FILE } from '../feedback.js';
 import { broadcast, type InteractionPort } from '../ports.js';
 import type { PipelineProfile } from '../profile.js';
@@ -62,12 +62,14 @@ async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfil
     run.state = { ...run.state, staleHints: undefined };
     run.save();
   }
-  const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0);
-  appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，$${total.toFixed(2)}` });
+  const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0) + failureCost(ticket) + triageCost(ticket);
+  const incomplete = ticketCostStatus(ticket) !== 'reported' || run.state.runs.some(r => r.costStatus === 'unknown' || r.costStatus === 'partial');
+  const costLine = incomplete ? `已报告金额 $${total.toFixed(2)}；完整美元费用未知` : `合计 $${total.toFixed(2)}`;
+  appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，${costLine}` });
   await broadcast(
     port,
     ticket,
-    biz ? closeoutLine(run.state.runs.length, total) : `流水线闭环。共 ${run.state.runs.length} 次会话，合计 $${total.toFixed(2)}`,
+    biz && !incomplete ? closeoutLine(run.state.runs.length, total) : `流水线闭环。共 ${run.state.runs.length} 次会话，${costLine}`,
     true, // 收尾必须让主线看见（安静主线只静过程）
   );
 }
@@ -82,6 +84,12 @@ async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>
   if (action.gate === 'prd-confirm') {
     await port.notify(ticket, '正在生成结果预览（1~3 分钟），随 PRD 确认卡一起发出…');
     const p = await run.prototype(repo, ticket);
+    if (p.sessionId || p.turns > 0 || p.costUsd > 0) {
+      run.state = { ...run.state, runs: [...run.state.runs, { stage: 'clarify', extraArgs: 'prototype', startedAt: new Date().toISOString(), costUsd: p.costUsd,
+        costStatus: p.costStatus, turns: p.turns, status: p.ok ? 'DONE' : 'DONE_WITH_CONCERNS', sessionId: p.sessionId || '', model: p.execution?.model, execution: p.execution }] };
+      appendEvent({ ticket, type: 'stage.end', stage: 'prototype', summary: p.ok ? '原型已生成' : '原型调用结束但缺少产物', payload: { costUsd: p.costUsd, costStatus: p.costStatus, turns: p.turns, sessionId: p.sessionId, execution: p.execution } });
+      run.save();
+    }
     if (p.ok) {
       const url = previewUrl(ticket);
       gateSummary = `${
@@ -89,15 +97,6 @@ async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>
           ? `📱 **结果预览**：${url}\n（示意非承诺，页内附验收标准清单）`
           : `📱 结果预览已生成：docs/pipeline/${ticket}/prototype/index.html（配置 PREVIEW_BASE_URL 后卡片将带可点链接）`
       }\n\n${gateSummary}`;
-      // 成本入账：记为 clarify 的附属会话（extraArgs 标注来源），看板成本才不撒谎
-      run.state = {
-        ...run.state,
-        runs: [
-          ...run.state.runs,
-          { stage: 'clarify', extraArgs: 'prototype', startedAt: new Date().toISOString(), costUsd: p.costUsd, turns: p.turns, status: 'DONE', sessionId: 'prototype' },
-        ],
-      };
-      run.save();
     } else {
       await port.notify(ticket, `结果预览生成失败（不影响确认，PRD 材料齐全）：${p.note ?? '未知原因'}`);
     }

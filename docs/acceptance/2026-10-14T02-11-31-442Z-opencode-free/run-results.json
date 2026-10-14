@@ -1,0 +1,17 @@
+{
+  "model": "opencode/space-bunny-free",
+  "tools": "Read,Grep,Glob,Bash,Skill,WebFetch",
+  "status": "PASS",
+  "envelope": {
+    "is_error": false,
+    "session_id": "ses_ec6b11d32ffe1jQfOQW4sG3i0z",
+    "num_turns": 1,
+    "total_cost_usd": 0,
+    "costStatus": "unknown",
+    "permission_denials": [],
+    "structured_output": {
+      "marker": "FREE_MODEL_OK"
+    },
+    "result": "{\"marker\":\"FREE_MODEL_OK\"}"
+  }
+}

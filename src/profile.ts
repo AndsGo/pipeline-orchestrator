@@ -147,7 +147,8 @@ testEnv: none            # none = 没有测试环境；否则填地址，如 htt
 testEnvNote:             # 可选：登录方式、账号在哪、注意事项（会原样出现在验收卡上）
 acceptor: dev            # ops = 运营验收（卡片用业务措辞）/ dev = 研发验收
 release: none            # merge-develop / merge-master = 审批后自动合并 MR；manual = 人上线后点确认；none = 不设上线环节
-# engine: claude         # 执行引擎：claude（默认）/ codex；按阶段覆盖写 engine.review: codex（异构评审对冲非确定性）
+# execution: claude-default # 命名执行配置 ID（先在控制台创建并验证）；按入口覆盖 execution.review / execution.run 等
+# engine: claude         # 兼容旧配置：claude / codex / opencode；新工单冻结选择，缺少必需能力时明确阻止
 # e2e: playwright        # 验收/评审阶段带浏览器（Playwright MCP），页面类验收项先实测再留人工；需 testEnv 在跑
 # audience: business     # 群消息受众：business = 说人话、带步骤锚与下一步动作，不出现状态码/路径/分支；缺省 it = 研发版
 ---

@@ -1,0 +1,184 @@
+{
+  "startedAt": "2026-10-12T07:49:45.898Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-onWoCh",
+  "resumedFrom": "plan",
+  "scope": "Actual frozen ticket continuation; no model/CLI/constraint changes",
+  "messages": [],
+  "validation": {
+    "ok": false,
+    "profileId": "acceptance-opencode",
+    "at": "2026-10-12T07:49:45.899Z",
+    "checks": [
+      "CLI 可执行：opencode v2.0.6",
+      "plan / acceptance-local/loaded：JSON 契约通过",
+      "plan / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+      "plan / acceptance-local/loaded：原生只读权限拒绝写入通过"
+    ],
+    "errors": [
+      "implement / acceptance-local/loaded：结构化返回失败"
+    ],
+    "costUsd": 0,
+    "resolved": {
+      "clarify": "acceptance-local/loaded",
+      "plan": "acceptance-local/loaded",
+      "implement": "acceptance-local/loaded",
+      "review": "acceptance-local/loaded",
+      "acceptance": "acceptance-local/loaded",
+      "compound": "acceptance-local/loaded",
+      "prototype": "acceptance-local/loaded"
+    },
+    "costStatus": "unknown",
+    "constraints": [
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      }
+    ],
+    "cliVersion": "opencode v2.0.6",
+    "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+    "credentialContext": "5cbd836f4dd0cc5f174b56222a075a16ccb3637117bd7d4efd15bd124535c310"
+  }
+}

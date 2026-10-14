@@ -25,6 +25,8 @@ export interface AdhocEntry {
   project: string;
   text: string;
   costUsd: number;
+  costStatus?: import('../cost.js').CostStatus;
+  sessionId?: string;
 }
 
 export interface DaemonContext {

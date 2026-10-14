@@ -1,0 +1,13 @@
+{
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-config-diagnostic-ko9o3z69",
+  "code": 0,
+  "result": "{\"session\":\"01a13599-bee7-7c21-a1ba-f90bb95e2137\",\"result\":{\"ready\":true}}\n",
+  "changedTopLevelKeys": [
+    "projects"
+  ],
+  "addedProjects": {
+    "c:\\users\\administrator\\appdata\\local\\temp\\pipeline-config-diagnostic-ko9o3z69": {
+      "trust_level": "trusted"
+    }
+  }
+}

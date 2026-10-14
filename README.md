@@ -1,8 +1,8 @@
 # pipeline-orchestrator
 
-> **English summary** — A self-hosted orchestrator that turns a Feishu (Lark) group chat into the entry point of a full software-delivery pipeline driven by headless coding agents. A ticket goes through clarify → plan → implement → independent review → CI → acceptance → release → knowledge compounding; humans appear only at explicit decision gates rendered as chat cards. Agents (Claude Code, Codex CLI) execute stages under a strict JSON contract; a 198-line pure-function state machine routes between stages; every artifact is committed to git. Runs entirely on an intranet host — all connections are outbound except one webhook port. Chinese-first documentation; the code comments cite the real incidents that shaped each rule.
+> **English summary** — A self-hosted orchestrator that turns a Feishu (Lark) group chat into the entry point of a full software-delivery pipeline driven by headless coding agents. A ticket goes through clarify → plan → implement → independent review → CI → acceptance → release → knowledge compounding; humans appear only at explicit decision gates rendered as chat cards. Agents (Codex CLI by default, Claude Code, OpenCode) execute stages under a strict JSON contract; a 198-line pure-function state machine routes between stages; every artifact is committed to git. Runs entirely on an intranet host — all connections are outbound except one webhook port. Chinese-first documentation; the code comments cite the real incidents that shaped each rule.
 
-飞书群 + Claude Code / Codex 的开发流水线编排器。业务需求从群里进来，经**澄清 → 计划 → 实现 → 独立评审 → CI → 验收 → 上线 → 知识沉淀**走完全程；人只在需要判断的地方出现，以卡片形式做决策。全部组件跑在一台内网执行机上。
+飞书群 + Codex / Claude Code / OpenCode 的开发流水线编排器，默认使用 Codex。业务需求从群里进来，经**澄清 → 计划 → 实现 → 独立评审 → CI → 验收 → 上线 → 知识沉淀**走完全程；人只在需要判断的地方出现，以卡片形式做决策。全部组件跑在一台内网执行机上。
 
 它不是"AI 替代开发"。它把开发流程里机器能做好的部分（执行模型）交给智能体，再把人留下来的那几个判断时刻（决策模型）认真设计成可点击、可追溯、不可绕过的卡点。理念与实现细节见两篇配套文章：
 
@@ -21,7 +21,7 @@ flowchart LR
   GL["GitLab<br/>仓库 · MR"]
   subgraph HOST["执行机（内网）"]
     D["编排 daemon<br/>状态机 · 项目路由 · 指令通道"]
-    S["阶段会话<br/>claude / codex · 每阶段独立"]
+    S["阶段会话<br/>codex / claude / opencode · 每阶段独立"]
     W["web 服务：webhook + 预览页 + 控制台<br/>:8377"]
   end
   D -- "出站 wss" --> FS
@@ -63,12 +63,12 @@ flowchart LR
 | **工件交接，不续会话** | 阶段间靠提交进 git 的交接文档（机器头 + 六节人类体）传递；独立评审禁止读实现记录 | `docs/pipeline/<工单>/` |
 | **人的六种表达** | 点按钮、打字回答、群里下指令、`/run` 单次执行、聊完即建单、结果预览页 | `src/feishu/`、`src/daemon/handlers/` |
 | **项目流程约定** | 每个仓库一份 `docs/pipeline/PIPELINE.md`：有无测试环境、谁验收、怎么上线、用哪个引擎——改流程不改代码 | `src/profile.ts` |
-| **引擎抽象** | Claude 原生 + Codex 桥接，按阶段选；用另一家模型做独立评审对冲非确定性 | `src/engine/` |
+| **引擎抽象** | 默认 Codex；Claude / Codex / OpenCode 命名配置按入口选择，工单与续聊冻结原配置 | `src/engine/` |
 | **可测** | 外部效应可注入 + "人"是四方法接口 → 35 个测试文件，含跑完整循环的集成夹具 | `src/__tests__/` |
 
 ## 快速开始
 
-**前置**：Node ≥ 20；`claude` CLI 已登录并在 PATH；一个飞书自建应用（机器人 + 长连接事件订阅）；[`pipeline-plugin`](https://github.com/AndsGo/pipeline-plugin) 与本仓库平级 clone（或设 `PIPELINE_PLUGIN_DIR`）。
+**前置**：Node ≥ 20；默认 `codex` CLI 已登录，选择其他引擎时准备相应 CLI；一个飞书自建应用（机器人 + 长连接事件订阅）；[`pipeline-plugin`](https://github.com/AndsGo/pipeline-plugin) 与本仓库平级 clone（或设 `PIPELINE_PLUGIN_DIR`）。
 
 ```bash
 git clone https://github.com/AndsGo/pipeline-orchestrator.git

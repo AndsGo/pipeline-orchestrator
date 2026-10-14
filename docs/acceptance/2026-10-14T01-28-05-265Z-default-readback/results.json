@@ -1,0 +1,13 @@
+{
+  "startedAt": "2026-10-14T01:28:05.265Z",
+  "scope": "New source in a separate process, exact watchdog .env loading, all global entry resolution and validated native identity; CLI version only, no model requests or service restart; not live activation or full ticket acceptance",
+  "envFile": "D:\\work\\demo\\pipeline-orchestrator\\.env",
+  "processEvidence": {
+    "calls": [],
+    "errors": []
+  },
+  "status": "NOT_PASS",
+  "error": "CLI 路径、版本或运行账号／凭据上下文已变化，请重新验证执行配置",
+  "finishedAt": "2026-10-14T01:28:05.296Z",
+  "nativeContextDiagnostic": "native-context-check.json"
+}

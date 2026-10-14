@@ -1,0 +1,1128 @@
+{
+  "startedAt": "2026-10-13T10:20:21.184Z",
+  "scope": "User-requested global Codex default; real all-entry validation before active profile selection; no daemon restart or native authentication change",
+  "configuration": "D:\\work\\demo\\pipeline-orchestrator\\data\\agent-config.json",
+  "priorRevision": 1,
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-codex-default-v0FDkn",
+  "browserScope": "No browser proof: Playwright projects remain blocked until separate successful native MCP validation",
+  "plan": {
+    "profile": "53bdc3183008c46f05c323b5579e365cf17296100573c538e5d76ceea072190a",
+    "entries": [
+      "clarify",
+      "plan",
+      "implement",
+      "review",
+      "acceptance",
+      "compound",
+      "triage",
+      "fast",
+      "classify",
+      "run",
+      "draft",
+      "prototype",
+      "mr-review"
+    ],
+    "contexts": [
+      {
+        "entry": "clarify",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 60,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 16,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "plan",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 120,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 14,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "implement",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 5,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 300,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 25,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "review",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 100,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 10,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "acceptance",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 80,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 8,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "compound",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 100,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 8,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "triage",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 8,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 0.5,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "fast",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 60,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 5,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "classify",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 3,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 0.2,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "run",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 40,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 3,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "draft",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 3,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 0.5,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "prototype",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 40,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 3,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "mr-review",
+        "model": "gpt-6.1-sol",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 80,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 10,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "model_reasoning_effort，max 映射为 xhigh"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      }
+    ],
+    "calls": 53,
+    "errors": [],
+    "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+    "token": "092d2e15c3cf449125f07d0bcb8bef82dcec4daf8b9774e67ea2f15db44e990e"
+  },
+  "processEvidence": {
+    "calls": [
+      {
+        "file": "processes/001.json",
+        "cwd": "D:\\work\\demo\\pipeline-orchestrator",
+        "code": 0
+      },
+      {
+        "file": "processes/002.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/003.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/004.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/005.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/006.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/007.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/008.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/009.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/010.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/011.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/012.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/013.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/014.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/015.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/016.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/017.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/018.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/019.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/020.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/021.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/022.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/023.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/024.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/025.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/026.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/027.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/028.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/029.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/030.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/031.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/032.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/033.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/034.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/035.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/036.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/037.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/038.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/039.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/040.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/041.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/042.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/043.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/044.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/045.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/046.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/047.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/048.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/049.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/050.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/051.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/052.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/053.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      },
+      {
+        "file": "processes/054.json",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
+        "code": 0
+      }
+    ],
+    "errors": []
+  },
+  "validation": {
+    "ok": false,
+    "profileId": "codex-default",
+    "at": "2026-10-13T10:20:21.194Z",
+    "checks": [
+      "CLI 可执行：codex-cli 0.162.1",
+      "clarify / gpt-6.1-sol：JSON 契约通过",
+      "clarify / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "clarify / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "plan / gpt-6.1-sol：JSON 契约通过",
+      "plan / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "plan / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "implement / gpt-6.1-sol：JSON 契约通过",
+      "implement / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "implement / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "implement / gpt-6.1-sol：原生独立子代理调用通过",
+      "review / gpt-6.1-sol：JSON 契约通过",
+      "review / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "review / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "acceptance / gpt-6.1-sol：JSON 契约通过",
+      "acceptance / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "acceptance / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "compound / gpt-6.1-sol：JSON 契约通过",
+      "compound / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "compound / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "triage / gpt-6.1-sol：JSON 契约通过",
+      "triage / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "triage / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "fast / gpt-6.1-sol：JSON 契约通过",
+      "fast / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "fast / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "classify / gpt-6.1-sol：JSON 契约通过",
+      "classify / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "classify / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "run / gpt-6.1-sol：JSON 契约通过",
+      "run / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "run / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "draft / gpt-6.1-sol：JSON 契约通过",
+      "draft / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "draft / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "prototype / gpt-6.1-sol：JSON 契约通过",
+      "prototype / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "prototype / gpt-6.1-sol：原生只读权限拒绝写入通过",
+      "mr-review / gpt-6.1-sol：JSON 契约通过",
+      "mr-review / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+      "mr-review / gpt-6.1-sol：原生只读权限拒绝写入通过"
+    ],
+    "errors": [
+      "探测期间 CLI 或认证／供应商上下文已变化，结果已丢弃，请重新验证"
+    ],
+    "costUsd": 0,
+    "resolved": {
+      "clarify": "gpt-6.1-sol",
+      "plan": "gpt-6.1-sol",
+      "implement": "gpt-6.1-sol",
+      "review": "gpt-6.1-sol",
+      "acceptance": "gpt-6.1-sol",
+      "compound": "gpt-6.1-sol",
+      "triage": "gpt-6.1-sol",
+      "fast": "gpt-6.1-sol",
+      "classify": "gpt-6.1-sol",
+      "run": "gpt-6.1-sol",
+      "draft": "gpt-6.1-sol",
+      "prototype": "gpt-6.1-sol",
+      "mr-review": "gpt-6.1-sol"
+    },
+    "costStatus": "unknown",
+    "constraints": [
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 60,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 16,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 120,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 14,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 300,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 25,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 100,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 10,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 80,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 8,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 100,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 8,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 8,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 60,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 3,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.2,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 40,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 3,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 40,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 80,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 10,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "model_reasoning_effort，max 映射为 xhigh"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      }
+    ],
+    "cliVersion": "codex-cli 0.162.1",
+    "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+    "credentialContext": "a8e8ad1b8ac78f9c1ca0056b858ef7ba8cf57a92b9b85e0825e95e9f7d1b87e1",
+    "childEvidence": {
+      "secretReturned": true,
+      "parentSecretRead": false,
+      "namedTask": {
+        "independent": true,
+        "parentSecretRead": false,
+        "parentId": "01a134cb-e944-7af1-98af-dd7b09d9c4f8",
+        "childId": "01a134cc-24cc-7a00-bfcf-c268568c224d",
+        "taskPath": "/root/read_marker",
+        "spawnCallId": "call_2XdmewnSEVYl83XCf4c5epa7",
+        "parentTurn": "01a134cb-e9d2-7232-b51d-b9c0b380f7cb",
+        "childTurn": "01a134cc-2543-7343-8687-6c98d9693a39",
+        "parentRollout": "C:\\Users\\Administrator\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\sessions\\2026\\10\\13\\rollout-2026-10-13T18-25-41-01a134cb-e944-7af1-98af-dd7b09d9c4f8.jsonl",
+        "childRollout": "C:\\Users\\Administrator\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\sessions\\2026\\10\\13\\rollout-2026-10-13T18-25-56-01a134cc-24cc-7a00-bfcf-c268568c224d.jsonl",
+        "parentDigest": "8a07531ed5e873745344f28938f57eb581b71a2257b7b39eeccb707710b1bf5a",
+        "childDigest": "dded6af78042daf030155ebb5ac9029f7fac2380641ecb66d5262c8058a7ffd9"
+      },
+      "events": [
+        {
+          "type": "thread.started",
+          "keys": []
+        },
+        {
+          "type": "turn.started",
+          "keys": []
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message",
+          "keys": [
+            "id",
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "item.started",
+          "itemType": "collab_tool_call",
+          "tool": "wait",
+          "status": "in_progress",
+          "keys": [
+            "id",
+            "type",
+            "tool",
+            "sender_thread_id",
+            "receiver_thread_ids",
+            "prompt",
+            "agents_states",
+            "status"
+          ]
+        },
+        {
+          "type": "item.completed",
+          "itemType": "collab_tool_call",
+          "tool": "wait",
+          "status": "completed",
+          "keys": [
+            "id",
+            "type",
+            "tool",
+            "sender_thread_id",
+            "receiver_thread_ids",
+            "prompt",
+            "agents_states",
+            "status"
+          ]
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message",
+          "keys": [
+            "id",
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "turn.completed",
+          "keys": []
+        }
+      ]
+    }
+  },
+  "status": "NOT_PASS",
+  "error": "Codex validation failed: 探测期间 CLI 或认证／供应商上下文已变化，结果已丢弃，请重新验证",
+  "finishedAt": "2026-10-13T10:38:08.230Z"
+}
