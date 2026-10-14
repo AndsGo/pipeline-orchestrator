@@ -16,6 +16,7 @@ const TICKET = 'LS-999';
 
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'sugg-'));
+  fs.mkdirSync(path.join(repo, 'docs/pipeline'), { recursive: true });
 });
 afterEach(() => {
   fs.rmSync(repo, { recursive: true, force: true });
@@ -83,43 +84,43 @@ describe('readSuggestions', () => {
 describe('applyClaudeMdSuggestions', () => {
   it('追加到既有小节末尾（下一个标题之前，跳过尾部空行）', () => {
     fs.writeFileSync(
-      path.join(repo, 'CLAUDE.md'),
+      path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'),
       '# 项目说明\n\n## 环境\n\n- 已有一条\n\n## 构建\n\n- pnpm build\n',
       'utf-8',
     );
     const r = applyClaudeMdSuggestions(repo, [{ section: '## 环境', line: '- 本机 Docker daemon 通常未运行' }]);
     expect(r.applied).toHaveLength(1);
-    const content = fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), 'utf-8');
     const envIdx = content.indexOf('- 本机 Docker daemon');
     expect(envIdx).toBeGreaterThan(content.indexOf('- 已有一条'));
     expect(envIdx).toBeLessThan(content.indexOf('## 构建'));
   });
 
   it('小节不存在时在文件末尾新建', () => {
-    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# 项目说明\n\n## 构建\n\n- pnpm build\n', 'utf-8');
+    fs.writeFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), '# 项目说明\n\n## 构建\n\n- pnpm build\n', 'utf-8');
     const r = applyClaudeMdSuggestions(repo, [{ section: '## 环境限制', line: '- 无 Docker daemon' }]);
     expect(r.applied).toHaveLength(1);
-    const content = fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), 'utf-8');
     expect(content).toMatch(/## 环境限制\n\n- 无 Docker daemon\n$/);
   });
 
   it('完全相同的行已存在时跳过（compound 重跑不堆重复）', () => {
-    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '## 环境\n\n- 无 Docker daemon\n', 'utf-8');
+    fs.writeFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), '## 环境\n\n- 无 Docker daemon\n', 'utf-8');
     const r = applyClaudeMdSuggestions(repo, [{ section: '## 环境', line: '- 无 Docker daemon' }]);
     expect(r.applied).toHaveLength(0);
     expect(r.skipped).toHaveLength(1);
   });
 
-  it('CLAUDE.md 不存在时创建', () => {
+  it('docs/pipeline/PROJECT-KNOWLEDGE.md 不存在时创建', () => {
     const r = applyClaudeMdSuggestions(repo, [{ section: '## 环境', line: '- 无 Docker daemon' }]);
     expect(r.applied).toHaveLength(1);
-    const content = fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf-8');
-    expect(content).toContain('# CLAUDE.md');
+    const content = fs.readFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), 'utf-8');
+    expect(content).toContain('# 项目知识');
     expect(content).toContain('## 环境');
   });
 
   it('多条建议同小节按序追加，且都能被后续查重命中', () => {
-    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '## 环境\n\n- 第一条\n', 'utf-8');
+    fs.writeFileSync(path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), '## 环境\n\n- 第一条\n', 'utf-8');
     const items = [
       { section: '## 环境', line: '- 第二条' },
       { section: '## 环境', line: '- 第三条' },
@@ -132,7 +133,7 @@ describe('applyClaudeMdSuggestions', () => {
   });
 
   it('一条都没应用时文件内容不变', () => {
-    const file = path.join(repo, 'CLAUDE.md');
+    const file = path.join(repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md');
     fs.writeFileSync(file, '## 环境\n\n- 唯一一条\n', 'utf-8');
     applyClaudeMdSuggestions(repo, [{ section: '## 环境', line: '- 唯一一条' }]);
     expect(fs.readFileSync(file, 'utf-8')).toBe('## 环境\n\n- 唯一一条\n');
@@ -155,10 +156,11 @@ describe('adoptViaMr（专用分支 + MR 机制，真实 git）', () => {
     run(origin, ['init', '--bare', '--initial-branch=master']);
     run(origin, ['config', 'receive.advertisePushOptions', 'true']);
     fs.mkdirSync(clone);
+    fs.mkdirSync(path.join(clone, 'docs/pipeline'), { recursive: true });
     run(clone, ['init', '--initial-branch=master']);
     run(clone, ['config', 'user.email', 't@t.t']);
     run(clone, ['config', 'user.name', 't']);
-    fs.writeFileSync(path.join(clone, 'CLAUDE.md'), '## 环境\n\n- 已有常识\n', 'utf-8');
+    fs.writeFileSync(path.join(clone, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), '## 环境\n\n- 已有常识\n', 'utf-8');
     run(clone, ['add', '.']);
     run(clone, ['commit', '-m', 'init']);
     run(clone, ['remote', 'add', 'origin', origin]);
@@ -177,9 +179,9 @@ describe('adoptViaMr（专用分支 + MR 机制，真实 git）', () => {
     expect(r.ok).toBe(true);
     expect(r.applied).toEqual(['- 新常识']);
     expect(r.skipped).toEqual(['- 已有常识']);
-    expect(run(origin, ['show', 'pipeline/claude-md-LS-9:CLAUDE.md'])).toContain('- 新常识');
+    expect(run(origin, ['show', 'pipeline/claude-md-LS-9:docs/pipeline/PROJECT-KNOWLEDGE.md'])).toContain('- 新常识');
     expect(run(clone, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/other');
-    expect(fs.readFileSync(path.join(clone, 'CLAUDE.md'), 'utf-8')).not.toContain('- 新常识');
+    expect(fs.readFileSync(path.join(clone, 'docs/pipeline/PROJECT-KNOWLEDGE.md'), 'utf-8')).not.toContain('- 新常识');
     expect(run(clone, ['worktree', 'list'])).not.toContain('claude-md-LS-9');
     expect(run(clone, ['branch', '--list', 'pipeline/*']).trim()).toBe('');
     fs.rmSync(root, { recursive: true, force: true });

@@ -1,0 +1,30 @@
+{
+  "startedAt": "2026-10-12T03:48:59.485Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-claude-roles-bgIKex",
+  "probes": {},
+  "scope": "Native role dispatch and inherited limits; no production activation",
+  "capability": {
+    "ok": true,
+    "profileId": "acceptance-claude",
+    "at": "2026-10-12T03:48:59.486Z",
+    "checks": [
+      "CLI 可执行：2.1.296 (Claude Code)",
+      "implement / haiku：JSON 契约通过",
+      "implement / haiku：原 session ID 与上下文恢复通过",
+      "implement / haiku：只读工具集合拒绝写入通过",
+      "implement / haiku：原生轮数上限触发并终止通过",
+      "implement / haiku：原生预算上限触发并终止通过（按已完成模型轮次检查）",
+      "implement / haiku：原生独立子代理调用通过"
+    ],
+    "errors": [],
+    "costUsd": 0.42870499999999995,
+    "resolved": {
+      "implement": "haiku"
+    },
+    "costStatus": "reported",
+    "cliVersion": "2.1.296 (Claude Code)",
+    "command": "/c/Users/Administrator/.local/bin/claude",
+    "credentialContext": "b8110d92be7675841cfad53ddb0bd47332e373cd1844f4c9d33e34fb19cf6a00"
+  },
+  "finishedAt": "2026-10-12T03:50:23.680Z"
+}

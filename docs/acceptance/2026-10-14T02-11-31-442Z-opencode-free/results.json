@@ -1,0 +1,6 @@
+{
+  "model": "opencode/space-bunny-free",
+  "cwd": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-free-model-CfCQYa",
+  "status": "FAIL",
+  "error": "OpenCode 执行失败：OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."
+}

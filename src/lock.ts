@@ -2,6 +2,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dataDir } from './paths.js';
+import { trackedInvocations } from './engine/invocations.js';
 
 export interface LockInfo {
   pid: number;
@@ -64,6 +65,8 @@ export function killHint(): string {
  * （编排器死亡后 claude 子树可能存活——LS-002 双控制器事故的根因）。
  */
 export function findOrphanClaude(ticket: string): Array<{ pid: number; cmd: string }> {
+  const tracked = trackedInvocations(ticket, defaultPidAlive);
+  if (tracked.length) return tracked;
   if (process.platform !== 'win32') {
     try {
       const out = execSync(`ps -eo pid,args | grep "pipeline-.* ${ticket}" | grep -v grep`, { encoding: 'utf-8' });

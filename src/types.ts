@@ -36,10 +36,13 @@ export interface Envelope {
   is_error: boolean;
   num_turns: number;
   total_cost_usd: number;
+  /** Synthetic failures without native usage must not claim a known zero bill. */
+  costStatus?: 'reported' | 'partial' | 'unknown';
   session_id: string;
   structured_output?: StageResult;
   permission_denials: unknown[];
   result?: string;
+  outputCorrection?: { attempts: 1; sessionId: string; initialTurns: number; correctionTurns: number };
 }
 
 export interface RunRecord {
@@ -47,16 +50,19 @@ export interface RunRecord {
   extraArgs: string;
   startedAt: string;
   costUsd: number;
+  costStatus?: 'reported' | 'partial' | 'unknown';
   turns: number;
   status: Status;
   verdict?: Verdict;
   sessionId: string;
+  outputCorrection?: Envelope['outputCorrection'];
   /**
    * 本次会话实际使用的模型。没有它，任何「换了模型之后是好了还是坏了」的问题都只能靠
    * 「运行时间 × config.ts 的 git 历史」去反推——2026-08-24 排 implement 对照实验时
    * 才发现这条链是断的。缺失 = 该记录早于本字段（不是「用了默认模型」，别替历史数据下结论）。
    */
   model?: string;
+  execution?: import('./engine/configuration.js').ExecutionSnapshot;
 }
 
 export interface TicketState {
@@ -119,6 +125,10 @@ export interface TicketState {
   released?: boolean;
   runs: RunRecord[];
   haltedReason?: string;
+  executionPlan?: import('./engine/configuration.js').ExecutionPlan;
+  pendingExecutionSwitch?: import('./engine/configuration.js').PendingSwitch;
+  appliedExecutionSwitch?: string;
+  executionSwitchPrevious?: import('./engine/configuration.js').ExecutionPlan;
 }
 
 export type GateName = 'prd-confirm' | 'plan-approval' | 'deploy-approval' | 'release-approval';

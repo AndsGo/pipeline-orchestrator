@@ -1,0 +1,275 @@
+{
+  "startedAt": "2026-10-12T06:44:56.970Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-ZXLd2W",
+  "ticket": "REAL-001",
+  "scope": "Actual runTicket and native stage engines; no simulated stages, CI disabled, no remote or release",
+  "otherEngineRequirements": {
+    "codex": {
+      "status": "PASS"
+    },
+    "opencode": {
+      "status": "PASS"
+    }
+  },
+  "notifications": [],
+  "gates": [],
+  "validation": {
+    "ok": false,
+    "profileId": "acceptance-opencode",
+    "at": "2026-10-12T06:44:58.118Z",
+    "checks": [
+      "CLI 可执行：opencode v2.0.6",
+      "plan / acceptance-local/loaded：JSON 契约通过",
+      "plan / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+      "plan / acceptance-local/loaded：原生只读权限拒绝写入通过",
+      "implement / acceptance-local/loaded：JSON 契约通过",
+      "implement / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+      "implement / acceptance-local/loaded：原生只读权限拒绝写入通过"
+    ],
+    "errors": [
+      "子代理探测缺少原生工具调用与独立结果证据"
+    ],
+    "costUsd": 0,
+    "resolved": {
+      "clarify": "acceptance-local/loaded",
+      "plan": "acceptance-local/loaded",
+      "implement": "acceptance-local/loaded",
+      "review": "acceptance-local/loaded",
+      "acceptance": "acceptance-local/loaded",
+      "compound": "acceptance-local/loaded",
+      "prototype": "acceptance-local/loaded"
+    },
+    "costStatus": "unknown",
+    "constraints": [
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+        "turns": {
+          "requested": 100,
+          "enforced": true,
+          "scope": "各代理每条消息的模型步骤，末步不提供工具"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 300000,
+        "effort": {
+          "requested": "low",
+          "applied": false,
+          "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+        },
+        "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+      }
+    ],
+    "cliVersion": "opencode v2.0.6",
+    "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+    "credentialContext": "423e33c4dcb0703f151e6f423743e9d6b686278bc5403541c7062852e8168d35",
+    "childEvidence": {
+      "secretReturned": false,
+      "parentSecretRead": false,
+      "events": [
+        {
+          "type": "step_start",
+          "keys": [
+            "id",
+            "sessionID",
+            "messageID",
+            "type",
+            "snapshot"
+          ]
+        },
+        {
+          "type": "text",
+          "keys": [
+            "id",
+            "sessionID",
+            "messageID",
+            "type",
+            "text",
+            "time"
+          ]
+        },
+        {
+          "type": "tool_use",
+          "tool": "subagent",
+          "status": "completed",
+          "keys": [
+            "partID",
+            "sessionID",
+            "messageID",
+            "type",
+            "id",
+            "tool",
+            "state"
+          ]
+        },
+        {
+          "type": "step_finish",
+          "keys": [
+            "id",
+            "sessionID",
+            "messageID",
+            "type",
+            "reason",
+            "snapshot",
+            "cost",
+            "tokens"
+          ]
+        },
+        {
+          "type": "step_start",
+          "keys": [
+            "id",
+            "sessionID",
+            "messageID",
+            "type",
+            "snapshot"
+          ]
+        },
+        {
+          "type": "text",
+          "keys": [
+            "id",
+            "sessionID",
+            "messageID",
+            "type",
+            "text",
+            "time"
+          ]
+        }
+      ]
+    }
+  },
+  "status": "NOT_PASS",
+  "error": "真实阶段能力验证失败：子代理探测缺少原生工具调用与独立结果证据",
+  "finishedAt": "2026-10-12T06:46:00.957Z",
+  "productionConfigurationChanged": false
+}

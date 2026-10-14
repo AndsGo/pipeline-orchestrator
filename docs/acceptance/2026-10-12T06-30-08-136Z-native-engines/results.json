@@ -1,0 +1,357 @@
+{
+  "startedAt": "2026-10-12T06:30:08.137Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-native-engines-169DvE",
+  "scope": "User-approved native constraints; real draft validation and isolated activation; no production changes",
+  "engines": {
+    "codex": {
+      "plan": {
+        "profile": "d24a5c24c9265df5742c9cd3cb79d2593755489a63bf41efaa68c1ce53c5b6e1",
+        "entries": [
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "implement",
+            "model": "gpt-6.1-sol",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+              "turns": {
+                "requested": 40,
+                "enforced": false,
+                "scope": "无原生轮数上限"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "windowsSandbox": "unelevated",
+              "effort": {
+                "requested": "low",
+                "applied": true,
+                "scope": "model_reasoning_effort，max 映射为 xhigh"
+              },
+              "subagents": "原生 spawn_agent；角色模型依原生配置"
+            }
+          }
+        ],
+        "calls": 5,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "560e789be40295a9edf1e0f0e429d025339dd3e7d9c65245c806cdd82b41ab48"
+      },
+      "validation": {
+        "ok": false,
+        "profileId": "native-codex",
+        "at": "2026-10-12T06:30:09.015Z",
+        "checks": [
+          "CLI 可执行：codex-cli 0.162.1",
+          "implement / gpt-6.1-sol：JSON 契约通过",
+          "implement / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+          "implement / gpt-6.1-sol：原生只读权限拒绝写入通过"
+        ],
+        "errors": [
+          "子代理探测缺少原生工具调用与独立结果证据"
+        ],
+        "costUsd": 0,
+        "resolved": {
+          "implement": "gpt-6.1-sol"
+        },
+        "costStatus": "unknown",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+            "turns": {
+              "requested": 40,
+              "enforced": false,
+              "scope": "无原生轮数上限"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "windowsSandbox": "unelevated",
+            "effort": {
+              "requested": "low",
+              "applied": true,
+              "scope": "model_reasoning_effort，max 映射为 xhigh"
+            },
+            "subagents": "原生 spawn_agent；角色模型依原生配置"
+          }
+        ],
+        "cliVersion": "codex-cli 0.162.1",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+        "credentialContext": "5ae055a5247e6ea4a45f49b422f50566538bb8dca9a64ddc50d308dc6edd0b1b",
+        "childEvidence": {
+          "secretReturned": true,
+          "events": [
+            {
+              "type": "thread.started",
+              "keys": []
+            },
+            {
+              "type": "turn.started",
+              "keys": []
+            },
+            {
+              "type": "item.completed",
+              "itemType": "agent_message",
+              "keys": [
+                "id",
+                "type",
+                "text"
+              ]
+            },
+            {
+              "type": "item.started",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "status": "in_progress",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.completed",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "status": "completed",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.started",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "status": "in_progress",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.completed",
+              "itemType": "collab_tool_call",
+              "tool": "wait",
+              "status": "completed",
+              "keys": [
+                "id",
+                "type",
+                "tool",
+                "sender_thread_id",
+                "receiver_thread_ids",
+                "prompt",
+                "agents_states",
+                "status"
+              ]
+            },
+            {
+              "type": "item.completed",
+              "itemType": "agent_message",
+              "keys": [
+                "id",
+                "type",
+                "text"
+              ]
+            },
+            {
+              "type": "turn.completed",
+              "keys": []
+            }
+          ]
+        }
+      },
+      "isolatedProfileState": "draft"
+    },
+    "opencode": {
+      "plan": {
+        "profile": "ea131df611dd5d04a434b2b2310753bbbc60238443551dea420d5abc6cbb307c",
+        "entries": [
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "implement",
+            "model": "acceptance-local/loaded",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+              "turns": {
+                "requested": 40,
+                "enforced": true,
+                "scope": "各代理每条消息的模型步骤，末步不提供工具"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "effort": {
+                "requested": "CLI 默认",
+                "applied": false,
+                "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+              },
+              "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+            }
+          }
+        ],
+        "calls": 5,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "38509110199bfb56860d5fe25ba80e3fde961e200d61f1dc0a8f231dbf0f569f"
+      },
+      "validation": {
+        "ok": true,
+        "profileId": "native-opencode",
+        "at": "2026-10-12T06:32:24.585Z",
+        "checks": [
+          "CLI 可执行：opencode v2.0.6",
+          "implement / acceptance-local/loaded：JSON 契约通过",
+          "implement / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+          "implement / acceptance-local/loaded：原生只读权限拒绝写入通过",
+          "implement / acceptance-local/loaded：原生独立子代理调用通过"
+        ],
+        "errors": [],
+        "costUsd": 0,
+        "resolved": {
+          "implement": "acceptance-local/loaded"
+        },
+        "costStatus": "unknown",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+            "turns": {
+              "requested": 40,
+              "enforced": true,
+              "scope": "各代理每条消息的模型步骤，末步不提供工具"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "effort": {
+              "requested": "CLI 默认",
+              "applied": false,
+              "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+            },
+            "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+          }
+        ],
+        "cliVersion": "opencode v2.0.6",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+        "credentialContext": "ff1b7cca069fe00e98cfc2e169c84f93057b8299921dfc806318559e4838f61b",
+        "childEvidence": {
+          "secretReturned": true,
+          "events": [
+            {
+              "type": "step_start",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "snapshot"
+              ]
+            },
+            {
+              "type": "text",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "text",
+                "time"
+              ]
+            },
+            {
+              "type": "tool_use",
+              "tool": "subagent",
+              "status": "completed",
+              "keys": [
+                "partID",
+                "sessionID",
+                "messageID",
+                "type",
+                "id",
+                "tool",
+                "state"
+              ]
+            },
+            {
+              "type": "step_finish",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "reason",
+                "snapshot",
+                "cost",
+                "tokens"
+              ]
+            },
+            {
+              "type": "step_start",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "snapshot"
+              ]
+            },
+            {
+              "type": "text",
+              "keys": [
+                "id",
+                "sessionID",
+                "messageID",
+                "type",
+                "text",
+                "time"
+              ]
+            }
+          ]
+        }
+      },
+      "isolatedProfileState": "active"
+    }
+  },
+  "finishedAt": "2026-10-12T06:33:17.476Z",
+  "productionConfigurationChanged": false
+}

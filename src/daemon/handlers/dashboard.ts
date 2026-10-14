@@ -1,5 +1,6 @@
 import { buildDashboard, renderDashboard, type TicketRow } from '../../dashboard.js';
-import { isClosure, listTickets, readEvents, totalCost } from '../../events.js';
+import { isClosure, listTickets, readEvents, totalCost, ticketCostStatus } from '../../events.js';
+import { aggregateCostStatus } from '../../cost.js';
 import { computeMetrics, metricsDashItems, readAllSnapshots } from '../../metrics.js';
 import { readSnapshot } from '../../ticket.js';
 import type { ChatRef } from '../../ports.js';
@@ -18,6 +19,7 @@ export async function handle(ctx: DaemonContext, _c: CommandOf<'dashboard'>, _se
       stage: closed ? '已闭环' : (st?.cursor ?? '?'),
       state: active.has(t) ? '在跑' : st?.haltedReason ? '挂起' : closed ? '闭环' : '等人工',
       cost: totalCost(t) || (st?.runs.reduce((s, r) => s + r.costUsd, 0) ?? 0),
+      costStatus: aggregateCostStatus([{ costStatus: ticketCostStatus(t) }, ...(st?.runs || [])]),
       waiting: st?.haltedReason
         ? `挂起：${st.haltedReason}`
         : port.pendingLabels(t).length
@@ -32,7 +34,7 @@ export async function handle(ctx: DaemonContext, _c: CommandOf<'dashboard'>, _se
     activeTickets: [...active.keys()],
     pendingCards: port.pendingLabels().length,
     boardEnabled: ctx.boardOn,
-    adhoc: { count: adhoc.length, cost: adhoc.reduce((a, x) => a + x.costUsd, 0) },
+    adhoc: { count: adhoc.length, cost: adhoc.reduce((a, x) => a + x.costUsd, 0), costStatus: aggregateCostStatus(adhoc) },
   }, rows, metricsDashItems(computeMetrics(readAllSnapshots())));
   const r = renderDashboard(d);
   await port.sendDashboard(r.config, r.runtime, r.tickets, chat);

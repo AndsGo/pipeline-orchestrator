@@ -224,7 +224,7 @@ export async function reviewTerms(repo: string, ticket: string, port: Interactio
 }
 
 /**
- * compound 建议人审：CLAUDE.md 建议发确认卡，采纳即自动合入并提交。
+ * compound 建议人审：通用规则与项目知识 建议发确认卡，采纳即自动合入并提交。
  * 建议只躺在 90-retro.md 里时没有消费者——同一条环境限制曾被各阶段独立重复发现 7+ 次。
  */
 export async function reviewSuggestions(repo: string, ticket: string, port: InteractionPort): Promise<void> {
@@ -247,12 +247,12 @@ export async function reviewSuggestions(repo: string, ticket: string, port: Inte
     ticket,
     type: 'gate.asked',
     stage: 'compound',
-    summary: `知识建议人审：CLAUDE.md ${suggestions.claudeMd.length} 条`,
+    summary: `知识建议人审：通用规则与项目知识 ${suggestions.claudeMd.length} 条`,
   });
   const d = await port.confirmGate(
     ticket,
     '知识建议采纳',
-    `本单沉淀出 ${suggestions.claudeMd.length} 条 CLAUDE.md 建议。通过即自动合入仓库 CLAUDE.md 并提交；驳回请写原因。`,
+    `本单沉淀出 ${suggestions.claudeMd.length} 条 通用规则与项目知识 建议。通过即自动合入仓库 通用规则与项目知识 并提交；驳回请写原因。`,
     [],
     renderSuggestionsDetail(suggestions),
   );
@@ -271,7 +271,7 @@ export async function reviewSuggestions(repo: string, ticket: string, port: Inte
   const r = adoptViaMr(repo, ticket, suggestions.claudeMd);
   if (r.ok) {
     if (!r.applied.length) {
-      await port.notify(ticket, 'CLAUDE.md 建议内容均已在主干，无需合入');
+      await port.notify(ticket, '通用规则与项目知识 建议内容均已在主干，无需合入');
       return;
     }
     const via = r.mrUrl
@@ -289,14 +289,14 @@ export async function reviewSuggestions(repo: string, ticket: string, port: Inte
   const local = applyClaudeMdSuggestions(repo, suggestions.claudeMd);
   if (local.applied.length) {
     try {
-      execSync('git add CLAUDE.md', { cwd: repo });
-      execSync(`git commit -m "chore(${ticket}): 采纳沉淀建议，更新 CLAUDE.md"`, { cwd: repo });
+      execSync("git add -- " + ['AGENTS.md', 'docs/pipeline/PROJECT-KNOWLEDGE.md'].filter(file => fs.existsSync(path.join(repo, file))).map(file => '"' + file + '"').join(' '), { cwd: repo });
+      execSync(`git commit -m "chore(${ticket}): 采纳沉淀建议，更新 通用规则与项目知识"`, { cwd: repo });
       await port.notify(
         ticket,
         `MR 路径失败（${r.error}），已回退合入当前分支——这些常识要随本分支的 MR 合并才能进主干，请留意`,
       );
     } catch (e) {
-      await port.notify(ticket, `CLAUDE.md 已更新但提交失败，请手工提交：${(e as Error).message.slice(0, 200)}`);
+      await port.notify(ticket, `通用规则与项目知识 已更新但提交失败，请手工提交：${(e as Error).message.slice(0, 200)}`);
     }
   } else {
     await port.notify(ticket, `MR 路径失败（${r.error}），且建议内容当前分支已有，无需合入`);

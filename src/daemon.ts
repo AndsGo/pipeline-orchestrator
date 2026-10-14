@@ -100,10 +100,12 @@ async function startTicket(ticket: string, projectHint: string | undefined, requ
   if (!lock.ok) return `${ticket} 被另一个实例持有（pid ${lock.holder.pid}）`;
 
   // 孤儿检测：daemon 崩过而 claude 子进程仍活着时，绝不能再开第二个会话改同一仓库
-  const orphans = findOrphanClaude(ticket);
+  let orphans: ReturnType<typeof findOrphanClaude>;
+  try { orphans = findOrphanClaude(ticket); }
+  catch (e) { releaseLock(ticket); return `${ticket} 无法核验孤儿进程：${(e as Error).message}`; }
   if (orphans.length) {
     releaseLock(ticket);
-    return `${ticket} 仍有存活的 claude 进程（pid ${orphans.map((o) => o.pid).join(', ')}），清理后再启动：${killHint()}`;
+    return `${ticket} 仍有存活或未确认的 agent CLI 调用（pid ${orphans.map((o) => o.pid).join(', ')}）。先核对调用记录与进程启动时间，清理后再启动：${killHint()}`;
   }
 
   // 已绑定工作目录的工单沿用原目录；否则按主仓库是否被占用决定是否开 worktree
@@ -277,7 +279,12 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
     const contexts = th?.ticket ? ticketContexts().filter((c) => c.ticket === th.ticket) : ticketContexts();
     const lastRun = th ? (th.run ?? null) : readLastRunFor(m.chatId);
-    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts, undefined, undefined, lastRun);
+    const classifyProject = (th?.ticket ? projectOf(th.ticket) : null)
+      ?? resolveProject(projects, th?.project ?? lastRun?.project)
+      ?? mentionedProject(projects, m.text)?.project
+      ?? projects.find(p => p.chatId === m.chatId && m.chatId !== MAIN_CHAT)
+      ?? resolveProject(projects, cfg.defaultProject);
+    const { command, confidence, error, missingTicket } = await classifyCommand(m.text, contexts, classifyProject?.repo, undefined, lastRun);
     cmd = command;
     // 识别服务炸了 ≠ 没听懂：前者回"重发一次"，后者才是"我不明白你的意思"
     if (error) {

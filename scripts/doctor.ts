@@ -1,5 +1,5 @@
 // 流水线体检：依赖 / 配置 / 连通性 / 真实推理，一眼看清哪里断了。
-//   npx tsx scripts/doctor.ts               # 全量（含一次 ~$0.01 的真实推理探测）
+//   npx tsx scripts/doctor.ts               # 全量（默认执行配置的一次真实推理，费用按原生 CLI）
 //   npx tsx scripts/doctor.ts --no-infer    # 跳过推理探测（零成本）
 // 只读不修；输出永不包含凭据值（只报有/无与长度）。任何 ❌ 都会以退出码 1 结束。
 import { execSync } from 'node:child_process';
@@ -12,7 +12,9 @@ import { PLUGIN_DIR, RUNNER_SETTINGS } from '../src/config.js';
 import { claudeMdIgnored, pipelineDocsIgnored } from '../src/onboarding.js';
 import { PROFILE_FILE, readProfile } from '../src/profile.js';
 import { ciJobFor, loadProjects } from '../src/projects.js';
-import { runClaudeText } from '../src/runner.js';
+import { engineFor } from '../src/engine/index.js';
+import { ENTRIES, readConfiguration, selectProfile } from '../src/engine/configuration.js';
+import { cliVersion } from '../src/engine/identity.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
 const root = path.resolve(here, '..');
@@ -49,30 +51,22 @@ const fetchOk = async (url: string, init?: RequestInit): Promise<Response | null
 console.log('== 依赖 ==');
 const nodeMajor = Number(process.version.slice(1).split('.')[0]);
 add(nodeMajor >= 20 ? '✅' : '❌', 'node', `${process.version}${nodeMajor >= 20 ? '' : '（需要 ≥20）'}`);
-for (const [name, cmd, why] of [
-  ['git', 'git --version', '没有它什么都干不了'],
-  ['bash', 'bash -c "echo ok"', '阶段会话经 bash 调起 claude'],
-  ['claude CLI', 'claude --version', '流水线的执行引擎'],
-] as const) {
-  const v = tryExec(cmd);
-  add(v ? '✅' : '❌', name, v ? v.split('\n')[0] : `不可用（${why}）`);
-}
+const gitVersion = tryExec('git --version');
+add(gitVersion ? '✅' : '❌', 'git', gitVersion || '不可用');
+const selectedClis = new Set<string>();
+try {
+  const configuration = readConfiguration();
+  for (const repo of [undefined, ...loadProjects().map(p => p.repo)]) for (const entry of ENTRIES) selectedClis.add(selectProfile(repo, entry, configuration).cli);
+  const defaultProfile = selectProfile(undefined, 'run', configuration);
+  add('✅', '默认引擎', `${defaultProfile.cli} · ${defaultProfile.id} · revision ${configuration.revision}`);
+  for (const cli of selectedClis) {
+    try { add('✅', `${cli} CLI`, await cliVersion(cli as 'claude' | 'codex' | 'opencode')); }
+    catch { add('❌', `${cli} CLI`, '已选择的引擎不可用'); }
+  }
+} catch (error) { add('❌', '执行配置', (error as Error).message.slice(0, 150)); }
+if (selectedClis.has('claude')) add(tryExec('bash -c "echo ok"') ? '✅' : '❌', 'bash', 'Claude 原生启动依赖');
 const glab = tryExec('glab --version');
 add(glab ? '✅' : '⚠️', 'glab', glab ? glab.split('\n')[0] : '未安装——会话无法自动建 MR（人工在 GitLab 建则不受影响）');
-// Codex 引擎只在有项目选了它时才体检：CLI 在不在、登录态是否有效（2026-09-03 实测 refresh token 失效会让每个阶段都失败）
-const usesCodex = loadProjects().some((p) => {
-  const prof = readProfile(p.repo);
-  return prof && (prof.engine.default === 'codex' || Object.values(prof.engine.byStage).includes('codex'));
-});
-if (usesCodex) {
-  const codexV = tryExec('codex --version');
-  const login = codexV ? tryExec('codex login status') : null;
-  add(
-    codexV && login && /logged in/i.test(login) ? '✅' : '❌',
-    'codex 引擎',
-    !codexV ? '有项目选了 engine: codex，但本机没有 codex CLI' : !login || !/logged in/i.test(login) ? `${codexV}，未登录或登录态失效——终端跑 codex login` : `${codexV} · ${login.split('\n')[0]}`,
-  );
-}
 
 console.log('\n== 编排器自身 ==');
 // manifest 的标准位置是 .claude-plugin/plugin.json（首版 doctor 查错了根目录，实测被自己抓包）
@@ -106,7 +100,7 @@ for (const p of projects) {
   }
   if (!fs.existsSync(p.repo)) probs.push('仓库路径不存在');
   else if (!fs.existsSync(path.join(p.repo, '.git'))) probs.push('不是 git 仓库');
-  else if (!fs.existsSync(path.join(p.repo, 'CLAUDE.md'))) probs.push('无 CLAUDE.md（建议补）');
+  else if (!fs.existsSync(path.join(p.repo, 'AGENTS.md'))) probs.push('无 AGENTS.md（通用规则；旧 CLAUDE.md 仍兼容读取）');
   if (fs.existsSync(p.repo) && !fs.existsSync(path.join(p.repo, PROFILE_FILE))) probs.push(`无 ${PROFILE_FILE}（流程约定：测试环境/验收人/上线方式，缺省按无测试环境、不设上线走）`);
   // 实测 odoo-product（2026-09-02）：.gitignore 整个屏蔽 docs，PRD/评审/原型/知识沉淀全部不入库
   if (fs.existsSync(path.join(p.repo, '.git')) && pipelineDocsIgnored(p.repo)) {
@@ -116,7 +110,7 @@ for (const p of projects) {
   if (fs.existsSync(path.join(p.repo, '.git')) && claudeMdIgnored(p.repo)) {
     probs.push('.gitignore 屏蔽了 CLAUDE.md（沉淀采纳的常识进不了 git，只停在本机工作区；请从 .gitignore 删掉 CLAUDE.md 那行）');
   }
-  if (!cfg.repoToProject[p.repo]) probs.push('无 GitLab 映射（看板工件链接将为空）');
+  if (!cfg.repoToProject?.[p.repo]) probs.push('无 GitLab 映射（看板工件链接将为空）');
   // CI 任务按项目解析：全局 JENKINS_JOB 只在单项目部署时兜底（多项目下借全局 job 会跑错项目的构建）
   const ciJob = ciJobFor(p);
   if (ciJob && (!process.env.JENKINS_USER || !process.env.JENKINS_TOKEN)) probs.push('配了 CI 任务但缺 JENKINS_USER/TOKEN');
@@ -230,7 +224,8 @@ if (!process.argv.includes('--no-infer')) {
   console.log('\n== 真实推理 ==');
   const cwd = projects.find((p) => fs.existsSync(p.repo))?.repo ?? root;
   try {
-    const r = await runClaudeText({ cwd, prompt: '只回复两个字：正常', tools: 'Read', model: 'haiku', maxTurns: 3, budgetUsd: 0.1 });
+    const engine = engineFor(cwd, 'run');
+    const r = await engine.runText({ cwd, prompt: '只回复两个字：正常；不要使用工具。', tools: 'Read', model: '', maxTurns: 3, budgetUsd: 0.1 });
     add(!r.isError && r.text.length > 0 ? '✅' : '❌', '推理探测', `${r.isError ? '会话报错' : `回复 ${r.text.slice(0, 20)}`}（$${r.costUsd.toFixed(3)}）`);
   } catch (e) {
     add('❌', '推理探测', (e as Error).message.slice(0, 120));

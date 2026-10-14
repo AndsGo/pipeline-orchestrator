@@ -1,4 +1,5 @@
 import type { PipelineProfile } from './profile.js';
+import { formatCost, type CostStatus } from './cost.js';
 import type { Action, Stage, StageResult } from './types.js';
 
 /**
@@ -117,9 +118,9 @@ export function progressLine(text: string): string | null {
   return null;
 }
 
-export function triageLine(lane: string, reason: string, costUsd: number): string {
+export function triageLine(lane: string, reason: string, costUsd: number, costStatus?: CostStatus): string {
   const how = lane === 'fast' ? '小改动，直接开发' : '走完整流程（整理需求 → 制定方案 → 开发 → 评审 → 验收）';
-  return `已受理：${how}——${reason}（$${costUsd.toFixed(2)}）`;
+  return `已受理：${how}——${reason}（${formatCost(costUsd, costStatus)}）`;
 }
 
 export function errorLine(stage: string, raw: string, ticket: string, retryMinutes: number | null): string {

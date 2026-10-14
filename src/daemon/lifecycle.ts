@@ -1,8 +1,10 @@
 import fs from 'node:fs';
+import { aggregateCostStatus } from '../cost.js';
 import path from 'node:path';
 import { applyEnvReload, parseEnvText } from '../envKeys.js';
 import { appendEvent, listTickets } from '../events.js';
 import { clearPaused } from '../pause.js';
+import { ENTRIES, readConfiguration, selectProfile } from '../engine/configuration.js';
 import { loadProjects } from '../projects.js';
 import { listReqs } from '../requirements.js';
 import { peekTicketRepo, readSnapshot, saveTicket } from '../ticket.js';
@@ -93,12 +95,14 @@ export interface RuntimeSnapshot {
   active: string[];
   /** 等人答的卡片标签，按工单/需求分组 */
   pending: Record<string, string[]>;
-  adhoc: { count: number; cost: number };
+  adhoc: { count: number; cost: number; costStatus?: import('../cost.js').CostStatus };
   boardOn: boolean;
   projects: string[];
+  agentExecution?: { revision: number; entries: { entry: string; profile: string; cli: string }[] };
 }
 
 export function runtimeSnapshot(ctx: DaemonContext, now = Date.now()): RuntimeSnapshot {
+  const execution = readConfiguration();
   const pending: Record<string, string[]> = {};
   let grouped = 0;
   for (const t of new Set([...ctx.active.keys(), ...listTickets(), ...listReqs().map((r) => r.id)])) {
@@ -116,9 +120,10 @@ export function runtimeSnapshot(ctx: DaemonContext, now = Date.now()): RuntimeSn
     concurrency: { inUse: ctx.sem.inUse, max: ctx.cfg.maxConcurrency, waiting: ctx.sem.waiting },
     active: [...ctx.active.keys()],
     pending,
-    adhoc: { count: ctx.adhoc.length, cost: ctx.adhoc.reduce((a, x) => a + x.costUsd, 0) },
+    adhoc: { count: ctx.adhoc.length, cost: ctx.adhoc.reduce((a, x) => a + x.costUsd, 0), costStatus: aggregateCostStatus(ctx.adhoc) },
     boardOn: ctx.boardOn,
     projects: ctx.projects.map((p) => p.alias),
+    agentExecution: { revision: execution.revision, entries: ENTRIES.map(entry => { const profile = selectProfile(undefined, entry, execution); return { entry, profile: profile.id, cli: profile.cli }; }) },
   };
 }
 

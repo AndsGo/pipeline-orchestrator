@@ -13,6 +13,8 @@ import { ticketDir } from './config.js';
 export const SUGGESTIONS_FILE = '92-suggestions.json';
 
 export interface ClaudeMdSuggestion {
+  /** New suggestions name their destination; legacy claudeMd entries become project knowledge. */
+  target?: 'AGENTS.md' | 'docs/pipeline/PROJECT-KNOWLEDGE.md';
   /** 目标小节标题（如 "## 环境"）；CLAUDE.md 中不存在该小节时在文件末尾新建 */
   section: string;
   /** 要追加的行。完全相同的行已存在时跳过（重跑 compound 不会堆重复） */
@@ -40,9 +42,14 @@ export function readSuggestions(repo: string, ticket: string): { suggestions: Su
   try {
     const raw = JSON.parse(fs.readFileSync(f, 'utf-8')) as {
       claudeMd?: unknown[];
+      agentsMd?: unknown[];
+      projectKnowledge?: unknown[];
       process?: unknown[];
     };
-    const claudeMd = (Array.isArray(raw.claudeMd) ? raw.claudeMd : []).filter(isClaudeMdSuggestion);
+    const legacy = (Array.isArray(raw.claudeMd) ? raw.claudeMd : []).filter(isClaudeMdSuggestion).map(item => ({ ...item, target: 'docs/pipeline/PROJECT-KNOWLEDGE.md' as const }));
+    const agents = (Array.isArray(raw.agentsMd) ? raw.agentsMd : []).filter(isClaudeMdSuggestion).map(item => ({ ...item, target: 'AGENTS.md' as const }));
+    const project = (Array.isArray(raw.projectKnowledge) ? raw.projectKnowledge : []).filter(isClaudeMdSuggestion).map(item => ({ ...item, target: 'docs/pipeline/PROJECT-KNOWLEDGE.md' as const }));
+    const claudeMd = [...legacy, ...agents, ...project];
     const process = (Array.isArray(raw.process) ? raw.process : []).filter(isProcessSuggestion);
     return { suggestions: { claudeMd, process } };
   } catch (e) {
@@ -64,9 +71,9 @@ function isProcessSuggestion(v: unknown): v is ProcessSuggestion {
 export function renderSuggestionsDetail(s: Suggestions): string {
   const parts: string[] = [];
   if (s.claudeMd.length) {
-    parts.push('**CLAUDE.md 建议（通过即自动合入）**');
+    parts.push('**通用规则与项目知识建议（通过即自动合入）**');
     s.claudeMd.forEach((c, i) =>
-      parts.push(`${i + 1}. ${c.section} ← ${c.line}${c.why ? `\n   依据：${c.why}` : ''}`),
+      parts.push(`${i + 1}. [${c.target ?? 'docs/pipeline/PROJECT-KNOWLEDGE.md'}] ${c.section} ← ${c.line}${c.why ? `\n   依据：${c.why}` : ''}`),
     );
   }
   if (s.process.length) {
@@ -84,8 +91,13 @@ export function applyClaudeMdSuggestions(
   repo: string,
   items: ClaudeMdSuggestion[],
 ): { applied: string[]; skipped: string[] } {
-  const file = path.join(repo, 'CLAUDE.md');
-  let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '# CLAUDE.md\n';
+  const results = ['AGENTS.md', 'docs/pipeline/PROJECT-KNOWLEDGE.md'].map(target =>
+    applyKnowledgeFile(repo, items.filter(item => (item.target ?? 'docs/pipeline/PROJECT-KNOWLEDGE.md') === target), target));
+  return { applied: results.flatMap(result => result.applied), skipped: results.flatMap(result => result.skipped) };
+}
+function applyKnowledgeFile(repo: string, items: ClaudeMdSuggestion[], target: string): { applied: string[]; skipped: string[] } {
+  const file = path.join(repo, target);
+  let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : `# ${target === 'AGENTS.md' ? '通用 Agent 规则' : '项目知识'}\n`;
   const applied: string[] = [];
   const skipped: string[] = [];
 
@@ -116,7 +128,7 @@ export function applyClaudeMdSuggestions(
     applied.push(line);
   }
 
-  if (applied.length) fs.writeFileSync(file, content, 'utf-8');
+  if (applied.length) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content, 'utf-8'); }
   return { applied, skipped };
 }
 
@@ -178,8 +190,8 @@ export function adoptViaMr(repo: string, ticket: string, items: ClaudeMdSuggesti
       cleanup();
       return { ok: true, applied: [], skipped: r.skipped }; // 主干已全有，无事可做
     }
-    git(wt, ['add', 'CLAUDE.md']);
-    const commit = git(wt, ['commit', '-m', `chore(${ticket}): adopt CLAUDE.md learnings`]);
+    git(wt, ['add', '--', ...['AGENTS.md', 'docs/pipeline/PROJECT-KNOWLEDGE.md'].filter(file => fs.existsSync(path.join(wt, file)))]);
+    const commit = git(wt, ['commit', '-m', `chore(${ticket}): adopt shared rules and project knowledge`]);
     if (!commit.ok) {
       cleanup();
       return { ok: false, applied: [], skipped: [], error: `提交失败：${commit.out.slice(0, 200)}` };
@@ -189,7 +201,7 @@ export function adoptViaMr(repo: string, ticket: string, items: ClaudeMdSuggesti
       'push',
       '-o', 'merge_request.create',
       '-o', `merge_request.target=${base}`,
-      '-o', `merge_request.title=chore(${ticket}): CLAUDE.md learnings`,
+      '-o', `merge_request.title=chore(${ticket}): shared rules and project knowledge`,
       'origin', branch,
     ]);
     let pushedBranch: string | undefined;

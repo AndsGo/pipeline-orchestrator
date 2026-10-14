@@ -33,7 +33,7 @@ if (!projectsJson) {
   console.error('未找到 PIPELINE_PROJECTS。旧的单项目配置请先跑 npx tsx scripts/project-migrate.ts 迁移。');
   process.exit(1);
 }
-let existing;
+let existing: ReturnType<typeof loadProjects>;
 try {
   existing = loadProjects({ PIPELINE_PROJECTS: projectsJson } as NodeJS.ProcessEnv);
 } catch {
@@ -78,8 +78,11 @@ if (errs.length) {
   console.error(`\n校验未通过：\n${errs.map((e) => `  ✗ ${e}`).join('\n')}`);
   process.exit(1);
 }
-if (cand.repo && !fs.existsSync(path.join(cand.repo, 'CLAUDE.md'))) {
-  console.log('⚠ 该仓库没有 CLAUDE.md——阶段会话会缺少项目规范约束，建议补一份。');
+if (cand.repo && !fs.existsSync(path.join(cand.repo, 'AGENTS.md'))) {
+  console.log('⚠ 该仓库没有 AGENTS.md，建议补充适用于所有 agent CLI 的通用规则。旧 CLAUDE.md 仍作为兼容输入。');
+}
+if (cand.repo && !fs.existsSync(path.join(cand.repo, 'docs/pipeline/PROJECT-KNOWLEDGE.md'))) {
+  console.log('⚠ 该仓库没有 docs/pipeline/PROJECT-KNOWLEDGE.md，建议补充项目常识。');
   if (ensureProfileTemplate(cand.repo, cand.alias)) console.log('已生成 docs/pipeline/PIPELINE.md 模板（流程开关：测试环境 / 验收人 / 上线方式），请按项目实际填写；不填 = 无测试环境、研发验收、不设上线环节。');
 }
 

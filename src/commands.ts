@@ -1,6 +1,6 @@
 import { describeLastRun, type LastRun } from './followup.js';
 import { osaDistance } from './projects.js';
-import { runClaudeJson } from './runner.js';
+import { engineFor } from './engine/index.js';
 import type { Stage } from './types.js';
 
 /**
@@ -436,11 +436,14 @@ export async function classifyCommand(
   lastRun: LastRun | null = null,
 ): Promise<Classified> {
   let lastError = '';
+  let engine: ReturnType<typeof engineFor>;
+  try { engine = engineFor(cwd, 'classify'); }
+  catch (error) { return { command: { kind: 'unknown', text }, confidence: 0, error: (error as Error).message.slice(0, 200) }; }
   // 分类只读且幂等，失败重试一次：实测这个环境的 API 会偶发断流，
   // 一次抖动不该让用户的消息吃闭门羹。有副作用的执行则相反，绝不自动重试。
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const { envelope } = await runClaudeJson({
+      const { envelope } = await engine.runJson({
         cwd,
         prompt: buildClassifyPrompt(text, contexts, lastRun),
         tools: 'Read',

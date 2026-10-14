@@ -1,0 +1,17 @@
+{
+  "startedAt": "2026-10-12T02:59:10.911Z",
+  "model": "ollama/ornith-1.5:9b",
+  "scope": "Text-only diagnostic; ephemeral provider; no production activation or constraint relaxation",
+  "isolatedDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-opencode-local-lVWor6",
+  "nativeDefaultProvider": "not authenticated",
+  "first": {
+    "exitCode": 0,
+    "sessionId": "ses_ed1f33ad5ffeuc9GmzZA2N4J1W",
+    "matches": true,
+    "error": "OpenCode 缺少会话 ID、最终正文或正常完成事件",
+    "costKnown": false
+  },
+  "nativeText": "FAIL",
+  "error": "OpenCode 缺少会话 ID、最终正文或正常完成事件",
+  "finishedAt": "2026-10-12T02:59:14.049Z"
+}

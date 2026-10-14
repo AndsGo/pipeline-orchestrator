@@ -1,14 +1,15 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PLUGIN_DIR, STAGES } from '../config.js';
-import type { RunOutcome, TextRunOpts } from '../runner.js';
+import type { RunOutcome, TextRunOpts, ClaudeJsonOpts } from '../runner.js';
 import { wireSchema } from '../schema.js';
 import { readProfile } from '../profile.js';
 import type { Envelope, Stage, StageResult } from '../types.js';
 import { codexE2eArgs, e2eBriefLine, e2eEnabledFor } from './e2e.js';
 import type { Engine, TextResult } from './types.js';
+import { runProcess } from './process.js';
 
 /**
  * Codex CLI 引擎（`codex exec`，非交互）。与 claude 引擎的差异都收在这里：
@@ -37,25 +38,30 @@ export interface CodexSummary {
   outputTokens: number;
   errorMessage?: string;
   lastAgentText?: string;
+  completed?: boolean;
 }
 
 /** 把 JSONL 事件流归纳成一份摘要（纯函数，测试用） */
 export function summarizeCodexEvents(jsonl: string): CodexSummary {
-  const s: CodexSummary = { turns: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+  const s: CodexSummary = { turns: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, completed: false };
   for (const line of jsonl.split('\n')) {
     const t = line.trim();
-    if (!t.startsWith('{')) continue;
+    if (!t) continue;
     let ev: CodexEvent;
     try {
       ev = JSON.parse(t) as CodexEvent;
     } catch {
-      continue;
+      s.errorMessage = 'Codex JSON 事件流损坏'; continue;
     }
+    if (!ev || typeof ev !== 'object' || typeof ev.type !== 'string') { s.errorMessage = 'Codex JSON 事件字段不合法'; continue; }
     switch (ev.type) {
       case 'thread.started':
-        if (ev.thread_id) s.sessionId = ev.thread_id;
+        if (typeof ev.thread_id !== 'string' || !ev.thread_id) s.errorMessage = 'Codex 缺少真实 thread ID';
+        else if (s.sessionId && s.sessionId !== ev.thread_id) s.errorMessage = 'Codex 事件流包含不同会话';
+        else s.sessionId = ev.thread_id;
         break;
       case 'turn.completed':
+        s.completed = !!s.lastAgentText?.trim();
         s.turns += 1;
         s.inputTokens += ev.usage?.input_tokens ?? 0;
         s.cachedInputTokens += ev.usage?.cached_input_tokens ?? 0;
@@ -68,8 +74,9 @@ export function summarizeCodexEvents(jsonl: string): CodexSummary {
         s.errorMessage = ev.message ?? s.errorMessage ?? 'error';
         break;
       case 'item.completed':
-        if (ev.item?.type === 'agent_message' && typeof ev.item.text === 'string') s.lastAgentText = ev.item.text;
+        if (ev.item?.type === 'agent_message' && typeof ev.item.text === 'string') { s.lastAgentText = ev.item.text; s.completed = false; }
         break;
+      case 'turn.started': s.completed = false; break;
       default:
         break;
     }
@@ -171,7 +178,7 @@ export function bridgePrompt(prompt: string, pluginDir = PLUGIN_DIR, cwd?: strin
   const root = cwd?.replace(/\\/g, '/');
   return [
     `你是开发流水线的执行者，本次任务由 skill「${m[1]}」定义。先完整读取 ${skillFile}，然后严格按它执行。`,
-    `读 skill 时的约定：文中 \${CLAUDE_PLUGIN_ROOT} 指 ${pluginDir.replace(/\\/g, '/')}；文中引用的 superpowers:<名字> skill，优先读 ${home}/.codex/superpowers 或 ${home}/.codex/skills 下同名目录的 SKILL.md，找不到就按其字面要求自行完成；文中提到的「子代理 / Agent 工具」在本环境不可用，由你在单一会话内顺序完成同等工作并在产物里如实说明。`,
+    `读 skill 时的约定：文中 \${PIPELINE_PLUGIN_ROOT}（兼容 \${CLAUDE_PLUGIN_ROOT}）指 ${pluginDir.replace(/\\/g, '/')}；文中引用的 superpowers:<名字> skill，优先读 ${home}/.codex/superpowers 或 ${home}/.codex/skills 下同名目录的 SKILL.md。缺少必需 skill、子代理或工具时必须报告 BLOCKED，不得自行替代。`,
     // 工作根钉死（2026-09-04 实测：评审为跑 git diff 溜进主检出，把 30-review-r1.md 写去了主检出而非本工单 worktree）
     ...(root
       ? [
@@ -188,6 +195,8 @@ interface ExecOpts {
   prompt: string;
   sandbox: 'read-only' | 'workspace-write';
   model?: string;
+  effort?: string;
+  windowsSandbox?: import('./configuration.js').WindowsSandbox;
   schema?: object;
   resumeSessionId?: string;
   timeoutMs: number;
@@ -200,14 +209,12 @@ interface ExecOutcome {
   lastMessage: string;
   exitCode: number | null;
   stderr: string;
+  stdout: string;
 }
 
 function codexModel(): string | undefined {
   return process.env.PIPELINE_CODEX_MODEL || undefined; // 不配就用 ~/.codex/config.toml 的默认模型
 }
-
-/** e2e 会话忽略用户配置时的模型兜底：2026-09-05 真机可用的那个 */
-const CODEX_FALLBACK_MODEL = 'gpt-5.6-sol';
 
 /**
  * 怎么起 codex：绝不能经 shell。首版用 spawn(..., { shell: true })，Node 在该模式下把参数直接空格拼接、不加引号，
@@ -224,7 +231,15 @@ export function codexCommand(env = process.env, execPath = process.execPath, exi
   return process.platform === 'win32' ? { cmd: 'codex.cmd', prefix: [] } : { cmd: 'codex', prefix: [] };
 }
 
-function execCodex(o: ExecOpts): Promise<ExecOutcome> {
+/** Use the orchestrator's configured native home across terminal/watchdog hosts. */
+export function codexEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
+  if (env.PIPELINE_CODEX_HOME?.trim()) env.CODEX_HOME = path.resolve(env.PIPELINE_CODEX_HOME.trim());
+  delete env.CODEX_THREAD_ID; delete env.CODEX_SESSION_ID;
+  return env;
+}
+
+async function execCodex(o: ExecOpts): Promise<ExecOutcome> {
   const tag = `${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const lastFile = path.join(os.tmpdir(), `pipeline-codex-last-${tag}.txt`);
   const schemaFile = o.schema ? path.join(os.tmpdir(), `pipeline-codex-schema-${tag}.json`) : null;
@@ -232,49 +247,28 @@ function execCodex(o: ExecOpts): Promise<ExecOutcome> {
   const common = [
     '--json',
     '--skip-git-repo-check',
-    '-C',
-    o.cwd,
-    ...sandboxArgs(o.sandbox, o.extraArgs),
+    ...(o.resumeSessionId ? [] : ['-C', o.cwd]),
+    ...(o.resumeSessionId ? ['-c', `sandbox_mode="${o.sandbox}"`] : sandboxArgs(o.sandbox, o.extraArgs)),
     ...(o.model ? ['-m', o.model] : []),
+    ...(o.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(o.effort === 'max' ? 'xhigh' : o.effort)}`] : []),
+    ...(o.windowsSandbox ? ['-c', `windows.sandbox=${JSON.stringify(o.windowsSandbox)}`] : []),
     ...(schemaFile ? ['--output-schema', schemaFile] : []),
     '-o',
     lastFile,
     ...(o.extraArgs ?? []),
   ];
-  const args = o.resumeSessionId ? ['exec', 'resume', ...common, o.resumeSessionId, o.prompt] : ['exec', ...common, o.prompt];
+  const args = o.resumeSessionId ? ['exec', 'resume', ...common, o.resumeSessionId, '-'] : ['exec', ...common, '-'];
   const { cmd, prefix } = codexCommand();
-  return new Promise((resolve, reject) => {
-    // 不经 shell：参数由 Node 逐个转义，提示词里的空格/换行/引号原样到达 codex
-    const child = spawn(cmd, [...prefix, ...args], { cwd: o.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    const timer = setTimeout(() => child.kill(), o.timeoutMs);
-    child.stdout.on('data', (d: Buffer) => (out += d.toString('utf-8')));
-    child.stderr.on('data', (d: Buffer) => (err += d.toString('utf-8')));
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      let lastMessage = '';
-      try {
-        lastMessage = fs.readFileSync(lastFile, 'utf-8');
-      } catch {
-        /* 失败时没有最终消息 */
-      }
-      for (const f of [lastFile, schemaFile]) {
-        if (f) {
-          try {
-            fs.unlinkSync(f);
-          } catch {
-            /* 已删 */
-          }
-        }
-      }
-      resolve({ summary: summarizeCodexEvents(out), lastMessage, exitCode: code, stderr: err });
-    });
-  });
+  try {
+    const env = codexEnvironment();
+    // Authentication/configuration remain native; a new CLI must not inherit the
+    // hosting Codex agent's thread identity and accidentally join its agent tree.
+    const result = await runProcess(cmd, [...prefix, ...args], { cwd: o.cwd, stdin: o.prompt, timeoutMs: o.timeoutMs, env });
+    const lastMessage = fs.existsSync(lastFile) ? fs.readFileSync(lastFile, 'utf8') : '';
+    return { summary: summarizeCodexEvents(result.stdout), lastMessage, exitCode: result.code, stderr: result.stderr, stdout: result.stdout };
+  } finally {
+    for (const file of [lastFile, schemaFile]) if (file && fs.existsSync(file)) fs.unlinkSync(file);
+  }
 }
 
 /** 把一次执行的结果装进编排器认的 Envelope */
@@ -282,24 +276,27 @@ export function toEnvelope(r: ExecOutcome, parseStructured: boolean, originalSch
   const { summary } = r;
   const cost = codexCostUsd(summary);
   const text = r.lastMessage.trim() || summary.lastAgentText?.trim() || '';
-  const failed = !!summary.errorMessage || (r.exitCode !== 0 && !text);
+  let error = summary.errorMessage;
+  if (!summary.sessionId || summary.turns < 1 || !summary.completed || !text) error ??= 'Codex 缺少真实会话、正常完成事件或最终正文';
+  if (r.lastMessage.trim() && summary.lastAgentText?.trim() && r.lastMessage.trim() !== summary.lastAgentText.trim()) error ??= 'Codex 最终文件与事件正文不一致';
+  let failed = !!error || r.exitCode !== 0;
   let structured: StageResult | undefined;
   if (parseStructured && !failed && text) {
     try {
-      structured = stripOptionalNulls(JSON.parse(text.slice(text.indexOf('{'))) as StageResult, originalSchema);
+      structured = stripOptionalNulls(JSON.parse(text) as StageResult, originalSchema);
     } catch {
-      structured = undefined;
+      failed = true; error = 'Codex 最终回复不是 JSON 对象';
     }
   }
-  const note = cost.priced ? '' : '（Codex 未配价格表 PIPELINE_CODEX_PRICE_IN/OUT，成本记 0）';
   return {
     is_error: failed,
     num_turns: summary.turns,
     total_cost_usd: cost.usd,
-    session_id: summary.sessionId ?? 'codex',
+    costStatus: cost.priced ? 'reported' : 'unknown',
+    session_id: summary.sessionId ?? '',
     structured_output: structured,
     permission_denials: [],
-    result: failed ? `Codex 执行失败：${summary.errorMessage ?? (r.stderr.trim().slice(0, 300) || `exit ${r.exitCode}`)}` : `${text}${note}`,
+    result: failed ? `Codex 执行失败：${error ?? (r.stderr.trim().slice(0, 300) || `exit ${r.exitCode}`)}` : text,
   };
 }
 
@@ -339,8 +336,18 @@ export function reconcileWorktreeArtifacts(repo: string, ticket: string, log: (m
 
 export const codexEngine: Engine = {
   name: 'codex',
+  async runJson(opts: ClaudeJsonOpts): Promise<RunOutcome> {
+    if (opts.credentialRef) throw new Error('Codex 凭据由原生配置管理，不支持 credentialRef');
+    if (opts.constraintMode !== 'native' && (opts.maxTurns > 0 || opts.budgetUsd > 0)) throw new Error('Codex 无法执行必需的轮数、预算与工具白名单，已阻止调用模型');
+    const r = await execCodex({ cwd: opts.cwd, prompt: bridgePrompt(opts.prompt, opts.pluginDir, opts.cwd),
+      sandbox: sandboxFor(opts.tools), model: opts.model, effort: opts.effort, windowsSandbox: opts.windowsSandbox,
+        schema: toStrictSchema(opts.schema) as object, timeoutMs: opts.timeoutMs ?? STAGE_TIMEOUT_MS,
+        extraArgs: opts.tools.includes('mcp__playwright') ? codexE2eArgs(opts.constraintMode === 'native') : undefined });
+      return { envelope: toEnvelope(r, true, opts.schema), rawStdout: r.stdout };
+  },
   async runStage(repo, ticket, stage: Exclude<Stage, 'ci'>, extraArgs = '', modelOverride?: string): Promise<RunOutcome> {
     const cfg = STAGES[stage];
+    if (cfg.maxTurns > 0 || cfg.budgetUsd > 0) throw new Error('Codex 无法执行阶段必需的轮数、预算与工具白名单，已阻止调用模型');
     const e2e = e2eEnabledFor(repo, stage);
     const testEnv = e2e ? readProfile(repo)?.testEnv?.url : undefined;
     const base = bridgePrompt(`/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`, PLUGIN_DIR, repo);
@@ -349,7 +356,7 @@ export const codexEngine: Engine = {
       prompt: e2e ? `${base}\n${e2eBriefLine(testEnv)}` : base,
       sandbox: sandboxFor(cfg.tools),
       // e2e 走 --ignore-user-config，模型必须显式给：没钉就用最后实测可用的那个（2026-09-05：全局默认曾漂到 CLI 不认的模型）
-      model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : (codexModel() ?? (e2e ? CODEX_FALLBACK_MODEL : undefined)),
+      model: modelOverride && !/^(opus|sonnet|haiku)$/i.test(modelOverride) ? modelOverride : codexModel(),
       schema: toStrictSchema(JSON.parse(wireSchema())) as object,
       timeoutMs: STAGE_TIMEOUT_MS,
       extraArgs: e2e ? codexE2eArgs() : undefined,
@@ -358,19 +365,23 @@ export const codexEngine: Engine = {
     return { envelope: toEnvelope(r, true), rawStdout: r.lastMessage };
   },
   async runText(opts: TextRunOpts): Promise<TextResult> {
+    if (opts.credentialRef) throw new Error('Codex 凭据由原生配置管理，不支持 credentialRef');
+    if (opts.constraintMode !== 'native' && (opts.maxTurns > 0 || opts.budgetUsd > 0)) throw new Error('Codex 无法执行必需的轮数、预算与工具白名单，已阻止调用模型');
     const r = await execCodex({
       cwd: opts.cwd,
       prompt: bridgePrompt(opts.prompt, opts.pluginDir),
       sandbox: sandboxFor(opts.tools),
-      model: codexModel(),
+      model: opts.model,
+      effort: opts.effort,
+      windowsSandbox: opts.windowsSandbox,
       resumeSessionId: opts.resumeSessionId,
-      timeoutMs: 60 * 60 * 1000,
+      timeoutMs: opts.timeoutMs ?? 60 * 60 * 1000,
     });
     if (opts.resumeSessionId && r.summary.errorMessage && !r.summary.sessionId) {
-      // 与 claude 引擎同一约定：resume 的启动期失败 reject，调用方降级为拼接模式
+      // 原生续聊失败保持显式错误，调用方不得自动新建会话替代。
       throw new Error(`codex resume 失败：${r.summary.errorMessage}`);
     }
     const env = toEnvelope(r, false);
-    return { text: env.result ?? '(无输出)', costUsd: env.total_cost_usd, turns: env.num_turns, isError: env.is_error, sessionId: env.session_id };
+    return { text: env.result ?? '(无输出)', costUsd: env.total_cost_usd, turns: env.num_turns, isError: env.is_error, sessionId: env.session_id, rawStdout: r.stdout, costStatus: env.costStatus === 'unknown' ? 'unknown' : 'reported' };
   },
 };

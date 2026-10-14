@@ -1,0 +1,22 @@
+{
+  "cli": "claude",
+  "scope": "Synthetic loopback request-body diagnostic only; no model call, no profile activation or pipeline acceptance",
+  "requests": [
+    {
+      "url": "/v1/messages?beta=true",
+      "model": "wire-only",
+      "stream": true,
+      "max_tokens": 8192,
+      "hasAuthorization": true
+    },
+    {
+      "url": "/v1/messages?beta=true",
+      "model": "wire-only",
+      "stream": true,
+      "max_tokens": 8192,
+      "hasAuthorization": true
+    }
+  ],
+  "nativeCliComplete": false,
+  "requestBodyVerified": true
+}

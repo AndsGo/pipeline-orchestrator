@@ -1,0 +1,7 @@
+{
+  "command": "opencode",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-CF1uKx",
+  "stdout": "{\"type\":\"step_start\",\"timestamp\":1791886204429,\"sessionID\":\"ses_ecb426c76ffetwc6NRsUpPiUXM\",\"part\":{\"id\":\"prt_134bd9e0d001XZMXMWnhpp40Lv\",\"sessionID\":\"ses_ecb426c76ffetwc6NRsUpPiUXM\",\"messageID\":\"msg_134bd9bc5001Te1cehegcUFn60\",\"type\":\"step-start\",\"snapshot\":\"e2e3c54392672df02fd2a8c098b8a31e6945fe40\"}}\n{\"type\":\"text\",\"timestamp\":1791886206922,\"sessionID\":\"ses_ecb426c76ffetwc6NRsUpPiUXM\",\"part\":{\"id\":\"prt_134bda68e001PVT9lt5S81UbVV\",\"sessionID\":\"ses_ecb426c76ffetwc6NRsUpPiUXM\",\"messageID\":\"msg_134bd9bc5001Te1cehegcUFn60\",\"type\":\"text\",\"text\":\"000c09c9-3fbd-47ba-b3cd-d131f23b9245\",\"time\":{\"start\":1791886206606,\"end\":1791886206922}}}\n",
+  "stderr": "",
+  "code": 0
+}

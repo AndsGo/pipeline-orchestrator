@@ -1,0 +1,10 @@
+{
+  "startedAt": "2026-10-12T01:58:00.861Z",
+  "model": "ggml-org/Laya-GGUF",
+  "scope": "Text-only diagnostic; ephemeral provider; no production activation or constraint relaxation",
+  "isolatedDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-opencode-local-Cm8RUG",
+  "nativeDefaultProvider": "not authenticated",
+  "nativeText": "FAIL",
+  "error": "CLI 执行超时（90000ms）",
+  "finishedAt": "2026-10-12T01:59:31.001Z"
+}

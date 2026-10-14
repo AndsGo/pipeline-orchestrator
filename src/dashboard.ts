@@ -1,4 +1,5 @@
 import { loadProjects } from './projects.js';
+import { formatCost, type CostStatus } from './cost.js';
 
 /**
  * 运行面板的数据装配（纯函数，可单测）。
@@ -17,6 +18,7 @@ export interface TicketRow {
   stage: string;
   state: string;
   cost: number;
+  costStatus?: CostStatus;
   waiting?: string;
   url?: string;
 }
@@ -29,7 +31,7 @@ export interface RuntimeInfo {
   pendingCards: number;
   boardEnabled: boolean;
   /** 本次运行期间的单次执行统计（/run） */
-  adhoc?: { count: number; cost: number };
+  adhoc?: { count: number; cost: number; costStatus?: CostStatus };
 }
 
 export interface DashboardData {
@@ -94,7 +96,7 @@ export function buildDashboard(env: NodeJS.ProcessEnv, rt: RuntimeInfo, tickets:
     { label: '工单', value: `${tickets.length} 个，其中在跑 ${rt.activeTickets.length}` },
     { label: '待人回答', value: rt.pendingCards ? `${rt.pendingCards} 项` : '无' },
     { label: '看板投影', value: rt.boardEnabled ? '已启用' : '未配置' },
-    ...(rt.adhoc?.count ? [{ label: '临时执行', value: `${rt.adhoc.count} 次 · $${rt.adhoc.cost.toFixed(2)}` }] : []),
+    ...(rt.adhoc?.count ? [{ label: '临时执行', value: `${rt.adhoc.count} 次 · ${formatCost(rt.adhoc.cost, rt.adhoc.costStatus)}` }] : []),
     { label: '双评审', value: env.PIPELINE_DOUBLE_REVIEW === '1' ? '开启（取严）' : '关闭' },
     ...(env.PIPELINE_HINTS_OFF ? [{ label: '⚠ 对照模式', value: '知识/术语注入已关闭（PIPELINE_HINTS_OFF）' }] : []),
     ...extraRuntime,
@@ -116,7 +118,7 @@ function renderTicketsByProject(rows: TicketRow[], mark: (s: string) => string):
       const body = list
         .map(
           (t) =>
-            `${mark(t.state)} **${t.ticket}**　${t.stage}　$${t.cost.toFixed(2)}` +
+            `${mark(t.state)} **${t.ticket}**　${t.stage}　${formatCost(t.cost, t.costStatus)}` +
             (t.waiting ? `\n　　└ ${t.waiting.slice(0, 60)}` : ''),
         )
         .join('\n');

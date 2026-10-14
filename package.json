@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0",
-    "ajv": "^8.17.0"
+    "ajv": "^8.17.0",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

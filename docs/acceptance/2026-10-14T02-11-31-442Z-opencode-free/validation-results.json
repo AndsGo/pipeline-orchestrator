@@ -1,0 +1,44 @@
+{
+  "ok": false,
+  "profileId": "opencode-free-check",
+  "at": "2026-10-14T07:28:22.247Z",
+  "checks": [
+    "CLI 可执行：opencode v2.0.6",
+    "run / opencode/space-bunny-free：JSON 契约通过"
+  ],
+  "errors": [
+    "OpenCode 执行失败：OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."
+  ],
+  "costUsd": 0,
+  "resolved": {
+    "run": "opencode/space-bunny-free"
+  },
+  "costStatus": "unknown",
+  "constraints": [
+    {
+      "mode": "native",
+      "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+      "turns": {
+        "requested": 40,
+        "enforced": true,
+        "scope": "各代理每条消息的模型步骤，末步不提供工具"
+      },
+      "budget": {
+        "requestedUsd": 3,
+        "enforced": false,
+        "scope": "无原生金额上限，设置值不构成执行限制"
+      },
+      "timeoutMs": 10800000,
+      "effort": {
+        "requested": "CLI 默认",
+        "applied": false,
+        "scope": "请用明确 model#variant 选择原生档位；通用 effort 字段不执行"
+      },
+      "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+    }
+  ],
+  "cliVersion": "opencode v2.0.6",
+  "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+  "credentialContext": "585f4a4d353f9dd117045bd2227ca327612eb49eb25cd6834474d4268d04add9",
+  "probeCredentialContext": "585f4a4d353f9dd117045bd2227ca327612eb49eb25cd6834474d4268d04add9"
+}

@@ -12,6 +12,7 @@ import { broadcast } from '../ports.js';
 import type { Stage } from '../types.js';
 import { audienceOf, startLine } from '../voice.js';
 import type { TicketRun } from './context.js';
+import { executionConstraints } from '../engine/configuration.js';
 
 /** 项目流程约定节选：每阶段开工前抄进工单目录供会话先读；没有约定或该阶段无节 → 删掉旧文件，不留过期内容 */
 function writeStageProfile(repo: string, ticket: string, stage: Stage, profile: PipelineProfile | null): void {
@@ -29,7 +30,7 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
   const { repo, ticket, port, project } = run;
   writeStageProfile(repo, ticket, stage, profile);
   // 对照实验臂在首次进入 implement 时冻结进工单，之后所有分批与修复轮都用同一个模型
-  if (stage === 'implement' && !run.state.implementModel) {
+  if (stage === 'implement' && !run.state.implementModel && !run.state.executionPlan) {
     const arm = resolveImplementModel();
     run.state = { ...run.state, implementModel: arm.model };
     run.save();
@@ -38,8 +39,9 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
   const stageModel = stage === 'ci' ? undefined : stage === 'implement' ? run.state.implementModel : STAGES[stage].model;
   // 事件里的 model 标签要如实：非 claude 引擎跑时，stageModel 只是 claude 侧配置，实际用的是 codex 的默认模型。
   // 只改事件展示，不动传给引擎的 stageModel（2026-09-04 实测：Codex 评审事件写着 opus，看板与对照实验被误导）
-  const engineName = stage === 'ci' ? 'claude' : engineFor(repo, stage).name;
-  const modelLabel = engineName === 'claude' ? stageModel : `codex:${process.env.PIPELINE_CODEX_MODEL || '默认'}`;
+  const execution = stage === 'ci' ? undefined : run.state.executionPlan?.[stage];
+  const engineName = stage === 'ci' ? 'native-ci' : execution?.profile.cli ?? engineFor(repo, stage).name;
+  const modelLabel = execution ? `${engineName}:${execution.model}` : stageModel;
   // 开工前预取历史知识提示（ci 是编排器原生阶段，没有会话读它）。曾经只有澄清/计划读——
   // 但知识多由 review/acceptance 产出，不回流给产出它的阶段，同类问题就会反复出现；
   // compound 也要读：标题是知识去重的键，看得到既有条目才不会换个说法重复记。
@@ -75,7 +77,8 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
     type: 'stage.start',
     stage,
     summary: `阶段 ${stage} 开始${run.extraArgs ? `（${run.extraArgs}）` : ''}`,
-    payload: { claudeMdSha, ...(modelLabel ? { model: modelLabel } : {}) },
+    payload: { claudeMdSha, ...(modelLabel ? { model: modelLabel } : {}), execution,
+      ...(execution ? { constraints: executionConstraints(execution) } : {}) },
   });
   await broadcast(
     port,

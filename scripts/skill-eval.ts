@@ -11,6 +11,8 @@ import { PLUGIN_DIR, STAGES } from '../src/config.js';
 import { runClaudeJson } from '../src/runner.js';
 import { wireSchema } from '../src/schema.js';
 import type { Stage } from '../src/types.js';
+import { withProcessEvidence } from '../src/engine/process.js';
+import { acceptanceTrace } from './acceptance-trace.js';
 
 interface Expect {
   skill: Exclude<Stage, 'ci'>;
@@ -29,6 +31,11 @@ if (!picked.length) {
 }
 
 const schema = JSON.parse(wireSchema()) as object; // 线上版：API 不吃顶层 allOf，条件校验由回程补足
+const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-skill-eval`);
+fs.mkdirSync(output, { recursive: true });
+const report: Record<string, unknown> = { startedAt: new Date().toISOString(), cli: 'claude', model: 'sonnet', cases: [], scope: 'Real existing plugin skill regressions; native stage budgets, original fixtures and assertions; no production data changes' };
+const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
+const trace = acceptanceTrace(output, save); report.processEvidence = { calls: trace.calls, errors: trace.errors }; save();
 const git = (cwd: string, cmd: string): string => execSync(`git ${cmd}`, { cwd, encoding: 'utf-8' }).trim();
 
 let failed = 0;
@@ -55,16 +62,16 @@ for (const id of picked) {
   }
   const extra = exp.extraArgs.replace('{BASE_SHA}', baseSha);
   console.log(`▶ ${id}（${exp.skill}）…`);
-  const { envelope } = await runClaudeJson({
+  const { envelope } = await withProcessEvidence(trace.capture, () => runClaudeJson({
     cwd: tmp,
     prompt: `/pipeline-${exp.skill} T-1${extra ? ` ${extra}` : ''}`,
     tools: STAGES[exp.skill].tools,
     model: 'sonnet',
     maxTurns: STAGES[exp.skill].maxTurns,
-    budgetUsd: 3,
-    schema,
+    budgetUsd: STAGES[exp.skill].budgetUsd,
+    schema: JSON.parse(wireSchema(exp.skill)),
     pluginDir: PLUGIN_DIR,
-  });
+  }));
   cost += envelope.total_cost_usd ?? 0;
   const so = envelope.structured_output;
   const errs: string[] = [];
@@ -77,6 +84,7 @@ for (const id of picked) {
       errs.push(`axes.spec.failed=${so.axes?.spec.failed ?? '无'}，期望 ≥${exp.assert.axes_spec_failed_min}`);
     }
   }
+  (report.cases as unknown[]).push({ id, expected: exp.assert, envelope, errors: errs, status: errs.length ? 'NOT_PASS' : 'PASS' }); save();
   if (errs.length) {
     failed++;
     console.log(`✗ ${id}\n   ${errs.join('\n   ')}\n   （${exp.why}）`);
@@ -88,4 +96,5 @@ for (const id of picked) {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 console.log(`\n${picked.length - failed}/${picked.length} 通过，合计 $${cost.toFixed(2)}`);
+report.status = failed ? 'NOT_PASS' : 'PASS'; report.finishedAt = new Date().toISOString(); report.reportedCostUsd = cost; save(); console.log(`Evidence: ${output}`);
 process.exit(failed ? 1 : 0);

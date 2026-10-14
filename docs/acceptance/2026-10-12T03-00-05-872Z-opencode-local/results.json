@@ -1,0 +1,31 @@
+{
+  "startedAt": "2026-10-12T03:00:05.873Z",
+  "model": "ollama/ornith-1.5:9b",
+  "scope": "Text-only diagnostic; ephemeral provider; no production activation or constraint relaxation",
+  "isolatedDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\pipeline-opencode-local-QQe4zR",
+  "nativeDefaultProvider": "not authenticated",
+  "events": [
+    {
+      "type": "step_start",
+      "partType": "step-start",
+      "messageID": "msg_12e0d9cd4001g7CVITaWlvinXr",
+      "sessionID": "ses_ed1f26436ffenx35PEpBgCvO6v"
+    },
+    {
+      "type": "text",
+      "partType": "text",
+      "messageID": "msg_12e0d9cd4001g7CVITaWlvinXr",
+      "sessionID": "ses_ed1f26436ffenx35PEpBgCvO6v"
+    }
+  ],
+  "first": {
+    "exitCode": 0,
+    "sessionId": "ses_ed1f26436ffenx35PEpBgCvO6v",
+    "matches": true,
+    "error": "OpenCode 缺少会话 ID、最终正文或正常完成事件",
+    "costKnown": false
+  },
+  "nativeText": "FAIL",
+  "error": "OpenCode 缺少会话 ID、最终正文或正常完成事件",
+  "finishedAt": "2026-10-12T03:00:12.602Z"
+}

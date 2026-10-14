@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FIX_ROUND_CAP, IMPLEMENT_AUTO_CONTINUE_CAP, STAGE_EFFORT, STAGES } from '../config.js';
 import { ENV_GROUPS, envKeySpec, parseEnvText, type EnvKeySpec } from '../envKeys.js';
-import { isClosure, listTickets, readEvents, totalCost, type PipelineEvent } from '../events.js';
+import { isClosure, listTickets, readEvents, totalCost, failureCost, triageCost, ticketCostStatus, type PipelineEvent } from '../events.js';
 import { readEnvVar, upsertEnvVar } from '../onboarding.js';
 import { isPaused } from '../pause.js';
 import { dataDir } from '../paths.js';
@@ -149,6 +149,7 @@ export interface Overview {
   reqs: { total: number; open: number };
   /** 今日（本地日期）stage.end 成本合计 */
   todayCost: number;
+  todayCostStatus?: 'reported' | 'partial';
   /** 需要人处理的事，按紧急程度排 */
   attention: AttentionItem[];
 }
@@ -204,7 +205,7 @@ function isClosed(st: TicketState | null, evs: PipelineEvent[]): boolean {
  * （LS-002/003 实测差出 $20+），只在没有快照时兜底
  */
 function ticketCost(t: string, st: TicketState | null): number {
-  return st?.runs.length ? st.runs.reduce((s, r) => s + r.costUsd, 0) : totalCost(t);
+  return st?.runs.length ? st.runs.reduce((s, r) => s + r.costUsd, 0) + failureCost(t) + triageCost(t) : totalCost(t);
 }
 
 /** 工单标题：建单事件里的需求原文（「工单建立：」之后），截到一行 */
@@ -270,6 +271,7 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
   const active = new Set(runtime?.active ?? []);
   const tickets = { total: 0, running: 0, halted: 0, closed: 0 };
   let todayCost = 0;
+  let todayCostStatus: 'reported' | 'partial' = 'reported';
   const dayStart = new Date(now).setHours(0, 0, 0, 0);
   for (const t of listTickets()) {
     tickets.total++;
@@ -281,7 +283,10 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
     else if (state === '闭环') tickets.closed++;
     for (const e of evs) {
       const ts = Date.parse(e.ts);
-      if (e.type === 'stage.end' && ts >= dayStart && ts < dayStart + 86_400_000) todayCost += Number(e.payload?.costUsd) || 0;
+      if ((e.type === 'stage.end' || e.type === 'error' || e.type === 'triage') && ts >= dayStart && ts < dayStart + 86_400_000) {
+        todayCost += Number(e.payload?.costUsd) || 0;
+        if (e.payload?.costStatus === 'unknown' || e.payload?.costStatus === 'partial') todayCostStatus = 'partial';
+      }
     }
   }
   const reqs = listReqs();
@@ -295,6 +300,7 @@ export function buildOverview(opts: { dir: string; watchdogLog: string; now?: nu
     tickets,
     reqs: { total: reqs.length, open: reqs.filter((r) => ['梳理中', '待确认', '待排期', '已排期', '已转工单'].includes(r.status)).length },
     todayCost,
+    todayCostStatus,
     attention: attentionItems(runtime, now),
   };
 }
@@ -308,6 +314,7 @@ export interface TicketRowView {
   stage: string;
   state: RowState;
   cost: number;
+  costStatus?: 'reported' | 'partial' | 'unknown';
   waiting?: string;
   lastAt?: string;
 }
@@ -326,6 +333,7 @@ export function ticketRows(runtime: RuntimeSnapshot | null): TicketRowView[] {
       stage: state === '闭环' ? '—' : (st?.cursor ?? '?'),
       state,
       cost: ticketCost(t, st),
+      costStatus: ticketCostStatus(t),
       waiting: st?.haltedReason ? `挂起：${st.haltedReason}` : pending.length ? `等回答：${pending.join('、')}` : evs.at(-1)?.summary,
       lastAt: evs.at(-1)?.ts,
     };
@@ -338,6 +346,7 @@ export interface TicketDetail {
   title?: string;
   state: RowState;
   cost: number;
+  costStatus?: 'reported' | 'partial' | 'unknown';
   paused: boolean;
   running: boolean;
   pending: string[];
@@ -358,6 +367,7 @@ export function ticketDetail(ticket: string, runtime: RuntimeSnapshot | null): T
     title: ticketTitle(events),
     state: rowState(ticket, snapshot, events, new Set(runtime?.active ?? [])),
     cost: ticketCost(ticket, snapshot),
+    costStatus: ticketCostStatus(ticket),
     paused: isPaused(ticket),
     running: !!runtime?.active.includes(ticket),
     pending: runtime?.pending[ticket] ?? [],

@@ -1,0 +1,7 @@
+{
+  "command": "D:\\Programs\\nodejs\\node.exe",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx\\repo",
+  "stdout": "",
+  "stderr": "���Զԡ�FileSystem���ṩ����ִ�� InitializeDefaultDrives ����ʧ�ܡ�\r\n      0 [main] bash (34096) C:\\Program Files\\Git\\bin\\..\\usr\\bin\\bash.exe: *** fatal error - NtCreateDirectoryObject(\\BaseNamedObjects\\msys-2.0S5-1888ae32e00d56aa): 0xC0000022\n",
+  "code": 3221225794
+}

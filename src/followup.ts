@@ -36,6 +36,7 @@ export interface LastRun {
   chain: number;
   /** claude 会话 ID：优先 --resume 真续（续完不变）；缺失或失效时走拼接降级 */
   sessionId?: string;
+  execution?: import('./engine/configuration.js').ExecutionSnapshot;
   /** 本链条第一轮的用户原话：拼接降级时防止原始任务在第 2 轮后丢失 */
   origin?: string;
   /** 这次会话绑定的在线电子表格（会话产出表格 → 机器人建表，之后原地写回；见 feishu/sheet.ts）。跟着会话走，续法无关 */

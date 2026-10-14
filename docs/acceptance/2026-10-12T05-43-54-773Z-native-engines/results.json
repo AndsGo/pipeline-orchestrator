@@ -1,0 +1,246 @@
+{
+  "startedAt": "2026-10-12T05:43:54.774Z",
+  "isolatedDirectory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-native-engines-RXbyfi",
+  "scope": "User-approved native constraints; real draft validation and isolated activation; no production changes",
+  "engines": {
+    "codex": {
+      "plan": {
+        "profile": "c04defdd76491b5eb3bc98f263711bab9737ec4265c5ac3d91c77794aa22c172",
+        "entries": [
+          "run",
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "run",
+            "model": "gpt-6.1-sol",
+            "calls": 4,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+              "turns": {
+                "requested": 40,
+                "enforced": false,
+                "scope": "无原生轮数上限"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "subagents": "原生 spawn_agent；角色模型依原生配置"
+            }
+          },
+          {
+            "entry": "implement",
+            "model": "gpt-6.1-sol",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+              "turns": {
+                "requested": 40,
+                "enforced": false,
+                "scope": "无原生轮数上限"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "subagents": "原生 spawn_agent；角色模型依原生配置"
+            }
+          }
+        ],
+        "calls": 9,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "c335b3409e98bbf1184ddc0d9a64f40e6afe083b68a75e2c4b755b4e3e688675"
+      },
+      "validation": {
+        "ok": false,
+        "profileId": "native-codex",
+        "at": "2026-10-12T05:43:55.639Z",
+        "checks": [
+          "CLI 可执行：codex-cli 0.162.1",
+          "run / gpt-6.1-sol：JSON 契约通过",
+          "run / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+          "run / gpt-6.1-sol：原生只读权限拒绝写入通过",
+          "implement / gpt-6.1-sol：JSON 契约通过",
+          "implement / gpt-6.1-sol：原 session ID 与上下文恢复通过",
+          "implement / gpt-6.1-sol：原生只读权限拒绝写入通过"
+        ],
+        "errors": [
+          "子代理探测缺少原生工具调用与独立结果证据"
+        ],
+        "costUsd": 0,
+        "resolved": {
+          "run": "gpt-6.1-sol",
+          "implement": "gpt-6.1-sol"
+        },
+        "costStatus": "unknown",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+            "turns": {
+              "requested": 40,
+              "enforced": false,
+              "scope": "无原生轮数上限"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "subagents": "原生 spawn_agent；角色模型依原生配置"
+          },
+          {
+            "mode": "native",
+            "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+            "turns": {
+              "requested": 40,
+              "enforced": false,
+              "scope": "无原生轮数上限"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "subagents": "原生 spawn_agent；角色模型依原生配置"
+          }
+        ],
+        "cliVersion": "codex-cli 0.162.1",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+        "credentialContext": "4b137a54c31db4d2c115c40a42617c28b80575576a9ea4bbcd72074403bc129a"
+      },
+      "isolatedProfileState": "draft"
+    },
+    "opencode": {
+      "plan": {
+        "profile": "ea131df611dd5d04a434b2b2310753bbbc60238443551dea420d5abc6cbb307c",
+        "entries": [
+          "run",
+          "implement"
+        ],
+        "contexts": [
+          {
+            "entry": "run",
+            "model": "acceptance-local/loaded",
+            "calls": 5,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+              "turns": {
+                "requested": 40,
+                "enforced": true,
+                "scope": "各代理每条消息的模型步骤，末步不提供工具"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+            }
+          },
+          {
+            "entry": "implement",
+            "model": "acceptance-local/loaded",
+            "calls": 6,
+            "budgetPerCallUsd": null,
+            "constraints": {
+              "mode": "native",
+              "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+              "turns": {
+                "requested": 40,
+                "enforced": true,
+                "scope": "各代理每条消息的模型步骤，末步不提供工具"
+              },
+              "budget": {
+                "requestedUsd": 3,
+                "enforced": false,
+                "scope": "无原生金额上限，设置值不构成执行限制"
+              },
+              "timeoutMs": 180000,
+              "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+            }
+          }
+        ],
+        "calls": 11,
+        "errors": [],
+        "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。",
+        "token": "1cfa875f2e1fd2dff2ebc14361139dce724c97dfec5fe4987706491b23eedf3e"
+      },
+      "validation": {
+        "ok": false,
+        "profileId": "native-opencode",
+        "at": "2026-10-12T05:46:49.063Z",
+        "checks": [
+          "CLI 可执行：opencode v2.0.6",
+          "run / acceptance-local/loaded：JSON 契约通过",
+          "run / acceptance-local/loaded：原 session ID 与上下文恢复通过",
+          "run / acceptance-local/loaded：原生只读权限拒绝写入通过"
+        ],
+        "errors": [
+          "OpenCode 执行失败：OpenCode 缺少会话 ID、最终正文或正常完成事件"
+        ],
+        "costUsd": 0,
+        "resolved": {
+          "run": "acceptance-local/loaded",
+          "implement": "acceptance-local/loaded"
+        },
+        "costStatus": "partial",
+        "constraints": [
+          {
+            "mode": "native",
+            "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+            "turns": {
+              "requested": 40,
+              "enforced": true,
+              "scope": "各代理每条消息的模型步骤，末步不提供工具"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+          },
+          {
+            "mode": "native",
+            "permissions": "原生权限动作；Write/Edit/patch 共享 edit 权限",
+            "turns": {
+              "requested": 40,
+              "enforced": true,
+              "scope": "各代理每条消息的模型步骤，末步不提供工具"
+            },
+            "budget": {
+              "requestedUsd": 3,
+              "enforced": false,
+              "scope": "无原生金额上限，设置值不构成执行限制"
+            },
+            "timeoutMs": 180000,
+            "subagents": "原生 subagent；独立步骤与权限，模型依原生配置"
+          }
+        ],
+        "cliVersion": "opencode v2.0.6",
+        "command": "{\"cmd\":\"D:\\\\Programs\\\\opencode\\\\opencode.exe\",\"prefix\":[]}",
+        "credentialContext": "de397e09acd771ff956e4f41e45bd664e299bf88bd5ed197620a086be8eccd3a"
+      },
+      "isolatedProfileState": "draft"
+    }
+  },
+  "finishedAt": "2026-10-12T05:47:13.471Z",
+  "productionConfigurationChanged": false
+}

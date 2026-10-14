@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { bridgePrompt, codexCommand, codexCostUsd, reconcileWorktreeArtifacts, sandboxArgs,
   sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
 import { execSync } from 'node:child_process';
@@ -11,13 +11,31 @@ import pathMod from 'node:path';
 import { validateResult, wireSchema } from '../schema.js';
 import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
+import * as subprocess from '../engine/process.js';
+
+describe('Codex native resume CLI compatibility', () => {
+  it('resume uses its original session, stdin and config sandbox without unsupported exec-only flags', async () => {
+    const execute = vi.spyOn(subprocess, 'runProcess').mockResolvedValue({ code: 0, stderr: '', stdout: [JSON.stringify({ type: 'thread.started', thread_id: 'original-session' }), JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'restored nonce' } }), JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } })].join('\n') });
+    try {
+      const result = await engineNamed('codex').runText({ cwd: os.tmpdir(), prompt: 'remembered secret', model: 'gpt-6.1-sol', tools: 'Read', maxTurns: 0, budgetUsd: 0, resumeSessionId: 'original-session' });
+      expect(result.isError).toBe(false);
+      expect(result.sessionId).toBe('original-session');
+      const [, args, options] = execute.mock.calls[0];
+      expect(args).not.toContain('-C'); expect(args).not.toContain('-s');
+      expect(args).toContain('sandbox_mode="read-only"');
+      expect(args.slice(-2)).toEqual(['original-session', '-']);
+      expect(options.stdin).toBe('remembered secret');
+    } finally { execute.mockRestore(); }
+  });
+});
 
 describe('引擎选择（PIPELINE.md 的 engine / engine.<stage>）', () => {
-  it('缺省 claude；未知名字回落 claude 而不是抛', () => {
-    expect(engineNamed(undefined).name).toBe('claude');
+  it('缺省 codex；未知名字明确报错，支持 claude 与 opencode', () => {
+    expect(engineNamed(undefined).name).toBe('codex');
     expect(engineNamed('Codex').name).toBe('codex');
-    expect(engineNamed('gemini').name).toBe('claude');
-    expect(engineFor(undefined).name).toBe('claude');
+    expect(() => engineNamed('gemini')).toThrow('未知 agent CLI');
+    expect(engineNamed('OpenCode').name).toBe('opencode');
+    expect(engineFor(undefined).name).toBe('codex');
   });
 
   it('profile 解析：engine 全局 + engine.<stage> 覆盖（扁平点号键）', () => {
@@ -26,10 +44,10 @@ describe('引擎选择（PIPELINE.md 的 engine / engine.<stage>）', () => {
     expect(parseProfile('---\nrelease: none\n---').engine).toEqual({ default: null, byStage: {} });
   });
 
-  it('engineFor 按仓库约定选：阶段覆盖优先于全局，没有约定文件 → claude', () => {
+  it('engineFor 按仓库约定选：阶段覆盖优先于全局，没有约定文件 → codex', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-'));
     try {
-      expect(engineFor(dir, 'review').name).toBe('claude');
+      expect(engineFor(dir, 'review').name).toBe('codex');
       fs.mkdirSync(path.join(dir, 'docs', 'pipeline'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'docs', 'pipeline', 'PIPELINE.md'), '---\nengine: claude\nengine.review: codex\n---\n', 'utf-8');
       expect(engineFor(dir, 'review').name).toBe('codex');
@@ -55,7 +73,6 @@ describe('Codex 引擎的纯函数部分', () => {
     '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"ls"}}',
     '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\\"stage\\":\\"review\\"}"}}',
     '{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":0,"output_tokens":200,"reasoning_output_tokens":0}}',
-    'not json',
   ].join('\n');
 
   it('事件归纳：失败样本（2026-09-03 实测）与成功样本', () => {
@@ -166,15 +183,28 @@ describe('Codex 引擎的纯函数部分', () => {
     expect(bridgePrompt('/pipeline-plan X', 'D:/plug')).not.toContain('绝不要 cd'); // 没给 cwd 就不加钉根这段
   });
 
-  it('Envelope：失败 → is_error 带原话；成功 → 解析最终消息为结构化返回，未计价时在 result 注明', () => {
-    const bad = toEnvelope({ summary: summarizeCodexEvents(failedRun), lastMessage: '', exitCode: 1, stderr: '' }, true);
+  it('Envelope retains a real session and marks unknown pricing separately from the reply', () => {
+    const bad = toEnvelope({ summary: summarizeCodexEvents(failedRun), lastMessage: '', exitCode: 1, stderr: '', stdout: '' }, true);
     expect(bad.is_error).toBe(true);
     expect(bad.result).toContain('access token');
-    const good = toEnvelope({ summary: summarizeCodexEvents(okRun), lastMessage: '{"stage":"review","status":"DONE"}\n', exitCode: 0, stderr: '' }, true);
+    const final = '{"stage":"review","status":"DONE"}';
+    const good = toEnvelope({ summary: { ...summarizeCodexEvents(okRun), lastAgentText: final }, lastMessage: final, exitCode: 0, stderr: '', stdout: '' }, true);
     expect(good.is_error).toBe(false);
     expect(good.structured_output).toMatchObject({ stage: 'review', status: 'DONE' });
     expect(good.session_id).toBe('t-1');
-    expect(good.result).toContain('未配价格表');
+    expect(good.costStatus).toBe('unknown');
+    expect(good.result).toBe(final);
+  });
+  it('rejects incomplete, malformed, mixed-session and conflicting successful-exit streams', () => {
+    const valid = summarizeCodexEvents(okRun);
+    for (const summary of [summarizeCodexEvents(''), { ...valid, sessionId: undefined }, { ...valid, turns: 0 }, summarizeCodexEvents(okRun + '\nnot json'), summarizeCodexEvents(okRun + '\n{"type":"thread.started","thread_id":"other"}')]) {
+      const result = toEnvelope({ summary, lastMessage: '{"ok":true}', exitCode: 0, stderr: '', stdout: '' }, false);
+      expect(result.is_error).toBe(true);
+      expect(result.session_id).not.toBe('codex');
+    }
+    expect(toEnvelope({ summary: valid, lastMessage: 'different', exitCode: 0, stderr: '', stdout: '' }, false).is_error).toBe(true);
+    expect(toEnvelope({ summary: { ...valid, lastAgentText: '' }, lastMessage: '', exitCode: 0, stderr: '', stdout: '' }, false).is_error).toBe(true);
+    expect(toEnvelope({ summary: summarizeCodexEvents(okRun + '\n{"type":"item.completed","item":{"type":"agent_message","text":"unfinished new answer"}}'), lastMessage: '', exitCode: 0, stderr: '', stdout: '' }, false).is_error).toBe(true);
   });
 });
 

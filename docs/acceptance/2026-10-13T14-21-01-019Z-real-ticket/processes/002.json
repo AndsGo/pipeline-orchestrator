@@ -1,0 +1,7 @@
+{
+  "command": "D:\\Programs\\nodejs\\node.exe",
+  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx\\repo",
+  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a135a3-5ef3-70c2-8909-5082dd34ef30\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"ready\\\":true}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15897,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":45,\"reasoning_output_tokens\":28}}\n",
+  "stderr": "",
+  "code": 0
+}

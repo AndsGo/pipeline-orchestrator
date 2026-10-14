@@ -8,8 +8,10 @@ import { ticketDir } from '../config.js';
 import { readEvents } from '../events.js';
 import type { GateDecision, InteractionPort } from '../ports.js';
 import { readSnapshot, saveTicket } from '../ticket.js';
-import { runTicket, type RunTicketOpts } from '../ticketRunner.js';
+import { runTicket, scheduleRewind, type RunTicketOpts } from '../ticketRunner.js';
 import type { Envelope, OpenQuestion, Stage, StageResult, TicketState } from '../types.js';
+import { CliExecutionError } from '../engine/errors.js';
+import { totalCost } from '../events.js';
 
 /**
  * runTicket 端到端：真 git 仓库 + 真 data 目录（临时）+ 假引擎（不起 claude）+ 脚本化端口（不连飞书）。
@@ -182,7 +184,7 @@ class FakeEngine {
   };
 }
 
-const fakePrototype: NonNullable<RunTicketOpts['prototype']> = async () => ({ ok: true, costUsd: 0.1, turns: 2 });
+const fakePrototype: NonNullable<RunTicketOpts['prototype']> = async () => ({ ok: true, costUsd: 0.1, turns: 2, sessionId: 'real-prototype-session', costStatus: 'reported' });
 
 // ---------- 夹具：脚本化端口 ----------
 
@@ -300,14 +302,15 @@ describe('runTicket 集成（假引擎 + 脚本化端口）', () => {
       'acceptance:DONE',
       'compound:DONE',
     ]);
-    expect(s.runs[3].model).toBe('opus'); // implement 模型冻结进记录
+    expect(s.runs[3].model).toBe('gpt-6.1-sol'); // Codex 默认实现模型冻结进记录
 
     expect(events(T, 'ticket.created')).toHaveLength(1);
     expect(events(T, 'gate.asked')).toEqual(['卡点 prd-confirm 等待人工', '卡点 plan-approval 等待人工']);
     expect(events(T, 'gate.answered')).toEqual(['卡点 prd-confirm → 通过', '卡点 plan-approval → 通过']);
     expect(events(T, 'question.asked')).toEqual(['1 个待确认问题：Q1']);
     expect(events(T, 'question.answered')).toEqual(['Q1 → 通过']);
-    expect(events(T, 'stage.end')).toHaveLength(7);
+    expect(events(T, 'stage.end')).toHaveLength(8);
+    expect(snap(T).runs.find(r => r.extraArgs === 'prototype')?.sessionId).toBe('real-prototype-session');
     expect(events(T, 'done').at(-1)).toMatch(/^闭环：8 次会话/);
     expect(port.notifications.at(-1)).toMatch(/^流水线闭环。共 8 次会话/);
 
@@ -496,7 +499,55 @@ describe('runTicket 集成（假引擎 + 脚本化端口）', () => {
     expect(port.notifications.at(-1)).toBe(`会话异常：API Error: 400 invalid_request_error\n本阶段未产生结果（通常是瞬时故障）。在群里说「继续 ${T}」即可从 implement 阶段重跑`);
     const s = snap(T);
     expect(s.cursor).toBe('implement');
-    expect(s.haltedReason).toBeUndefined();
+    expect(s.haltedReason).toBe('会话异常：API Error: 400 invalid_request_error');
     expect(s.runs).toEqual([]);
+  });
+  it('CLI throws persist a terminal failure at the current stage', async () => {
+    const repo = makeRepo(), ticket = 'IT-8';
+    const port = new ScriptedPort();
+    await runTicket({ repo, ticket, port, lane: 'full', startStage: 'implement', requirement: 'x', stageRunner: async () => { throw new Error('CLI failed'); }, prototype: fakePrototype });
+    expect(snap(ticket).cursor).toBe('implement');
+    expect(snap(ticket).haltedReason).toContain('CLI failed');
+    expect(events(ticket, 'error')).toHaveLength(1);
+    expect(readEvents(ticket).find(e => e.type === 'error')?.payload).toEqual({ costStatus: 'unknown' });
+  });
+  it('a billed CLI failure preserves its reported cost without recording a successful stage', async () => {
+    const repo = makeRepo(), ticket = 'IT-11';
+    const envelope: Envelope = { is_error: true, result: 'budget exhausted', num_turns: 3, total_cost_usd: 1.25, session_id: 'failed-session', permission_denials: [] };
+    await runTicket({ repo, ticket, port: new ScriptedPort(), lane: 'full', startStage: 'implement', requirement: 'x', prototype: fakePrototype,
+      stageRunner: async () => { throw new CliExecutionError('budget exhausted', envelope); } });
+    expect(snap(ticket).runs).toEqual([]);
+    expect(totalCost(ticket)).toBe(1.25);
+    const error = readEvents(ticket).find(e => e.type === 'error');
+    expect(error?.payload).toMatchObject({ costUsd: 1.25, turns: 3, sessionId: 'failed-session' });
+  });
+  it('a rewind submitted during the CLI survives the stage result save and is consumed once', async () => {
+    const repo = makeRepo(), ticket = 'IT-9';
+    const engine = new FakeEngine();
+    const calls: Stage[] = [];
+    await runTicket({ repo, ticket, port: new ScriptedPort(), lane: 'full', startStage: 'implement', requirement: 'x', prototype: fakePrototype,
+      stageRunner: async (...args) => {
+        calls.push(args[2]);
+        if (args[2] === 'implement') { scheduleRewind(repo, ticket, 'clarify', 'new requirement'); return engine.run(...args); }
+        throw new Error('stop after rewind');
+      } });
+    expect(calls).toEqual(['implement', 'clarify']);
+    expect(snap(ticket).cursor).toBe('clarify');
+    expect(snap(ticket).pendingRewind).toBeUndefined();
+    expect(events(ticket, 'rewind')).toHaveLength(1);
+  });
+  it('a second independent review throw also persists a terminal failure', async () => {
+    const repo = makeRepo(), ticket = 'IT-10';
+    process.env.PIPELINE_DOUBLE_REVIEW = '1';
+    let count = 0;
+    const engine = new FakeEngine();
+    try {
+      await runTicket({ repo, ticket, port: new ScriptedPort(), lane: 'full', startStage: 'review', requirement: 'x', prototype: fakePrototype,
+        stageRunner: async (...args) => { if (++count === 2) throw new Error('second review failed'); return engine.run(...args); } });
+      expect(count).toBe(2);
+      expect(snap(ticket).haltedReason).toContain('second review failed');
+      expect(snap(ticket).cursor).toBe('review');
+      expect(readEvents(ticket).find(e => e.type === 'error')?.payload).toMatchObject({ costUsd: 0.5, costStatus: 'partial' });
+    } finally { delete process.env.PIPELINE_DOUBLE_REVIEW; }
   });
 });

@@ -36,9 +36,9 @@ export function writeClaudeMcpConfig(): string {
 }
 
 /** codex exec 用的额外参数 */
-export function codexE2eArgs(): string[] {
+export function codexE2eArgs(retainUserConfig = false): string[] {
   return [
-    '--ignore-user-config',
+    ...(retainUserConfig ? [] : ['--ignore-user-config']),
     '--approve-for-me',
     '-c',
     `mcp_servers.playwright.command="${PLAYWRIGHT_MCP.command}"`,
