@@ -1,0 +1,190 @@
+{
+  "startedAt": "2026-10-15T03:46:05.419Z",
+  "scope": "New source in a separate process, exact watchdog .env loading, all global entry resolution and validated native identity; CLI version only, no model requests or service restart; not live activation or full ticket acceptance",
+  "envFile": "D:\\work\\demo\\pipeline-orchestrator\\.env",
+  "processEvidence": {
+    "calls": [
+      {
+        "file": "processes/001.json",
+        "cwd": "D:\\work\\demo\\pipeline-orchestrator",
+        "code": 0
+      },
+      {
+        "file": "processes/002.json",
+        "cwd": "D:\\work\\demo\\pipeline-orchestrator",
+        "code": 0
+      }
+    ],
+    "errors": []
+  },
+  "configuration": {
+    "revision": 4,
+    "default": "codex-default",
+    "entries": [
+      {
+        "entry": "clarify",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "plan",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "implement",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "review",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "acceptance",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "compound",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "triage",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "fast",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "classify",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "run",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "draft",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "prototype",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "entry": "mr-review",
+        "profile": "codex-default",
+        "cli": "codex",
+        "model": "gpt-6.1-sol"
+      }
+    ]
+  },
+  "nativeHome": "C:\\Users\\Administrator\\AppData\\Roaming\\orca\\codex-runtime-home\\home",
+  "observedRuntime": {
+    "file": "D:\\work\\demo\\pipeline-orchestrator\\data\\runtime.json",
+    "pid": 20260,
+    "startedAt": 1792030676877,
+    "at": 1792035962028,
+    "agentExecution": {
+      "revision": 4,
+      "entries": [
+        {
+          "entry": "clarify",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "plan",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "implement",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "review",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "acceptance",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "compound",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "triage",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "fast",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "classify",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "run",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "draft",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "prototype",
+          "profile": "codex-default",
+          "cli": "codex"
+        },
+        {
+          "entry": "mr-review",
+          "profile": "codex-default",
+          "cli": "codex"
+        }
+      ]
+    }
+  },
+  "liveActivationStatus": "CONFIGURATION_OBSERVED_ONLY",
+  "watchdog": {
+    "TaskName": "PipelineDaemonWatchdog",
+    "State": 3,
+    "Enabled": true,
+    "Repeat": "PT2M"
+  },
+  "status": "PASS",
+  "finishedAt": "2026-10-15T03:46:06.269Z"
+}

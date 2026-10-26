@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-21T09:08:35.375Z",
+  "status": "PASS",
+  "daemonPid": 1764,
+  "startedAt": "2026-10-21T09:08:15.807Z",
+  "heartbeatAt": "2026-10-21T09:08:26.777Z",
+  "configurationRevision": 6,
+  "defaultProfile": "legacy-claude",
+  "webStatus": 200,
+  "scope": "Restart and live runtime health; not a user Thread replay"
+}

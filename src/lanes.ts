@@ -36,9 +36,10 @@ export function buildTriagePrompt(intake: string): string {
   ].join('\n');
 }
 
-export async function runTriage(repo: string, ticket: string, execution?: ExecutionSnapshot): Promise<{ lane: Lane; reason: string; costUsd: number; costStatus?: import('./cost.js').CostStatus; sessionId?: string; turns?: number }> {
+export async function runTriage(repo: string, ticket: string, execution?: ExecutionSnapshot): Promise<{ lane: Lane; reason: string; costUsd: number; costStatus?: import('./cost.js').CostStatus; sessionId?: string; turns?: number; observedModel?: string; execution?: ExecutionSnapshot }> {
   const intake = fs.readFileSync(path.join(ticketDir(repo, ticket), '00-intake.md'), 'utf-8');
-  const { envelope } = await engineFor(repo, 'triage', execution).runJson({
+  const engine = engineFor(repo, 'triage', execution);
+  const { envelope } = await engine.runJson({
     cwd: repo,
     prompt: buildTriagePrompt(intake),
     tools: 'Read,Grep,Glob', // 允许快速瞄一眼代码现状
@@ -50,7 +51,7 @@ export async function runTriage(repo: string, ticket: string, execution?: Execut
   const so = envelope.structured_output as unknown as { lane: Lane; reason: string } | undefined;
   // 分诊失败不阻塞：默认 full（保守方向）
   if (!so?.lane) return { lane: 'full', reason: '分诊无返回，保守走全流水线', costUsd: envelope.total_cost_usd ?? 0 };
-  return { lane: so.lane, reason: so.reason, costUsd: envelope.total_cost_usd, costStatus: envelope.costStatus, sessionId: envelope.session_id, turns: envelope.num_turns };
+  return { lane: so.lane, reason: so.reason, costUsd: envelope.total_cost_usd, costStatus: envelope.costStatus, sessionId: envelope.session_id, turns: envelope.num_turns, observedModel: envelope.observedModel, execution: engine.execution };
 }
 
 export const FASTLANE_SCHEMA = {
@@ -85,7 +86,7 @@ export function buildFastlanePrompt(ticket: string): string {
   ].join('\n');
 }
 
-export async function runFastlane(repo: string, ticket: string, execution?: ExecutionSnapshot): Promise<{ result: FastlaneResult; costUsd: number; costStatus?: import('./cost.js').CostStatus; turns: number; sessionId: string; execution?: ExecutionSnapshot }> {
+export async function runFastlane(repo: string, ticket: string, execution?: ExecutionSnapshot): Promise<{ result: FastlaneResult; costUsd: number; costStatus?: import('./cost.js').CostStatus; turns: number; sessionId: string; observedModel?: string; execution?: ExecutionSnapshot }> {
   const engine = engineFor(repo, 'fast', execution);
   const { envelope } = await engine.runJson({
     cwd: repo,
@@ -101,5 +102,5 @@ export async function runFastlane(repo: string, ticket: string, execution?: Exec
     summary_for_card: '快车道会话无结构化返回',
     reason: envelope.result ?? '未知',
   };
-  return { result: so, costUsd: envelope.total_cost_usd ?? 0, costStatus: envelope.costStatus, turns: envelope.num_turns ?? 0, sessionId: envelope.session_id, execution: engine.execution };
+  return { result: so, costUsd: envelope.total_cost_usd ?? 0, costStatus: envelope.costStatus, turns: envelope.num_turns ?? 0, sessionId: envelope.session_id, observedModel: envelope.observedModel, execution: engine.execution };
 }

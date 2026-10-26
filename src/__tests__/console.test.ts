@@ -68,6 +68,21 @@ describe('envKeys', () => {
 });
 
 describe('环境配置视图与写回', () => {
+  it('Claude 原生配置可保存，两个认证字段始终不返回明文', () => {
+    const changes = { CLAUDE_CONFIG_DIR: '/native/claude', ANTHROPIC_BASE_URL: 'https://claude.example', ANTHROPIC_API_KEY: 'fixture-claude-key', ANTHROPIC_AUTH_TOKEN: 'fixture-claude-token' };
+    const result = writeEnvChanges(envFile, readEnvView(envFile).mtime, changes);
+    expect(result).toEqual({ ok: true, needsRestart: ['CLAUDE_CONFIG_DIR（daemon）'] });
+    const view = readEnvView(envFile);
+    const claude = view.groups.find(g => g.name === 'Claude Code')!;
+    expect(claude.keys.find(k => k.key === 'CLAUDE_CONFIG_DIR')).toMatchObject({ value: '/native/claude' });
+    expect(claude.keys.find(k => k.key === 'ANTHROPIC_BASE_URL')).toMatchObject({ value: 'https://claude.example' });
+    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) {
+      expect(claude.keys.find(k => k.key === key)).toMatchObject({ secret: true, set: true });
+      expect(claude.keys.find(k => k.key === key)).not.toHaveProperty('value');
+      expect(JSON.stringify(view)).not.toContain(changes[key as keyof typeof changes]);
+    }
+  });
+
   it('凭据只给长度不给值；目录外的键进「其他」组并遮蔽', () => {
     const v = readEnvView(envFile);
     const all = v.groups.flatMap((g) => g.keys);

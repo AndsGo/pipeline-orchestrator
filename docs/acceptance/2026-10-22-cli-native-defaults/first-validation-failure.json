@@ -1,0 +1,531 @@
+{
+  "at": "2026-10-22T07:00:03.456Z",
+  "priorRevision": 6,
+  "scope": "Isolated real native-default Codex validation; production configuration is not changed",
+  "plan": {
+    "profile": "a2321aa81ad330f12df85c911465c49ef5d3ad9667925519c6bd7635ba0b0786",
+    "entries": [
+      "clarify",
+      "plan",
+      "implement",
+      "review",
+      "acceptance",
+      "compound",
+      "triage",
+      "fast",
+      "classify",
+      "run",
+      "draft",
+      "prototype",
+      "mr-review"
+    ],
+    "contexts": [
+      {
+        "entry": "mr-review",
+        "model": "@cli-default",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 80,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 10,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "implement",
+        "model": "@cli-default",
+        "browserProbe": false,
+        "calls": 5,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 300,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 25,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      },
+      {
+        "entry": "draft",
+        "model": "@cli-default",
+        "browserProbe": false,
+        "calls": 4,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 3,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 0.5,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      }
+    ],
+    "initializationCalls": 1,
+    "calls": 14,
+    "errors": [],
+    "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。OpenCode 调用数包含每个 JSON 探测最多一次原会话格式修正。",
+    "token": "59fb88a6422a34e81eed94569a79e97315e351a42cc533491b9ba5ec99fdd3c8"
+  },
+  "status": "NOT_PASS",
+  "validation": {
+    "ok": false,
+    "profileId": "codex-native",
+    "at": "2026-10-22T07:00:03.463Z",
+    "checks": [
+      "CLI 可执行：codex-cli 0.163.0",
+      "原生隔离工作目录初始化完成；能力验证身份基线随后采集",
+      "mr-review / @cli-default：JSON 契约通过",
+      "mr-review / @cli-default：原 session ID 与上下文恢复通过",
+      "mr-review / @cli-default：原生只读权限拒绝写入通过",
+      "implement / @cli-default：JSON 契约通过",
+      "implement / @cli-default：原 session ID 与上下文恢复通过",
+      "implement / @cli-default：原生只读权限拒绝写入通过",
+      "implement / @cli-default：原生独立子代理调用通过"
+    ],
+    "errors": [
+      "draft / @cli-default：结构化返回失败 {\"keys\":[]}"
+    ],
+    "costUsd": 0.561985,
+    "resolved": {
+      "clarify": "@cli-default",
+      "plan": "@cli-default",
+      "implement": "@cli-default",
+      "review": "@cli-default",
+      "acceptance": "@cli-default",
+      "compound": "@cli-default",
+      "triage": "@cli-default",
+      "fast": "@cli-default",
+      "classify": "@cli-default",
+      "run": "@cli-default",
+      "draft": "@cli-default",
+      "prototype": "@cli-default",
+      "mr-review": "@cli-default"
+    },
+    "costStatus": "unknown",
+    "identityPolicy": "cli-defaults-v1",
+    "constraints": [
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 60,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 16,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 120,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 14,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 300,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 25,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 100,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 10,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 80,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 8,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 100,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 8,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 8,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 60,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 3,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.2,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 40,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 3,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 0.5,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 40,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 3,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      },
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 80,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 10,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      }
+    ],
+    "cliVersion": "codex-cli 0.163.0",
+    "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+    "credentialContext": "00ca5f986c8aa527aa0d6c652ecec8663771a48f4367b028b7f9614779608af2",
+    "probeCredentialContext": "c37badbdbe25d5bcab7eb1bb820ff5f866ed095a304974b58ec95870260448b5",
+    "childEvidence": {
+      "secretReturned": true,
+      "parentSecretRead": false,
+      "namedTask": {
+        "independent": true,
+        "parentSecretRead": false,
+        "parentId": "01a1626b-c8f1-79c2-bb11-8ecc6b18592f",
+        "childId": "01a1626b-f70c-7100-ab57-ae5b74e22f90",
+        "taskPath": "/root/read_marker",
+        "spawnCallId": "call_c1be8e08dab447509b0cdc8221ce196c",
+        "parentTurn": "01a1626b-d19c-7412-962a-a9a1f40efdce",
+        "childTurn": "01a1626b-f78c-7d62-90a2-d274bf3b49f1",
+        "parentRollout": "D:\\AppData\\Orca\\codex-runtime-home\\home\\sessions\\2026\\10\\22\\rollout-2026-10-22T15-03-13-01a1626b-c8f1-79c2-bb11-8ecc6b18592f.jsonl",
+        "childRollout": "D:\\AppData\\Orca\\codex-runtime-home\\home\\sessions\\2026\\10\\22\\rollout-2026-10-22T15-03-25-01a1626b-f70c-7100-ab57-ae5b74e22f90.jsonl",
+        "parentDigest": "68052d7a0d7a80fbde8e524956a13812dcffe7cf9b017feb396c140af8bd3121",
+        "childDigest": "e322ca54e9fe2d9c120902d0de110a6f309caa149f1850258d9c3caff870cc80"
+      },
+      "events": [
+        {
+          "type": "thread.started",
+          "keys": []
+        },
+        {
+          "type": "turn.started",
+          "keys": []
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message",
+          "keys": [
+            "id",
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "item.started",
+          "itemType": "collab_tool_call",
+          "tool": "wait",
+          "status": "in_progress",
+          "keys": [
+            "id",
+            "type",
+            "tool",
+            "sender_thread_id",
+            "receiver_thread_ids",
+            "prompt",
+            "agents_states",
+            "status"
+          ]
+        },
+        {
+          "type": "item.completed",
+          "itemType": "collab_tool_call",
+          "tool": "wait",
+          "status": "completed",
+          "keys": [
+            "id",
+            "type",
+            "tool",
+            "sender_thread_id",
+            "receiver_thread_ids",
+            "prompt",
+            "agents_states",
+            "status"
+          ]
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message",
+          "keys": [
+            "id",
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "turn.completed",
+          "keys": []
+        }
+      ]
+    }
+  },
+  "error": "draft / @cli-default：结构化返回失败 {\"keys\":[]}",
+  "finishedAt": "2026-10-22T07:04:01.818Z"
+}

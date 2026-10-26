@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-22T07:06:47.586Z",
+  "envelope": {
+    "is_error": false,
+    "num_turns": 1,
+    "total_cost_usd": 0.082365,
+    "costStatus": "reported",
+    "session_id": "01a1626e-ac5e-7752-8b7c-7d43213d4262",
+    "structured_output": {
+      "nonce": "public-native-json-marker"
+    },
+    "permission_denials": [],
+    "result": "{\"nonce\":\"public-native-json-marker\"}"
+  },
+  "events": [
+    {
+      "type": "thread.started"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "item.completed",
+      "itemType": "agent_message"
+    },
+    {
+      "type": "turn.completed"
+    }
+  ]
+}

@@ -1,0 +1,320 @@
+{
+  "at": "2026-10-22T07:15:25.647Z",
+  "scope": "Supplement browser capability group on same profile; no production writes",
+  "plan": {
+    "profile": "30a5adfa3a76387c168f10ce664aab2b3c487262c885852eb1b3a154ad5d3fd9",
+    "entries": [
+      "mr-review"
+    ],
+    "contexts": [
+      {
+        "entry": "mr-review",
+        "model": "@cli-default",
+        "browserProbe": true,
+        "calls": 5,
+        "budgetPerCallUsd": null,
+        "constraints": {
+          "mode": "native",
+          "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+          "turns": {
+            "requested": 80,
+            "enforced": false,
+            "scope": "无原生轮数上限"
+          },
+          "budget": {
+            "requestedUsd": 10,
+            "enforced": false,
+            "scope": "无原生金额上限，设置值不构成执行限制"
+          },
+          "timeoutMs": 10800000,
+          "windowsSandbox": "unelevated",
+          "effort": {
+            "requested": "CLI 默认",
+            "applied": true,
+            "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+          },
+          "subagents": "原生 spawn_agent；角色模型依原生配置"
+        }
+      }
+    ],
+    "initializationCalls": 1,
+    "calls": 6,
+    "errors": [],
+    "budgetSemantics": "此 CLI 没有原生金额上限；预算设置不限制模型调用费用，美元用量可能未知。OpenCode 调用数包含每个 JSON 探测最多一次原会话格式修正。",
+    "token": "480afc584a51cf46e0ce8650f3fa2e10bd84c94e21e0619858b067b54128c998"
+  },
+  "calls": [
+    {
+      "at": "2026-10-22T07:15:25.717Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "non-protocol"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:15:40.218Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:15:54.525Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:16:21.227Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:16:45.590Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:17:04.689Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:18:05.246Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "thread.started"
+        },
+        {
+          "type": "turn.started"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "item.started",
+          "itemType": "mcp_tool_call",
+          "tool": "browser_navigate"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "mcp_tool_call",
+          "tool": "browser_navigate"
+        },
+        {
+          "type": "item.started",
+          "itemType": "mcp_tool_call",
+          "tool": "browser_evaluate"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "mcp_tool_call",
+          "tool": "browser_evaluate"
+        },
+        {
+          "type": "item.completed",
+          "itemType": "agent_message"
+        },
+        {
+          "type": "turn.completed"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-22T07:18:05.374Z",
+      "code": 0,
+      "events": [
+        {
+          "type": "non-protocol"
+        }
+      ]
+    }
+  ],
+  "status": "PASS",
+  "validation": {
+    "ok": true,
+    "profileId": "codex-native",
+    "at": "2026-10-22T07:15:25.649Z",
+    "checks": [
+      "CLI 可执行：codex-cli 0.163.0",
+      "原生隔离工作目录初始化完成；能力验证身份基线随后采集",
+      "mr-review / @cli-default：JSON 契约通过",
+      "mr-review / @cli-default：原 session ID 与上下文恢复通过",
+      "mr-review / @cli-default：原生只读权限拒绝写入通过",
+      "Playwright MCP：mr-review / @cli-default 实际导航与页面读取通过"
+    ],
+    "errors": [],
+    "costUsd": 0,
+    "resolved": {
+      "mr-review": "@cli-default"
+    },
+    "costStatus": "unknown",
+    "identityPolicy": "cli-defaults-v1",
+    "constraints": [
+      {
+        "mode": "native",
+        "permissions": "read-only / workspace-write 沙箱，非逐工具白名单",
+        "turns": {
+          "requested": 80,
+          "enforced": false,
+          "scope": "无原生轮数上限"
+        },
+        "budget": {
+          "requestedUsd": 10,
+          "enforced": false,
+          "scope": "无原生金额上限，设置值不构成执行限制"
+        },
+        "timeoutMs": 10800000,
+        "windowsSandbox": "unelevated",
+        "effort": {
+          "requested": "CLI 默认",
+          "applied": true,
+          "scope": "随 CLI 当前配置；实际值由 CLI 决定"
+        },
+        "subagents": "原生 spawn_agent；角色模型依原生配置"
+      }
+    ],
+    "cliVersion": "codex-cli 0.163.0",
+    "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+    "credentialContext": "00ca5f986c8aa527aa0d6c652ecec8663771a48f4367b028b7f9614779608af2",
+    "probeCredentialContext": "07bf8c58fe5d52da02d43b63299119e135d21a4fc69af31079c27ad4eafd9a1b",
+    "changedIdentitySources": []
+  },
+  "profile": {
+    "id": "codex-native",
+    "name": "Codex (CLI defaults)",
+    "cli": "codex",
+    "modelSource": "cli",
+    "constraintMode": "native",
+    "parameters": {
+      "windowsSandbox": "unelevated"
+    },
+    "state": "active",
+    "validation": {
+      "fingerprint": "30a5adfa3a76387c168f10ce664aab2b3c487262c885852eb1b3a154ad5d3fd9",
+      "at": "2026-10-22T07:15:25.649Z",
+      "entries": [
+        "clarify",
+        "plan",
+        "implement",
+        "review",
+        "acceptance",
+        "compound",
+        "triage",
+        "fast",
+        "classify",
+        "run",
+        "draft",
+        "prototype",
+        "mr-review"
+      ],
+      "cliVersion": "codex-cli 0.163.0",
+      "account": "DESKTOP-LD4547Q/Administrator",
+      "checks": [
+        "CLI 可执行：codex-cli 0.163.0",
+        "原生隔离工作目录初始化完成；能力验证身份基线随后采集",
+        "mr-review / @cli-default：JSON 契约通过",
+        "mr-review / @cli-default：原 session ID 与上下文恢复通过",
+        "mr-review / @cli-default：原生只读权限拒绝写入通过",
+        "implement / @cli-default：JSON 契约通过",
+        "implement / @cli-default：原 session ID 与上下文恢复通过",
+        "implement / @cli-default：原生只读权限拒绝写入通过",
+        "implement / @cli-default：原生独立子代理调用通过",
+        "draft / @cli-default：JSON 契约通过",
+        "draft / @cli-default：原 session ID 与上下文恢复通过",
+        "draft / @cli-default：原生只读权限拒绝写入通过",
+        "Playwright MCP：mr-review / @cli-default 实际导航与页面读取通过"
+      ],
+      "command": "{\"cmd\":\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node.exe\",\"prefix\":[\"D:\\\\Programs\\\\nvm\\\\v24.13.0\\\\node_modules\\\\@openai\\\\codex\\\\bin\\\\codex.js\"]}",
+      "credentialContext": "00ca5f986c8aa527aa0d6c652ecec8663771a48f4367b028b7f9614779608af2",
+      "identityPolicy": "cli-defaults-v1",
+      "resolved": {
+        "clarify": "@cli-default",
+        "plan": "@cli-default",
+        "implement": "@cli-default",
+        "review": "@cli-default",
+        "acceptance": "@cli-default",
+        "compound": "@cli-default",
+        "triage": "@cli-default",
+        "fast": "@cli-default",
+        "classify": "@cli-default",
+        "run": "@cli-default",
+        "draft": "@cli-default",
+        "prototype": "@cli-default",
+        "mr-review": "@cli-default"
+      }
+    }
+  },
+  "finishedAt": "2026-10-22T07:18:05.377Z"
+}

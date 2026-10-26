@@ -25,6 +25,9 @@ function slug(text: string): string {
 }
 
 export interface AdhocRecord {
+  cli?: string;
+  modelSource?: 'cli';
+  model?: string;
   at: string;
   project: string;
   command: string;
@@ -55,6 +58,7 @@ export function writeAdhocRecord(r: AdhocRecord): string | null {
         `- 结果：${r.isError ? '**会话异常（未正常跑完）**' : '正常完成'}`,
         `- 时间：${r.at}`,
         `- 项目：${r.project}`,
+        ...(r.cli ? [`- CLI：${r.cli}`, `- 模型：${r.model ? `${r.model}${r.modelSource === 'cli' ? '（启动时报告）' : ''}` : (r.modelSource === 'cli' ? '跟随 CLI（未报告实际模型）' : '未报告')}`] : []),
         ...(r.sessionId ? [`- 会话：${r.sessionId}`] : []),
         `- 成本：${formatCost(r.costUsd, r.costStatus)}｜轮次：${r.turns}｜耗时：${r.seconds}s`,
         '',

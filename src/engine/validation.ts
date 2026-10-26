@@ -9,7 +9,7 @@ import { assertRequirements, ENTRY_DEFAULTS, executionConstraints, freezeExecuti
 import { engineNamed } from './index.js';
 import type { Engine } from './types.js';
 import { writeClaudeMcpConfig } from './e2e.js';
-import { cliVersion, commandIdentity, credentialContext, executionAccount } from './identity.js';
+import { cliVersion, commandIdentity, profileCredentialContext, executionAccount, type IdentityPolicy } from './identity.js';
 import { CliExecutionError } from './errors.js';
 import { claudeTrace } from '../runner.js';
 import { namedChildFromRollouts, type NamedChildEvidence } from './codexChild.js';
@@ -20,6 +20,7 @@ export interface ValidationReport {
   ok: boolean; profileId: string; at: string; checks: string[]; errors: string[]; costUsd: number;
   cliVersion?: string; command?: string; credentialContext?: string; resolved?: Partial<Record<Entry, string>>;
   probeCredentialContext?: string;
+  identityPolicy?: IdentityPolicy;
   costStatus?: 'reported' | 'partial' | 'unknown';
   changedIdentitySources?: string[];
   constraints?: ReturnType<typeof executionConstraints>[];
@@ -75,6 +76,8 @@ export function validationPlan(profile: AgentProfile, entries: Entry[], options:
 /** Only an explicit user-triggered request can enter this paid probe. */
 export async function validateProfile(profile: AgentProfile, entries: Entry[], dependencies: { engine?: Engine; version?: () => Promise<string>; browser?: boolean } = {}): Promise<ValidationReport> {
   const report: ValidationReport = { ok: false, profileId: profile.id, at: new Date().toISOString(), checks: [], errors: [], costUsd: 0, resolved: {}, costStatus: 'reported' };
+  if (profile.modelSource === 'cli') report.identityPolicy = 'cli-defaults-v1';
+  else if (profile.cli === 'codex' && (profile.constraintMode ?? 'native') === 'native') report.identityPolicy = 'codex-native-v2';
   let root: string | undefined;
   let pendingCall = false;
   const identitySources: Record<string, string> = {};
@@ -121,8 +124,8 @@ export async function validateProfile(profile: AgentProfile, entries: Entry[], d
       if (initialized.envelope.is_error || (initialized.envelope.structured_output as unknown as { ready?: boolean })?.ready !== true) throw new Error('Codex 原生工作目录初始化失败');
       report.checks.push('原生隔离工作目录初始化完成；能力验证身份基线随后采集');
     }
-    report.credentialContext = credentialContext(profile.credentialRef, profile.cli, undefined, identitySources);
-    report.probeCredentialContext = credentialContext(profile.credentialRef, profile.cli, root, probeSources);
+    report.credentialContext = profileCredentialContext(profile, undefined, identitySources, report.identityPolicy);
+    report.probeCredentialContext = profileCredentialContext(profile, root, probeSources, report.identityPolicy);
     // Probe every distinct resolved model and capability context, never authorize an untested model.
     const groups = [...new Map(snapshots.map(s => [probeGroup(s, dependencies.browser), s])).values()];
     for (const snapshot of groups) {
@@ -222,9 +225,9 @@ export async function validateProfile(profile: AgentProfile, entries: Entry[], d
       }
     }
     const finalSources: Record<string, string> = {};
-    const finalContext = credentialContext(profile.credentialRef, profile.cli, undefined, finalSources);
+    const finalContext = profileCredentialContext(profile, undefined, finalSources, report.identityPolicy);
     const finalProbeSources: Record<string, string> = {};
-    const finalProbeContext = credentialContext(profile.credentialRef, profile.cli, root, finalProbeSources);
+    const finalProbeContext = profileCredentialContext(profile, root, finalProbeSources, report.identityPolicy);
     report.changedIdentitySources = [...new Set([...Object.keys(identitySources), ...Object.keys(finalSources)])].filter(key => identitySources[key] !== finalSources[key])
       .concat([...new Set([...Object.keys(probeSources), ...Object.keys(finalProbeSources)])].filter(key => probeSources[key] !== finalProbeSources[key]).map(key => `probe:${key}`));
     if (report.credentialContext !== finalContext || report.probeCredentialContext !== finalProbeContext || report.command !== commandIdentity(profile.cli) || report.cliVersion !== await (dependencies.version ?? (() => cliVersion(profile.cli)))()) throw new Error(`探测期间 CLI 或认证／供应商上下文已变化，结果已丢弃，请重新验证${report.changedIdentitySources.length ? `（${report.changedIdentitySources.join(', ')}）` : ''}`);
@@ -241,6 +244,6 @@ export function recordValidation(profile: AgentProfile, expectedRevision: number
   if (!report.ok || !report.cliVersion || !report.command || !report.resolved) return;
   target.state = 'active';
   target.validation = { fingerprint: profileFingerprint(target), at: report.at, entries, cliVersion: report.cliVersion,
-    account: executionAccount(), checks: report.checks, command: report.command, credentialContext: report.credentialContext, resolved: report.resolved };
+    account: executionAccount(), checks: report.checks, command: report.command, credentialContext: report.credentialContext, identityPolicy: report.identityPolicy, resolved: report.resolved };
   writeConfiguration(current, expectedRevision);
 }

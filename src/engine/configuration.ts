@@ -5,7 +5,7 @@ import { dataDir } from '../paths.js';
 import { STAGES, resolveImplementModel } from '../config.js';
 import { readProfile } from '../profile.js';
 import os from 'node:os';
-import { credentialContext } from './identity.js';
+import { profileCredentialContext, type IdentityPolicy } from './identity.js';
 import { withFileLock } from './fileLock.js';
 
 export const ENTRIES = ['clarify', 'plan', 'implement', 'review', 'acceptance', 'compound', 'triage', 'fast', 'classify', 'run', 'draft', 'prototype', 'mr-review'] as const;
@@ -24,11 +24,13 @@ export interface AgentProfile {
   cli: Cli;
   constraintMode?: 'native' | 'strict';
   model?: string;
+  /** cli freezes the choice to follow native defaults, not a particular model. */
+  modelSource?: 'cli';
   provider?: string;
   credentialRef?: string;
   parameters: Parameters;
   state: 'draft' | 'active' | 'legacy';
-  validation?: { fingerprint: string; at: string; entries: Entry[]; cliVersion: string; account: string; checks: string[]; command?: string; credentialContext?: string; resolved?: Partial<Record<Entry, string>> };
+  validation?: { fingerprint: string; at: string; entries: Entry[]; cliVersion: string; account: string; checks: string[]; command?: string; credentialContext?: string; identityPolicy?: IdentityPolicy; resolved?: Partial<Record<Entry, string>> };
 }
 export interface Selection { default?: string; entries?: Partial<Record<Entry, string>>; }
 export interface Configuration {
@@ -44,6 +46,7 @@ export interface ExecutionSnapshot {
   entry: Entry;
   profile: AgentProfile;
   model: string;
+  modelSource?: 'cli';
   tools: string;
   maxTurns: number;
   budgetUsd: number;
@@ -54,6 +57,9 @@ export interface ExecutionSnapshot {
   nativeContext?: string;
 }
 export type ExecutionPlan = Record<Entry, ExecutionSnapshot>;
+export function executionModelRecord(snapshot?: ExecutionSnapshot, observedModel?: string): { model?: string; modelSource?: 'cli' } {
+  return snapshot?.profile.modelSource === 'cli' ? { modelSource: 'cli', model: observedModel } : { model: observedModel ?? snapshot?.model };
+}
 export interface PendingSwitch { plan: ExecutionPlan; by: string; reason: string; requestedAt: string; afterStage: string; requestId?: string; }
 
 export const configurationFile = (): string => process.env.PIPELINE_AGENT_CONFIG_FILE || path.join(dataDir(), 'agent-config.json');
@@ -79,8 +85,10 @@ export function validateConfiguration(value: unknown): Configuration {
     if (!p || !idPattern.test(p.id) || ids.has(p.id) || typeof p.name !== 'string' || !p.name.trim() || !cliNames.includes(p.cli) || !p.parameters || Array.isArray(p.parameters)) fail('执行配置名称、ID 或 CLI 不合法');
     ids.add(p.id);
     if (!['draft', 'active', 'legacy'].includes(p.state)) fail(`配置 ${p.id} 状态不合法`);
-    if (p.state === 'legacy' && (!/^legacy-(claude|codex|opencode)$/.test(p.id) || p.id !== `legacy-${p.cli}` || Object.keys(p.parameters).length || p.model || p.provider || p.credentialRef)) fail('legacy 仅用于未修改的原有 CLI 配置');
-    for (const key of Object.keys(p)) if (!['id', 'name', 'cli', 'constraintMode', 'model', 'provider', 'credentialRef', 'parameters', 'state', 'validation'].includes(key)) fail(`不支持的执行配置字段 ${key}（密钥由 CLI 管理）`);
+    if (p.state === 'legacy' && (!/^legacy-(claude|codex|opencode)$/.test(p.id) || p.id !== `legacy-${p.cli}` || Object.keys(p.parameters).length || p.model || p.modelSource || p.provider || p.credentialRef)) fail('legacy 仅用于未修改的原有 CLI 配置');
+    for (const key of Object.keys(p)) if (!['id', 'name', 'cli', 'constraintMode', 'model', 'modelSource', 'provider', 'credentialRef', 'parameters', 'state', 'validation'].includes(key)) fail(`不支持的执行配置字段 ${key}（密钥由 CLI 管理）`);
+    if (p.modelSource !== undefined && p.modelSource !== 'cli') fail('模型来源不合法');
+    if (p.modelSource === 'cli' && ((p.constraintMode ?? 'native') !== 'native' || p.model || p.parameters.effort || p.provider || p.credentialRef)) fail('跟随 CLI 时使用原生约束，模型、推理强度、提供商及认证均由 CLI 配置');
     if (p.constraintMode !== undefined && !['native', 'strict'].includes(p.constraintMode)) fail('约束模式必须为 native 或 strict');
     for (const key of ['model', 'provider', 'credentialRef'] as const) if (p[key] !== undefined && (typeof p[key] !== 'string' || !p[key]!.trim() || /[\r\n\0]/.test(p[key]!))) fail(`${p.id}: ${key} 不合法`);
     if (p.credentialRef && !/^[A-Z][A-Z0-9_]*$/.test(p.credentialRef)) fail('凭据引用必须是环境变量名，不能填写密钥');
@@ -93,6 +101,7 @@ export function validateConfiguration(value: unknown): Configuration {
     }
     if (p.cli !== 'opencode' && p.provider && p.provider !== 'cli') fail(`${p.cli} 提供商由其原生配置管理，请使用 provider=cli`);
     if (p.state === 'active' && (!p.validation || p.validation.fingerprint !== profileFingerprint(p) || !Array.isArray(p.validation.entries))) fail(`${p.id} 缺少匹配当前内容的能力验证`);
+    if (p.state === 'active' && p.modelSource === 'cli' && p.validation?.identityPolicy !== 'cli-defaults-v1') fail(`${p.id} 缺少跟随 CLI 策略的能力验证`);
   }
   const selection = (s: Selection): void => {
     if (!s || typeof s !== 'object' || Array.isArray(s)) fail('选择规则必须是对象');
@@ -175,15 +184,16 @@ export const ENTRY_DEFAULTS: Record<Entry, { model: string; tools: string; maxTu
 export function freezeExecution(repo: string | undefined, entry: Entry, profile = selectProfile(repo, entry), executionCwd = repo): ExecutionSnapshot {
   const defaults = ENTRY_DEFAULTS[entry];
   const envModel = entry === 'run' ? process.env.PIPELINE_RUN_MODEL : entry === 'classify' ? process.env.PIPELINE_CLASSIFY_MODEL : entry === 'implement' ? resolveImplementModel().model : undefined;
-  const selectedModel = profile.model ?? (profile.cli === 'claude' ? envModel || defaults.model : process.env[`PIPELINE_${profile.cli.toUpperCase()}_MODEL`] || (profile.cli === 'codex' ? DEFAULT_CODEX_MODEL : (!profile.provider || profile.provider === 'opencode' ? DEFAULT_OPENCODE_MODEL : '@cli-default')));
+  const selectedModel = profile.modelSource === 'cli' ? '@cli-default' : profile.model ?? (profile.cli === 'claude' ? envModel || defaults.model : process.env[`PIPELINE_${profile.cli.toUpperCase()}_MODEL`] || (profile.cli === 'codex' ? DEFAULT_CODEX_MODEL : (!profile.provider || profile.provider === 'opencode' ? DEFAULT_OPENCODE_MODEL : '@cli-default')));
   const model = profile.cli === 'opencode' && profile.provider && selectedModel !== '@cli-default' && !selectedModel.startsWith(`${profile.provider}/`) ? `${profile.provider}/${selectedModel}` : selectedModel;
   const params = profile.parameters;
   return { version: 1, createdAt: new Date().toISOString(), entry, profile: structuredClone(profile), model,
+    ...(profile.modelSource === 'cli' ? { modelSource: 'cli' as const } : {}),
     tools: defaults.tools, maxTurns: params.maxTurns ?? defaults.maxTurns,
     budgetUsd: params.budgetUsd ?? (entry === 'run' ? Number(process.env.PIPELINE_RUN_BUDGET ?? defaults.budgetUsd) : defaults.budgetUsd),
     timeoutMs: params.timeoutMs ?? 3 * 60 * 60 * 1000,
       browser: !!repo && ['review', 'acceptance', 'mr-review'].includes(entry) && readProfile(repo)?.e2e === 'playwright',
-      constraintMode: profile.constraintMode ?? 'native', nativeContext: executionCwd ? credentialContext(undefined, profile.cli, executionCwd) : undefined };
+      constraintMode: profile.constraintMode ?? 'native', nativeContext: executionCwd ? profileCredentialContext(profile, executionCwd) : undefined };
 }
 export function freezePlan(repo: string, configuration = readConfiguration(), executionCwd = repo): ExecutionPlan {
   return Object.fromEntries(ENTRIES.map(entry => [entry, freezeExecution(repo, entry, selectProfile(repo, entry, configuration), executionCwd)])) as ExecutionPlan;
@@ -211,7 +221,9 @@ export function assertRequirements(s: ExecutionSnapshot): void {
   if (s.nativeContext !== undefined && !/^[a-f0-9]{64}$/.test(s.nativeContext)) fail('原生配置快照指纹不合法');
   const missing = (s.constraintMode === 'native' ? [] : required).filter(k => !caps[k].supported);
   const reasons = missing.map(k => caps[k].reason);
-  if (s.model === '@cli-default') reasons.push('未冻结明确的模型名称，不能继承可漂移的 CLI 默认模型');
+  if (s.model === '@cli-default' && !(s.profile.modelSource === 'cli' && s.constraintMode === 'native')) reasons.push('未冻结明确模型且未明确选择跟随 CLI，不能隐式继承 CLI 默认模型');
+  if (s.profile.modelSource === 'cli' && s.model !== '@cli-default') reasons.push('跟随 CLI 的快照不能覆盖原生模型');
+  if (s.modelSource !== s.profile.modelSource) reasons.push('模型来源与执行快照不一致');
   if (reasons.length) fail(`${s.profile.name} 无法用于 ${s.entry}：${reasons.join('；')}。未切换其他 CLI。`);
 }
 /** Describes enforced native limits without representing an unsupported setting as a guard. */
@@ -223,7 +235,7 @@ export function executionConstraints(s: ExecutionSnapshot) {
     budget: { requestedUsd: s.budgetUsd, enforced: cli === 'claude', scope: cli === 'claude' ? '响应完成后检查，可越额；非全树绝对硬上限' : '无原生金额上限，设置值不构成执行限制' },
     timeoutMs: s.timeoutMs,
     windowsSandbox: cli === 'codex' ? s.profile.parameters.windowsSandbox ?? 'CLI 原生配置' : undefined,
-    effort: { requested: s.profile.parameters.effort ?? 'CLI 默认', applied: cli !== 'opencode', scope: cli === 'opencode' ? '请用明确 model#variant 选择原生档位；通用 effort 字段不执行' : cli === 'codex' ? 'model_reasoning_effort，max 映射为 xhigh' : '--effort' },
+    effort: { requested: s.profile.parameters.effort ?? 'CLI 默认', applied: cli !== 'opencode', scope: cli === 'opencode' ? '请用明确 model#variant 选择原生档位；通用 effort 字段不执行' : cli === 'codex' ? (s.profile.parameters.effort ? 'model_reasoning_effort，max 映射为 xhigh' : '随 CLI 当前配置；实际值由 CLI 决定') : '--effort' },
     subagents: cli === 'claude' ? 'Agent/Task；子代理回合不计入主会话上限' : cli === 'codex' ? '原生 spawn_agent；角色模型依原生配置' : '原生 subagent；独立步骤与权限，模型依原生配置' };
 }
 export function validateSnapshot(s: ExecutionSnapshot, entry?: Entry): void {

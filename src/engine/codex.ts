@@ -249,7 +249,7 @@ async function execCodex(o: ExecOpts): Promise<ExecOutcome> {
     '--skip-git-repo-check',
     ...(o.resumeSessionId ? [] : ['-C', o.cwd]),
     ...(o.resumeSessionId ? ['-c', `sandbox_mode="${o.sandbox}"`] : sandboxArgs(o.sandbox, o.extraArgs)),
-    ...(o.model ? ['-m', o.model] : []),
+    ...(o.model && o.model !== '@cli-default' ? ['-m', o.model] : []),
     ...(o.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(o.effort === 'max' ? 'xhigh' : o.effort)}`] : []),
     ...(o.windowsSandbox ? ['-c', `windows.sandbox=${JSON.stringify(o.windowsSandbox)}`] : []),
     ...(schemaFile ? ['--output-schema', schemaFile] : []),
@@ -272,9 +272,11 @@ async function execCodex(o: ExecOpts): Promise<ExecOutcome> {
 }
 
 /** 把一次执行的结果装进编排器认的 Envelope */
-export function toEnvelope(r: ExecOutcome, parseStructured: boolean, originalSchema: unknown = parseStructured ? JSON.parse(wireSchema()) : undefined): Envelope {
+export function toEnvelope(r: ExecOutcome, parseStructured: boolean, originalSchema: unknown = parseStructured ? JSON.parse(wireSchema()) : undefined, priceTokens = true): Envelope {
   const { summary } = r;
-  const cost = codexCostUsd(summary);
+  // Native defaults have no reliable model ID in this protocol. A fixed
+  // model price table cannot price the dynamically selected model.
+  const cost = priceTokens ? codexCostUsd(summary) : { usd: 0, priced: false };
   const text = r.lastMessage.trim() || summary.lastAgentText?.trim() || '';
   let error = summary.errorMessage;
   if (!summary.sessionId || summary.turns < 1 || !summary.completed || !text) error ??= 'Codex 缺少真实会话、正常完成事件或最终正文';
@@ -343,7 +345,7 @@ export const codexEngine: Engine = {
       sandbox: sandboxFor(opts.tools), model: opts.model, effort: opts.effort, windowsSandbox: opts.windowsSandbox,
         schema: toStrictSchema(opts.schema) as object, timeoutMs: opts.timeoutMs ?? STAGE_TIMEOUT_MS,
         extraArgs: opts.tools.includes('mcp__playwright') ? codexE2eArgs(opts.constraintMode === 'native') : undefined });
-      return { envelope: toEnvelope(r, true, opts.schema), rawStdout: r.stdout };
+      return { envelope: toEnvelope(r, true, opts.schema, opts.model !== '@cli-default'), rawStdout: r.stdout };
   },
   async runStage(repo, ticket, stage: Exclude<Stage, 'ci'>, extraArgs = '', modelOverride?: string): Promise<RunOutcome> {
     const cfg = STAGES[stage];
@@ -381,7 +383,7 @@ export const codexEngine: Engine = {
       // 原生续聊失败保持显式错误，调用方不得自动新建会话替代。
       throw new Error(`codex resume 失败：${r.summary.errorMessage}`);
     }
-    const env = toEnvelope(r, false);
+    const env = toEnvelope(r, false, undefined, opts.model !== '@cli-default');
     return { text: env.result ?? '(无输出)', costUsd: env.total_cost_usd, turns: env.num_turns, isError: env.is_error, sessionId: env.session_id, rawStdout: r.stdout, costStatus: env.costStatus === 'unknown' ? 'unknown' : 'reported' };
   },
 };

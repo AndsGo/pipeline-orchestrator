@@ -33,8 +33,16 @@ const sorted = (value: unknown): unknown => {
 };
 /** Pure trust registrations for other projects do not change this execution.
  * Unknown fields and uncertain paths remain bound; no raw-text filtering. */
-export function codexConfigurationContext(text: string, cwd?: string): string {
+export function codexConfigurationContext(text: string, cwd?: string, nativeDefaults = false): string {
   const config = parse(text, { integersAsBigInt: true });
+  // Named native executions always supply -m. Effort is either explicitly
+  // supplied by the profile or intentionally follows the current CLI default.
+  // Only these top-level defaults are excluded: child roles, providers,
+  // permissions, selected profiles and unknown settings remain bound.
+  if (nativeDefaults) {
+    delete config.model;
+    delete config.model_reasoning_effort;
+  }
   const projects = config.projects;
   if (projects && typeof projects === 'object' && !Array.isArray(projects) && !(projects instanceof Date)) {
     const context = cwd ? codexProjectRoots(cwd) : undefined;

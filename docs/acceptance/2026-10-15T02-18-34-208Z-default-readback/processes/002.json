@@ -1,0 +1,7 @@
+{
+  "command": "powershell.exe",
+  "cwd": "D:\\work\\demo\\pipeline-orchestrator",
+  "stdout": "{\"TaskName\":\"PipelineDaemonWatchdog\",\"State\":3,\"Enabled\":true,\"Repeat\":\"PT2M\"}",
+  "stderr": "",
+  "code": 0
+}

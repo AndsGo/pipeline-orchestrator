@@ -41,7 +41,7 @@ export async function prepareStage(run: TicketRun, stage: Stage, profile: Pipeli
   // 只改事件展示，不动传给引擎的 stageModel（2026-09-04 实测：Codex 评审事件写着 opus，看板与对照实验被误导）
   const execution = stage === 'ci' ? undefined : run.state.executionPlan?.[stage];
   const engineName = stage === 'ci' ? 'native-ci' : execution?.profile.cli ?? engineFor(repo, stage).name;
-  const modelLabel = execution ? `${engineName}:${execution.model}` : stageModel;
+  const modelLabel = execution ? `${engineName}:${execution.profile.modelSource === 'cli' ? 'CLI 原生选择（实际模型待报告）' : execution.model}` : stageModel;
   // 开工前预取历史知识提示（ci 是编排器原生阶段，没有会话读它）。曾经只有澄清/计划读——
   // 但知识多由 review/acceptance 产出，不回流给产出它的阶段，同类问题就会反复出现；
   // compound 也要读：标题是知识去重的键，看得到既有条目才不会换个说法重复记。

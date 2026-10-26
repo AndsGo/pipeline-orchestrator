@@ -33,6 +33,7 @@ export interface StageResult {
 
 /** claude -p --output-format json 的信封（只声明编排需要的字段） */
 export interface Envelope {
+  observedModel?: string;
   is_error: boolean;
   num_turns: number;
   total_cost_usd: number;
@@ -46,6 +47,7 @@ export interface Envelope {
 }
 
 export interface RunRecord {
+  modelSource?: 'cli';
   stage: Stage | 'triage' | 'fast';
   extraArgs: string;
   startedAt: string;
@@ -60,6 +62,7 @@ export interface RunRecord {
    * 本次会话实际使用的模型。没有它，任何「换了模型之后是好了还是坏了」的问题都只能靠
    * 「运行时间 × config.ts 的 git 历史」去反推——2026-08-24 排 implement 对照实验时
    * 才发现这条链是断的。缺失 = 该记录早于本字段（不是「用了默认模型」，别替历史数据下结论）。
+   * modelSource=cli 时仅记录可信启动元数据，缺失表示 CLI 未报告；不代表中途回退后的最终模型。
    */
   model?: string;
   execution?: import('./engine/configuration.js').ExecutionSnapshot;

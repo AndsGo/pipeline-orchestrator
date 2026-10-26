@@ -95,6 +95,15 @@ export const ENV_GROUPS: EnvGroup[] = [
     ],
   },
   {
+    name: 'Claude Code',
+    keys: [
+      { key: 'CLAUDE_CONFIG_DIR', desc: 'Claude Code 原生配置与登录目录；留空使用 CLI 默认目录，改变后须重新验证执行配置', restart: 'daemon' },
+      { key: 'ANTHROPIC_BASE_URL', desc: 'Claude API 服务地址；留空使用 CLI 原生配置，地址中不要填写密钥' },
+      { key: 'ANTHROPIC_API_KEY', desc: 'Claude API key；使用 CLI 原生登录时可留空', secret: true },
+      { key: 'ANTHROPIC_AUTH_TOKEN', desc: 'Claude 服务认证 token；按服务要求配置，使用 CLI 原生登录时可留空', secret: true },
+    ],
+  },
+  {
     name: 'Codex',
     keys: [
       { key: 'PIPELINE_CODEX_BIN', desc: 'codex 可执行文件' },

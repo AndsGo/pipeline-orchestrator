@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-22T07:19:02.262Z",
+  "status": "PASS",
+  "priorRevision": 6,
+  "checks": [
+    {
+      "project": "lakeghost",
+      "entries": 13
+    },
+    {
+      "project": "nova",
+      "entries": 13
+    },
+    {
+      "project": "odoo-product",
+      "entries": 13
+    }
+  ],
+  "scope": "All actual project entry requirements including browser; no production writes or model calls"
+}

@@ -92,6 +92,9 @@ export async function execAdhoc(
     const seconds = Math.round((Date.now() - t0) / 1000);
     // 输出必须落盘：只记字符数的话，事后想查"到底跑没跑成"只能去翻别人的聊天窗口
     const file = writeAdhocRecord({
+      cli: r.execution?.profile.cli,
+      modelSource: r.execution?.profile.modelSource,
+      model: r.observedModel ?? (r.execution?.profile.modelSource === 'cli' ? undefined : r.execution?.model),
       at,
       project: project.alias,
       command: commandText,

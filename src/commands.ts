@@ -122,8 +122,7 @@ export function slashSanityIssue(c: Command, ctx?: TicketContext): string | null
 }
 
 /**
- * 未 @ 机器人时，用关键词判断这句话是否像在跟流水线说话（避免给群聊闲聊花钱分类）。
- * @ 了机器人则一律进入分类——@ 本身就是明确的对话意图。
+ * 旧关键词检测辅助。群消息必须先通过 @机器人检查，不能用关键词绕过入口门槛。
  */
 export function looksLikeCommand(text: string): boolean {
   return (
@@ -488,6 +487,7 @@ export async function classifyCommand(
       };
     } catch (e) {
       lastError = (e as Error).message.slice(0, 200);
+      if (lastError.startsWith('执行配置检查失败')) break;
     }
   }
   return { command: { kind: 'unknown', text }, confidence: 0, error: lastError };

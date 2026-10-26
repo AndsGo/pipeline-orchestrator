@@ -10,6 +10,7 @@ import { audienceOf, triageLine } from '../voice.js';
 import type { TicketRun } from './context.js';
 import { applyExecutionSwitch } from '../engine/tickets.js';
 import { formatCost } from '../cost.js';
+import { executionModelRecord } from '../engine/configuration.js';
 
 /**
  * 分诊 + 快车道（P0 任务分级）。返回 true 表示工单已在快车道闭环，runner 应直接退出；
@@ -26,7 +27,7 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
     } else {
       const t = await run.withGate(() => runTriage(repo, ticket, run.state.executionPlan?.triage));
       run.state = { ...run.state, lane: t.lane };
-      appendEvent({ ticket, type: 'triage', summary: `分诊 ${t.lane}：${t.reason}`, payload: { costUsd: t.costUsd, costStatus: t.costStatus, sessionId: t.sessionId, turns: t.turns } });
+      appendEvent({ ticket, type: 'triage', summary: `分诊 ${t.lane}：${t.reason}`, payload: { costUsd: t.costUsd, costStatus: t.costStatus, sessionId: t.sessionId, turns: t.turns, execution: t.execution, ...executionModelRecord(t.execution, t.observedModel) } });
       await broadcast(
         port,
         ticket,
@@ -51,7 +52,7 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
     );
     if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供快车道参考`);
     appendEvent({ ticket, type: 'stage.start', stage: 'fast', summary: '快车道会话开始' });
-    const { result, costUsd, costStatus, turns, sessionId, execution } = await run.withGate(() => runFastlane(repo, ticket, run.state.executionPlan?.fast));
+    const { result, costUsd, costStatus, turns, sessionId, observedModel, execution } = await run.withGate(() => runFastlane(repo, ticket, run.state.executionPlan?.fast));
     run.state = {
       ...run.state,
       runs: [
@@ -65,7 +66,7 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
           turns,
           status: result.status === 'DONE' ? 'DONE' : 'BLOCKED',
           sessionId,
-          model: execution?.model ?? FASTLANE_MODEL,
+          ...(execution ? executionModelRecord(execution, observedModel) : { model: FASTLANE_MODEL }),
           execution,
         },
       ],

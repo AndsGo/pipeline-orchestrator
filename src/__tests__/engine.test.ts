@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bridgePrompt, codexCommand, codexCostUsd, reconcileWorktreeArtifacts, sandboxArgs,
   sandboxFor, stripOptionalNulls, summarizeCodexEvents, toEnvelope, toStrictSchema } from '../engine/codex.js';
 import { execSync } from 'node:child_process';
@@ -13,7 +13,28 @@ import { engineFor, engineNamed } from '../engine/index.js';
 import { parseProfile } from '../profile.js';
 import * as subprocess from '../engine/process.js';
 
+let configRoot: string;
+const priorConfig = process.env.PIPELINE_AGENT_CONFIG_FILE;
+beforeEach(() => {
+  configRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-engine-test-'));
+  process.env.PIPELINE_AGENT_CONFIG_FILE = path.join(configRoot, 'agent-config.json');
+});
+afterEach(() => {
+  if (priorConfig === undefined) delete process.env.PIPELINE_AGENT_CONFIG_FILE;
+  else process.env.PIPELINE_AGENT_CONFIG_FILE = priorConfig;
+  fs.rmSync(configRoot, { recursive: true, force: true });
+});
+
 describe('Codex native resume CLI compatibility', () => {
+  it.each([undefined, 'original-session'])('passes the explicit model and effort on new/resumed calls (%s)', async resumeSessionId => {
+    const execute = vi.spyOn(subprocess, 'runProcess').mockResolvedValue({ code: 0, stderr: '', stdout: [JSON.stringify({ type: 'thread.started', thread_id: 'original-session' }), JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } })].join('\n') });
+    try {
+      await engineNamed('codex').runText({ cwd: os.tmpdir(), prompt: 'fixture', model: 'fixed-model', effort: 'high', tools: 'Read', maxTurns: 1, budgetUsd: 0, resumeSessionId, constraintMode: 'native' });
+      const args = execute.mock.calls[0][1];
+      expect(args[args.indexOf('-m') + 1]).toBe('fixed-model');
+      expect(args).toContain('model_reasoning_effort="high"');
+    } finally { execute.mockRestore(); }
+  });
   it('resume uses its original session, stdin and config sandbox without unsupported exec-only flags', async () => {
     const execute = vi.spyOn(subprocess, 'runProcess').mockResolvedValue({ code: 0, stderr: '', stdout: [JSON.stringify({ type: 'thread.started', thread_id: 'original-session' }), JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'restored nonce' } }), JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } })].join('\n') });
     try {

@@ -86,7 +86,7 @@ export type TextAnswerResult =
   | { status: 'ambiguous'; detail: string }
   | { status: 'none' };
 
-/** 群消息（@bot 或 / 开头的指令），由 daemon 注册处理 */
+/** 只有明确 @bot 的群消息才交给 daemon 处理。 */
 export interface IncomingMessage {
   chatId: string;
   text: string;
@@ -124,7 +124,7 @@ export class FeishuPort implements InteractionPort {
     const port = new FeishuPort(client, ws, cfg);
 
     // 「@我」要按 mentions 里的 open_id 判，不能「消息里有 @ 就算」：2026-09-13 真机——同事 @ 另一位同事让查两个编号，
-    // 机器人抢答了。启动时取一次机器人自己的 open_id；取不到就退回旧判法（宁可多答，不能漏 @）
+    // 机器人抢答了。启动时取一次机器人自己的 open_id；不能确认身份时不执行消息指令。
     let botOpenId: string | undefined;
     try {
       const info = (await client.request({ method: 'GET', url: '/open-apis/bot/v3/info' })) as { bot?: { open_id?: string }; data?: { bot?: { open_id?: string } } };
@@ -132,7 +132,7 @@ export class FeishuPort implements InteractionPort {
     } catch {
       /* 见下一行日志 */
     }
-    if (!botOpenId) console.log('[feishu] 未取到机器人 open_id，@ 判定退回「消息里有 @ 即算」');
+    if (!botOpenId) console.log('[feishu] 未取到机器人 open_id，消息指令已停用；卡片按钮仍可操作');
 
     const handlers: Record<string, (data: never) => Promise<unknown>> = {
       'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> }; operator?: { open_id?: string } }) => {
@@ -165,20 +165,26 @@ export class FeishuPort implements InteractionPort {
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
-        let parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
-        // 话题里直接甩的文件/图片（没文字、没 @）也要进「攒着」的队列：2026-09-11 真机——同事把新提示词以文件发进话题，
-        // 文件消息不是 text/post 直接被丢，随后 @ 的那句「用上面的提示词」会话什么都看不到
-        if (!parsed && data?.message?.thread_id) {
-          const ref = attachmentRef(data.message.message_type, data.message.content, data.message.message_id ?? '');
-          if (ref && getThread(data.message.root_id)) {
-            const saved = await port.downloadQuotedResource(ref);
-            const what = ref.kind === 'image' ? '图片' : `文件${ref.name ? ` ${ref.name}` : ''}`;
-            parsed = { text: saved ? `[${what}已保存：${saved}——文本/图片/PDF 可用 Read 工具查看]` : `[${what}，下载失败未解析]`, mentioned: false };
-          }
+        const parsed = parseMessageText(data?.message?.content, data?.message?.message_type);
+        // Verify the addressee before downloading attachments, expanding quotes,
+        // answering cards, or handing a message to the daemon.
+        let mentions = data?.message?.mentions;
+        if (botOpenId && !mentions?.length && parsed?.mentioned && data.message?.message_id) {
+          try {
+            // Some rich-text events omit mentions. Read authoritative message
+            // metadata instead of treating every @ placeholder as addressing us.
+            const full = await client.im.message.get({ path: { message_id: data.message.message_id } });
+            mentions = full.data?.items?.[0]?.mentions;
+          } catch { /* An unverified mention cannot authorize a command. */ }
+        }
+        const mentioned = isBotMentioned(mentions, botOpenId);
+        if (!mentioned) {
+          console.log(`[feishu] 忽略未明确 @机器人的消息 ${data.message?.message_id ?? '-'}`);
+          return { code: 0 };
         }
         if (parsed) {
           let text = parsed.text;
-          // 富文本里粘的图片：下载落盘，路径接在正文后面（没正文的纯图 post 就只剩这几行，走后面同样的路由/攒着逻辑）
+          // 仅为已验证 @机器人的富文本下载图片，并把路径接在正文后面。
           if (parsed.images?.length) {
             const mid = data.message?.message_id ?? '';
             const saved = await Promise.all(parsed.images.map((k) => port.downloadQuotedResource({ messageId: mid, fileKey: k, marker: '', kind: 'image' })));
@@ -201,15 +207,6 @@ export class FeishuPort implements InteractionPort {
               // 明说而不是拿半句话硬跑：引用内容没拉到时，下游只会看到这一句话本身
               void port.notify('引用', '你引用的那条消息我没能拉取到内容（可能过久或权限不足），下面只按你这句话本身处理。如需分析引用内容，请粘成文字重发。');
             }
-          }
-          const mentioned = isBotMentioned(data.message?.mentions, botOpenId, parsed.mentioned);
-          if (mentioned && parsed.mentioned && !data.message?.mentions?.length) {
-            console.log(`[feishu] 事件 mentions ${data.message?.mentions ? '为空数组' : '缺失'}但正文有 @，按正文判定为 @我`);
-          }
-          // 有人被 @ 了但不是我：把 mentions 形态留痕（去掉 id 主体），下次再出现「明明 @ 了机器人却没认出」有据可查
-          if (!mentioned && data.message?.mentions?.length) {
-            const shape = data.message.mentions.map((m) => `${m.name ?? '?'}:${typeof m.id === 'string' ? `str…${m.id.slice(-6)}` : `obj…${m.id?.open_id?.slice(-6) ?? '-'}`}`).join(' ');
-            console.log(`[feishu] 消息 @ 了别人不是我：${shape}`);
           }
           onMessage({
             chatId: data.message?.chat_id ?? '',
@@ -990,16 +987,13 @@ export function attachmentRef(messageType: string | undefined, content: string |
 
 /**
  * 这条消息是不是 @ 了机器人：按 mentions 里的 open_id 对，@ 的是同事不算。
- * 没拿到机器人 open_id、或事件里没有 mentions 字段时退回 fallback（正文里有 @ 占位即算）——宁可多答，不能把真 @ 漏掉
+ * 缺少可核实的机器人身份或 mentions 时返回 false；不能只凭正文有 @ 就接受指令。
  */
 export function isBotMentioned(
   mentions: Array<{ id?: string | { open_id?: string } }> | undefined,
   botOpenId: string | undefined,
-  fallback: boolean,
 ): boolean {
-  // mentions 缺失或为空数组都退回正文判定：2026-09-22 真机，同事发「一张图 + 一句话 + @机器人」的富文本，
-  // 事件里 mentions 是 []（消息接口回查却有机器人的 open_id），按 [] 判成没 @ 就把人的问题攒着不答了
-  if (!botOpenId || !mentions?.length) return fallback;
+  if (!botOpenId || !mentions?.length) return false;
   // id 两种形态都见过：事件文档写的是 {open_id,...} 对象，消息接口回的是字符串（2026-09-14 真机：富文本里 @ 两个人含机器人，没被认出）
   return mentions.some((m) => (typeof m.id === 'string' ? m.id : m.id?.open_id) === botOpenId);
 }

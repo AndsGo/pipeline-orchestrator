@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-22T07:18:19.891Z",
+  "status": "PASS",
+  "fullSuite": {
+    "files": 51,
+    "passed": 646
+  },
+  "afterCostFix": {
+    "files": 4,
+    "passed": 54
+  },
+  "hotSelectionApiTests": 7,
+  "typecheck": "PASS",
+  "browserUi": "PASS",
+  "astraCodeReview": "PASS",
+  "nativeCodexValidation": "PASS",
+  "browserCapability": "PASS",
+  "scope": "Native-default configuration, adapters, Codex capability and browser probes, and deployment. Claude/OpenCode adapters verified using controlled tests; no new live capability proof for those engines and no deployed business ticket replay.",
+  "costNote": "Base validation process predated the pricing fix. Its raw costUsd values are estimates with unknown status, not certified charges. Source now disables fixed model prices in native-follow mode.",
+  "coldReadback": "PASS",
+  "deployment": "PASS",
+  "default": "codex-native",
+  "revision": 7,
+  "astraFinalEvidenceReview": "PASS"
+}

@@ -458,25 +458,23 @@ describe('attachmentRef：话题里直接甩的文件/图片进攒着队列（20
 describe('isBotMentioned：@ 的是谁（2026-09-13 真机：同事 @ 同事让查编号，机器人抢答）', () => {
   const BOT = 'ou_bot';
   it('mentions 里有机器人才算 @我；只 @ 了同事不算', () => {
-    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], BOT, true)).toBe(false);
-    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }, { id: { open_id: BOT } }], BOT, false)).toBe(true);
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], BOT)).toBe(false);
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }, { id: { open_id: BOT } }], BOT)).toBe(true);
   });
-  it('mentions 是空数组时退回正文判定（2026-09-22 真机：图 + 一句话 + @机器人的富文本，事件 mentions 为 []）', () => {
-    expect(isBotMentioned([], BOT, true)).toBe(true);
-    expect(isBotMentioned([], BOT, false)).toBe(false);
+  it('mentions 是空数组时不凭正文猜测收件人', () => {
+    expect(isBotMentioned([], BOT)).toBe(false);
   });
-  it('没拿到机器人 open_id 或事件里没有 mentions 时退回正文判定', () => {
-    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], undefined, true)).toBe(true);
-    expect(isBotMentioned(undefined, BOT, true)).toBe(true);
-    expect(isBotMentioned(undefined, BOT, false)).toBe(false);
+  it('无法核实机器人身份或 mentions 时不接受指令', () => {
+    expect(isBotMentioned([{ id: { open_id: 'ou_colleague' } }], undefined)).toBe(false);
+    expect(isBotMentioned(undefined, BOT)).toBe(false);
   });
 });
 
 describe('isBotMentioned：mentions.id 是字符串形态（2026-09-14 真机：富文本里 @ 同事 + @机器人，机器人没被认出）', () => {
   it('字符串 id 与对象 id 都能对上机器人', () => {
-    expect(isBotMentioned([{ id: 'ou_colleague' }, { id: 'ou_bot' }], 'ou_bot', false)).toBe(true);
-    expect(isBotMentioned([{ id: 'ou_colleague' }], 'ou_bot', true)).toBe(false);
-    expect(isBotMentioned([{ id: { open_id: 'ou_bot' } }, { id: 'ou_colleague' }], 'ou_bot', false)).toBe(true);
+    expect(isBotMentioned([{ id: 'ou_colleague' }, { id: 'ou_bot' }], 'ou_bot')).toBe(true);
+    expect(isBotMentioned([{ id: 'ou_colleague' }], 'ou_bot')).toBe(false);
+    expect(isBotMentioned([{ id: { open_id: 'ou_bot' } }, { id: 'ou_colleague' }], 'ou_bot')).toBe(true);
   });
 });
 

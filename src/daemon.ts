@@ -4,7 +4,6 @@ import {
   classifyCommand,
   describeCommand,
   helpText,
-  looksLikeCommand,
   needsConfirm,
   parseSlash,
   slashSanityIssue,
@@ -16,10 +15,10 @@ import { initBitableSync } from './bitable/sync.js';
 import { appendEvent, listTickets, onEvent } from './events.js';
 import { FeishuPort, feishuConfigFromEnv, type IncomingMessage } from './feishu/port.js';
 import { acquireLock, findOrphanClaude, releaseLock, killHint } from './lock.js';
-import { readLastRunFor, runByCard, stripQuote } from './followup.js';
+import { readLastRunFor, runByCard } from './followup.js';
 import { dataDir } from './paths.js';
 import type { ChatRef, Origin } from './ports.js';
-import { bindTicketThread, getThread, looksLikeInstruction, markPendingHint, pushPending, renderPending, routeInThread, switchThreadProject, takePending, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
+import { bindTicketThread, getThread, routeInThread, switchThreadProject, threadOfTicket, type ThreadRec, touchThread } from './threads.js';
 import { readProfile } from './profile.js';
 import { audienceOf } from './voice.js';
 import { clearPaused } from './pause.js';
@@ -177,6 +176,9 @@ async function handleCommand(c: Command, sender: string, chat?: ChatRef): Promis
 const threadQueue = new Map<string, Promise<void>>();
 /** 处理中的消息计数：停止信号要等它们处理完（分类那十几秒闸门还没占，2026-09-11 真机丢过一句） */
 async function onMessage(m: IncomingMessage): Promise<void> {
+  // All text commands and textual card answers require an explicit @bot.
+  // Guard before queueing, answering cards, or invoking any model.
+  if (!m.mentioned) return;
   inflight.n++;
   try {
     await onMessageQueued(m);
@@ -260,22 +262,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
       }
     }
   } else {
-    // @了机器人 → 一定回应；没 @ → 只在像指令时才花钱分类，避免打扰群聊。
-    // 话题里没 @ 的话（拍板 2026-09-11）：不触发、不回复，攒着；下一次有人 @ 时连同那句一起交给会话/工单。
-    // 之前「话题里每句都算对话」让同事间的讨论每句触发一轮 resume——太贵也太吵。答卡例外在上面已处理（有明确格式）
-    if (!m.mentioned && !looksLikeCommand(m.text)) {
-      if (th && m.rootId) {
-        const own = stripQuote(m.text);
-        log(`话题 ${m.rootId.slice(-8)} 攒下一句（共 ${pushPending(m.rootId, m.sender, own)} 条），等 @ 时一并处理`);
-        // 像给我下的指令却没 @（2026-09-12 真机：「可以的，执行吧」「C000052单独重新跑一遍」，人干等 9～22 分钟）：
-        // 在那条消息上加个 👀，不发文字——人看到就知道「它看见了但没动，要 @ 才会动」。每话题每小时最多一次
-        if (looksLikeInstruction(own) && markPendingHint(m.rootId)) {
-          log(`  像指令但没 @，加 👀 提示`);
-          void port.react(m.messageId, 'GLANCE');
-        }
-      }
-      return;
-    }
+    // The ingress gate has already verified that this message explicitly @bot.
     // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
     const contexts = th?.ticket ? ticketContexts().filter((c) => c.ticket === th.ticket) : ticketContexts();
     const lastRun = th ? (th.run ?? null) : readLastRunFor(m.chatId);
@@ -288,10 +275,12 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     cmd = command;
     // 识别服务炸了 ≠ 没听懂：前者回"重发一次"，后者才是"我不明白你的意思"
     if (error) {
-      log(`意图识别失败（已重试）：${error}`);
+      log(`意图识别失败：${error}`);
       await port.notify(
         '指令',
-        `识别服务异常，这条消息没能读懂：${error.slice(0, 120)}\n请重发一次；或直接用斜杠指令（\`/run\`、\`/new\`、\`/note LS-00X 内容\`）绕过识别。`,
+        /执行配置检查失败/.test(error)
+          ? `${error.slice(0, 200)}。本条请求尚未执行，请在配置验证通过后重新发送。`
+          : `识别服务异常：${error.slice(0, 120)}\n请稍后重试。`,
         origin,
       );
       return;
@@ -394,20 +383,9 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     if (th?.ticket && m.rootId) touchThread(m.rootId);
   }
 
-  // 话题里攒下的没 @ 的话：这次被 @ 了，一并带上（写进续聊答复 / 工单说明 / 需求原文），然后清空。
-  // 只有能装下这些话的指令才取走；/dashboard /status 这类查询不取——真机 2026-09-11：一句 /dashboard 把攒下的意见吞了
+  // Explicitly addressed thread messages may use this thread's pinned files.
+  // Unmentioned discussion (including previously stored pending text) is not executed later.
   if (th && m.rootId) {
-    const carries = cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new' || cmd.kind === 'req';
-    // 人常把没 @ 的那句原样加 @ 再发一遍（真机 2026-09-17：「这里表格有SUP」连发两次），攒下的同一句不再重复带
-    const own = stripQuote(m.text).trim();
-    const pending = (carries ? takePending(m.rootId) : []).filter((p) => !(p.sender === m.sender && p.text.trim() === own));
-    if (pending.length) {
-      const digest = renderPending(pending);
-      if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'req') cmd = { ...cmd, text: `${cmd.text}\n\n${digest}` };
-      else if (cmd.kind === 'new') cmd = { ...cmd, requirement: `${cmd.requirement}\n\n${digest}` };
-      log(`话题 ${m.rootId.slice(-8)} 连同攒下的 ${pending.length} 条一起处理`);
-      await port.notify('执行', `已连同上面 ${pending.length} 条讨论一起处理`, origin);
-    }
     // 群里置顶的文件一并带上：pin 是人「指给你看」的自然方式，而人不会每次都说「置顶」二字
     // （真机 2026-09-11：pin 了新提示词 xlsx 后 @「取文档中 新提示词 sheet」，只认 pin/置顶 关键词就漏了）。文件按 key 落盘，重复带只是多一行路径
     if (cmd.kind === 'followup' || cmd.kind === 'run' || cmd.kind === 'note' || cmd.kind === 'amend' || cmd.kind === 'new') {

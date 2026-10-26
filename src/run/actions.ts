@@ -12,6 +12,7 @@ import { audienceOf, closeoutLine } from '../voice.js';
 import { deliverAndCompound, reviewKnowledge, reviewStaleHints, reviewSuggestions, reviewTerms } from './compound.js';
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
+import { executionModelRecord } from '../engine/configuration.js';
 
 /**
  * 验收「不通过」必须附失败现象——它是修复轮最重要的输入，缺了修复只能瞎猜。
@@ -86,7 +87,7 @@ async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>
     const p = await run.prototype(repo, ticket);
     if (p.sessionId || p.turns > 0 || p.costUsd > 0) {
       run.state = { ...run.state, runs: [...run.state.runs, { stage: 'clarify', extraArgs: 'prototype', startedAt: new Date().toISOString(), costUsd: p.costUsd,
-        costStatus: p.costStatus, turns: p.turns, status: p.ok ? 'DONE' : 'DONE_WITH_CONCERNS', sessionId: p.sessionId || '', model: p.execution?.model, execution: p.execution }] };
+        costStatus: p.costStatus, turns: p.turns, status: p.ok ? 'DONE' : 'DONE_WITH_CONCERNS', sessionId: p.sessionId || '', ...executionModelRecord(p.execution, p.observedModel), execution: p.execution }] };
       appendEvent({ ticket, type: 'stage.end', stage: 'prototype', summary: p.ok ? '原型已生成' : '原型调用结束但缺少产物', payload: { costUsd: p.costUsd, costStatus: p.costStatus, turns: p.turns, sessionId: p.sessionId, execution: p.execution } });
       run.save();
     }

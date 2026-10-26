@@ -7,32 +7,40 @@ import { runProcess } from './process.js';
 import { codexCommand, codexEnvironment } from './codex.js';
 import type { AgentProfile } from './configuration.js';
 import { codexConfigurationContext } from './codexContext.js';
+import { nativeJsonContext, nativeModelEnvironment } from './nativeDefaults.js';
 
 export const executionAccount = (): string => `${os.hostname()}/${os.userInfo().username}`;
-export function credentialContext(ref?: string, cli?: AgentProfile['cli'], cwd?: string, diagnostics?: Record<string, string>): string {
+export type IdentityPolicy = 'codex-native-v2' | 'cli-defaults-v1';
+export function credentialContext(ref?: string, cli?: AgentProfile['cli'], cwd?: string, diagnostics?: Record<string, string>, policy?: IdentityPolicy): string {
   const environment = cli === 'codex' ? codexEnvironment() : process.env;
+  const followsCli = policy === 'cli-defaults-v1';
   if (ref && !environment[ref]) throw new Error(`凭据环境变量不可用：${ref}`);
   const hash = createHash('sha256');
+  if (policy) hash.update(policy);
   const sources: { text: string; directory: string; opencode: boolean }[] = [];
   const observe = (label: string, content: string | Buffer) => { if (diagnostics) diagnostics[label] = createHash('sha256').update(content).digest('hex'); };
-  const fileSource = (file: string, codexGlobal = false): void => {
+  const fileSource = (file: string, codexGlobal = false, externalConfig = false): void => {
     const content = fs.existsSync(file) ? fs.readFileSync(file) : Buffer.from('absent');
     let effective: string | Buffer = content;
     if (codexGlobal && fs.existsSync(file)) {
-      try { effective = codexConfigurationContext(content.toString('utf8'), cwd); }
+      try { effective = codexConfigurationContext(content.toString('utf8'), cwd, policy === 'codex-native-v2' || followsCli); }
       catch { throw new Error(`Codex 配置 TOML 无法解析：${file}`); }
       // Diagnostic byte hashes do not authorize or invalidate semantic identity.
       observe(`raw-file:${file}`, content);
     }
+    if (followsCli && fs.existsSync(file) && ((cli === 'claude' && /settings(?:\.local)?\.json$/.test(file)) || (cli === 'opencode' && (externalConfig || /opencode\.jsonc?$/.test(file))))) {
+      observe(`raw-file:${file}`, content);
+      effective = nativeJsonContext(content.toString('utf8'), cli as 'claude' | 'opencode', path.dirname(file));
+    }
     observe(`file:${file}`, effective);
-    hash.update(file).update(effective); sources.push({ text: content.toString('utf8'), directory: path.dirname(file), opencode: /opencode(?:\.jsonc?|[/\\]auth\.json)$/i.test(file) });
+    hash.update(file).update(effective); sources.push({ text: (followsCli ? effective : content).toString(), directory: path.dirname(file), opencode: externalConfig || /opencode(?:\.jsonc?|[/\\]auth\.json)$/i.test(file) });
   };
   const prefixes = cli === 'claude' ? /^(ANTHROPIC_|CLAUDE_|HOME$|USERPROFILE$)/
     : cli === 'codex' ? /^(OPENAI_|CODEX_HOME$|CODEX_API_KEY$|HOME$|USERPROFILE$)/
     : cli === 'opencode' ? /^(ANTHROPIC_|OPENAI_|OPENCODE_|XDG_|HOME$|USERPROFILE$)/
     : /^(ANTHROPIC_|CLAUDE_|OPENAI_|CODEX_|OPENCODE_|XDG_|HOME$|USERPROFILE$)/;
-  const keys = Object.keys(environment).filter(k => prefixes.test(k) || k === ref).sort();
-  for (const key of keys) { const value = JSON.stringify([key, environment[key]]); observe(`env:${key}`, value); hash.update(value); }
+  const keys = Object.keys(environment).filter(k => (prefixes.test(k) || k === ref) && !(followsCli && nativeModelEnvironment(k, cli))).sort();
+  for (const key of keys) { const content = followsCli && cli === 'opencode' && key === 'OPENCODE_CONFIG_CONTENT' && environment[key] ? nativeJsonContext(environment[key]!, 'opencode', cwd || process.cwd()) : environment[key]; const value = JSON.stringify([key, content]); observe(`env:${key}`, value); hash.update(value); }
   const home = os.homedir();
   const codexHome = environment.CODEX_HOME || path.join(home, '.codex');
   const files = [
@@ -41,11 +49,11 @@ export function credentialContext(ref?: string, cli?: AgentProfile['cli'], cwd?:
     ...(!cli || cli === 'opencode' ? [path.join(process.env.XDG_DATA_HOME || path.join(home, '.local/share'), 'opencode/auth.json'), path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode/opencode.json'), path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode/opencode.jsonc')] : []),
   ];
   for (const file of files) fileSource(file, file === path.join(codexHome, 'config.toml'));
-  if ((!cli || cli === 'opencode') && process.env.OPENCODE_CONFIG_CONTENT) sources.push({ text: process.env.OPENCODE_CONFIG_CONTENT, directory: cwd || process.cwd(), opencode: true });
+  if ((!cli || cli === 'opencode') && process.env.OPENCODE_CONFIG_CONTENT) sources.push({ text: followsCli ? nativeJsonContext(process.env.OPENCODE_CONFIG_CONTENT, 'opencode', cwd || process.cwd()) : process.env.OPENCODE_CONFIG_CONTENT, directory: cwd || process.cwd(), opencode: true });
   const externalConfig = process.env.OPENCODE_CONFIG;
   if ((!cli || cli === 'opencode') && externalConfig) {
     const file = path.resolve(cwd || process.cwd(), externalConfig);
-    fileSource(file);
+    fileSource(file, false, true);
     sources.at(-1)!.opencode = true;
   }
   if ((!cli || cli === 'opencode') && process.env.OPENCODE_CONFIG_DIR) {
@@ -98,7 +106,11 @@ export function credentialContext(ref?: string, cli?: AgentProfile['cli'], cwd?:
   if ((!cli || cli === 'claude') && fs.existsSync(claudeState)) {
     const state = JSON.parse(fs.readFileSync(claudeState, 'utf8')) as Record<string, unknown>;
     observe(`state:${claudeState}`, JSON.stringify(['oauthAccount', 'primaryApiKey', 'apiKeyHelper', 'env', 'model'].map(key => [key, state[key]])));
-    for (const key of ['oauthAccount', 'primaryApiKey', 'apiKeyHelper', 'env', 'model']) hash.update(JSON.stringify([key, state[key]]));
+    for (const key of ['oauthAccount', 'primaryApiKey', 'apiKeyHelper', 'env', 'model']) {
+      if (followsCli && key === 'model') continue;
+      const value = followsCli && key === 'env' && state[key] && typeof state[key] === 'object' ? Object.fromEntries(Object.entries(state[key] as object).filter(([name]) => !nativeModelEnvironment(name, 'claude'))) : state[key];
+      hash.update(JSON.stringify([key, value]));
+    }
   }
   return hash.digest('hex');
 }
@@ -128,6 +140,17 @@ export async function cliVersion(cli: AgentProfile['cli']): Promise<string> {
 export async function assertRuntimeIdentity(profile: AgentProfile, cwd?: string, frozenContext?: string): Promise<void> {
   if (profile.state !== 'active') return; // Legacy means explicitly unprobed, displayed as such.
   const v = profile.validation;
-  if (!v || v.account !== executionAccount() || v.command !== commandIdentity(profile.cli) || v.credentialContext !== credentialContext(profile.credentialRef, profile.cli) || v.cliVersion !== await cliVersion(profile.cli)) throw new Error('CLI 路径、版本或运行账号／凭据上下文已变化，请重新验证执行配置');
-  if (cwd && (!frozenContext || frozenContext !== credentialContext(undefined, profile.cli, cwd))) throw new Error('项目原生配置与执行快照不一致，请重新验证并显式切换执行配置');
+  const fail = (reason: string): never => { throw new Error(`执行配置检查失败：${reason}，请重新验证执行配置；重发或改用 /run 无法解除此检查`); };
+  if (!v) return fail('缺少验证记录');
+  if (v.account !== executionAccount()) fail('运行账号已变化');
+  if (v.command !== commandIdentity(profile.cli)) fail('CLI 可执行路径已变化');
+  if (v.credentialContext !== profileCredentialContext(profile)) fail('凭据、供应商或原生配置已变化');
+  if (v.cliVersion !== await cliVersion(profile.cli)) fail('CLI 版本已变化');
+  if (cwd && (!frozenContext || frozenContext !== profileCredentialContext(profile, cwd))) fail('项目原生配置与执行快照不一致，需显式切换执行配置');
+}
+
+/** Old validation records keep their old policy until a real probe succeeds. */
+export function profileCredentialContext(profile: AgentProfile, cwd?: string, diagnostics?: Record<string, string>, policy = profile.validation?.identityPolicy): string {
+  if (policy && ((profile.constraintMode ?? 'native') !== 'native' || (policy === 'codex-native-v2' ? profile.cli !== 'codex' : policy !== 'cli-defaults-v1' || profile.modelSource !== 'cli'))) throw new Error('执行配置检查失败：不兼容的身份校验策略');
+  return credentialContext(cwd ? undefined : profile.credentialRef, profile.cli, cwd, diagnostics, policy);
 }

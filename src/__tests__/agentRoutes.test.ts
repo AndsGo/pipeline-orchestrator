@@ -23,6 +23,20 @@ afterEach(async () => { server.closeAllConnections(); await new Promise<void>(re
 const request = (url: string, method = 'GET', body?: unknown) => fetch(`${base}${url}`, { method, headers: { cookie, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 
 describe('execution configuration HTTP flow', () => {
+  it('applies global, project and per-entry selections without restarting the server', async () => {
+    const configuration = initialConfiguration();
+    configuration.global = { default: 'legacy-claude', entries: { review: 'legacy-opencode' } };
+    configuration.projects[root] = { default: 'legacy-codex', entries: { review: 'legacy-claude' } };
+    expect((await request('/api/agents', 'PUT', { revision: 0, configuration })).status).toBe(200);
+    expect(selectProfile(undefined, 'run').cli).toBe('claude');
+    expect(selectProfile(undefined, 'review').cli).toBe('opencode');
+    expect(selectProfile(root, 'run').cli).toBe('codex');
+    expect(selectProfile(root, 'review').cli).toBe('claude');
+    configuration.global.default = 'legacy-codex';
+    expect((await request('/api/agents', 'PUT', { revision: 1, configuration })).status).toBe(200);
+    expect(selectProfile(undefined, 'run').cli).toBe('codex');
+    expect(selectProfile(undefined, 'review').cli).toBe('opencode');
+  });
   it('requires confirmation of the exact server probe plan before any billable validation', async () => {
     const plan = await (await request('/api/agents/legacy-claude/validation-plan', 'POST', { revision: 0, entries: ['run', 'implement'] })).json();
     expect(plan.calls).toBe(13);

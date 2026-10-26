@@ -17,6 +17,7 @@ export interface TextResult {
   execution?: ExecutionSnapshot;
   costStatus?: import('../cost.js').CostStatus;
   rawStdout?: string;
+  observedModel?: string;
 }
 
 export interface Engine {

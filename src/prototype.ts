@@ -25,6 +25,7 @@ export function previewUrl(ticket: string, env: NodeJS.ProcessEnv = process.env)
 }
 
 export interface PrototypeResult {
+  observedModel?: string;
   ok: boolean;
   costUsd: number;
   turns: number;
@@ -47,7 +48,7 @@ export async function generatePrototype(repo: string, ticket: string, execution?
       pluginDir: PLUGIN_DIR,
     });
     const ok = fs.existsSync(prototypeFile(repo, ticket));
-    return { ok, costUsd: r.costUsd, turns: r.turns, costStatus: r.costStatus, sessionId: r.sessionId, execution: r.execution, note: ok ? undefined : (r.text || '').slice(0, 160) };
+    return { ok, costUsd: r.costUsd, turns: r.turns, costStatus: r.costStatus, sessionId: r.sessionId, observedModel: r.observedModel, execution: r.execution, note: ok ? undefined : (r.text || '').slice(0, 160) };
   } catch (e) {
     if (e instanceof CliExecutionError) throw e;
     throw new Error(`原型执行失败：${(e as Error).message}`);

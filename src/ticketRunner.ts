@@ -383,7 +383,10 @@ async function runTicketImpl(opts: RunTicketOpts): Promise<void> {
     if (actualExecution) {
       const record = run.state.runs.at(-1)!;
       record.execution = actualExecution;
-      record.model = actualExecution.model;
+      if (actualExecution.profile.modelSource === 'cli') {
+        record.modelSource = 'cli';
+        record.model = envelope.observedModel;
+      } else record.model = actualExecution.model;
     }
     // 分支名由实现会话自己取，只能事后认；认到就固化，供看板显示与人工 checkout
     if (stage === 'implement' && !run.state.branch) {

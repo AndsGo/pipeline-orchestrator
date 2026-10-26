@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-21T09:07:29.846Z",
+  "status": "PASS",
+  "revision": 6,
+  "default": "legacy-claude",
+  "profile": "codex-default",
+  "identityPolicy": "codex-native-v2",
+  "projects": [
+    "lakeghost",
+    "nova",
+    "odoo-product"
+  ],
+  "scope": "Cold process identity and entry snapshots; browser capability excluded; no model calls"
+}

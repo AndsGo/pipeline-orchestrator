@@ -14,6 +14,7 @@ import { wireSchema } from '../schema.js';
 import { assertRuntimeIdentity } from './identity.js';
 import { CliExecutionError } from './errors.js';
 import { beginRoleAudit } from './claudeRoles.js';
+import { observedNativeModel } from './nativeDefaults.js';
 
 export type { Engine, TextResult } from './types.js';
 
@@ -58,7 +59,7 @@ export function engineFor(repo: string | undefined, entry: Entry = 'run', frozen
       if (result.envelope.is_error) throw new CliExecutionError(result.envelope.result || 'CLI 执行失败', result.envelope);
       const validate = new Ajv({ strict: false, allowUnionTypes: true }).compile(opts.schema);
       if (!validate(result.envelope.structured_output)) throw new CliExecutionError(`CLI 结构化返回不符合契约：${JSON.stringify(validate.errors)}`, { ...result.envelope, is_error: true, structured_output: undefined });
-      return { ...result, execution: snapshot };
+      return { ...result, envelope: { ...result.envelope, observedModel: observedNativeModel(native.name, result.rawStdout) }, execution: snapshot };
     } finally { if (mcp && fs.existsSync(mcp)) fs.unlinkSync(mcp); }
   };
   return { name: native.name, execution: snapshot, runJson,
@@ -68,7 +69,7 @@ export function engineFor(repo: string | undefined, entry: Entry = 'run', frozen
       const result = await native.runText(prepared);
       if (result.isError) throw new CliExecutionError(result.text || 'CLI 执行失败', { is_error: true, result: result.text, num_turns: result.turns, total_cost_usd: result.costUsd, costStatus: result.costStatus === 'unknown' ? 'unknown' : 'reported', session_id: result.sessionId || '', permission_denials: [] });
       if (opts.resumeSessionId && result.sessionId !== opts.resumeSessionId) throw new Error('CLI 未恢复原会话，拒绝将新会话当作续聊');
-      return { ...result, execution: snapshot };
+      return { ...result, observedModel: observedNativeModel(native.name, result.rawStdout), execution: snapshot };
     },
     async runStage(cwd, ticket, stage, extraArgs = '') {
       return runJson({ cwd, prompt: `/pipeline-${stage} ${ticket}${extraArgs ? ' ' + extraArgs : ''}`, pluginDir: PLUGIN_DIR,

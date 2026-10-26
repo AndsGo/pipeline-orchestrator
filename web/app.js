@@ -196,7 +196,7 @@
         <div class="stack">
           <section class="sec"><h2>各阶段会话（${st?.runs.length || 0}）</h2>
             <div class="wrap"><table><thead><tr><th>时间</th><th>阶段</th><th>模型</th><th class="num">轮数</th><th class="num">成本</th><th>结果</th><th>参数</th></tr></thead><tbody>
-            ${(st?.runs || []).map((r) => `<tr><td class="muted">${fmtTs(r.startedAt)}</td><td>${esc(r.stage)}</td><td>${esc(r.model || '')}</td><td class="num">${r.turns}</td><td class="num">${money(r.costUsd, r.costStatus)}</td><td>${esc(r.status)}${r.verdict ? ` · ${esc(r.verdict)}` : ''}</td><td class="mono">${esc(r.extraArgs || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">尚无</td></tr>'}
+            ${(st?.runs || []).map((r) => `<tr><td class="muted">${fmtTs(r.startedAt)}</td><td>${esc(r.stage)}</td><td>${esc(r.model ? r.model + (r.modelSource === 'cli' ? '（启动时报告）' : '') : (r.modelSource === 'cli' ? '跟随 CLI（未报告）' : ''))}</td><td class="num">${r.turns}</td><td class="num">${money(r.costUsd, r.costStatus)}</td><td>${esc(r.status)}${r.verdict ? ` · ${esc(r.verdict)}` : ''}</td><td class="mono">${esc(r.extraArgs || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">尚无</td></tr>'}
             </tbody></table></div>
           </section>
           <section class="sec"><h2>时间线（${d.events.length}）</h2>
@@ -496,32 +496,43 @@
       <section class="sec"><h2>配置库</h2><div class="wrap"><table><thead><tr><th>名称</th><th>CLI / 模型</th><th>状态与能力</th><th>操作</th></tr></thead><tbody>${c.profiles.map(p => {
         const missing = Object.entries(view.capabilities[p.cli]).filter(([, cap]) => !cap.supported);
         const strict = p.constraintMode === 'strict';
-        return `<tr><td>${esc(p.name)}<div class="muted small">${esc(p.id)}</div></td><td>${esc(p.cli)}<div>${esc(p.provider || 'CLI 原生配置')} / ${esc(p.model || '按入口默认')}</div><div class="small muted">${strict ? '严格兼容' : '原生约束'}</div></td><td>${pill(p.state === 'draft' ? '待验证' : p.state === 'legacy' ? '原有配置' : '已验证', missing.length && strict ? 'bad' : p.state === 'draft' ? 'warn' : 'good')}${missing.map(([, cap]) => `<div class="small ${strict ? 'err' : 'muted'}">${esc(cap.reason)}</div>`).join('')}${p.validation ? `<div class="small muted">${esc(p.validation.account)} · ${esc(p.validation.cliVersion)} · ${fmtTs(p.validation.at)}</div>` : ''}</td><td><button data-edit="${esc(p.id)}">编辑</button> <button data-probe="${esc(p.id)}">验证</button>${p.state !== 'legacy' ? ` <button data-delete="${esc(p.id)}">删除</button>` : ''}</td></tr>`;
+        return `<tr><td>${esc(p.name)}<div class="muted small">${esc(p.id)}</div></td><td>${esc(p.cli)}<div>${p.modelSource === 'cli' ? '模型与推理强度跟随 CLI' : `${esc(p.provider || 'CLI 原生配置')} / ${esc(p.model || '按入口默认')}`}</div><div class="small muted">${strict ? '严格兼容' : '原生约束'}</div></td><td>${pill(p.state === 'draft' ? '待验证' : p.state === 'legacy' ? '原有配置' : '已验证', missing.length && strict ? 'bad' : p.state === 'draft' ? 'warn' : 'good')}${missing.map(([, cap]) => `<div class="small ${strict ? 'err' : 'muted'}">${esc(cap.reason)}</div>`).join('')}${p.validation ? `<div class="small muted">${esc(p.validation.account)} · ${esc(p.validation.cliVersion)} · ${fmtTs(p.validation.at)}</div>` : ''}</td><td><button data-edit="${esc(p.id)}">编辑</button> <button data-probe="${esc(p.id)}">验证</button>${p.state !== 'legacy' ? ` <button data-delete="${esc(p.id)}">删除</button>` : ''}</td></tr>`;
       }).join('')}</tbody></table></div></section>
       <section class="sec"><h2 id="profileTitle">新增配置</h2><form class="card" id="agentForm"><div class="row">
         <label>ID<input name="id" required pattern="[a-z][a-z0-9-]{0,63}" placeholder="opencode-development"></label>
         <label>名称<input name="name" required placeholder="OpenCode 日常开发"></label>
         <label>CLI<select name="cli"><option>codex</option><option>claude</option><option>opencode</option></select></label>
         <label>约束模式<select name="constraintMode"><option value="native">CLI 原生约束</option><option value="strict">严格兼容</option></select></label>
+        <label>模型与推理强度<select name="modelSource"><option value="cli">跟随 CLI 原生配置</option><option value="pipeline">由流水线指定（兼容原配置）</option></select></label>
         <label>提供商<input name="provider" placeholder="OpenCode provider；其余填 cli"></label>
-        <label>模型<input name="model" placeholder="空白沿用默认；OpenCode 默认内置免费模型"></label>
+        <label>模型<input name="model" placeholder="流水线指定模式：空白沿用入口预设"></label>
         <label>凭据环境变量引用<input name="credentialRef" placeholder="仅 Claude 支持；只填变量名"></label>
       </div><div class="row"><label>最大轮数<input type="number" min="1" step="1" name="maxTurns" placeholder="按入口默认"></label>
         <label>预算 USD<input type="number" min="0.001" step="0.001" name="budgetUsd" placeholder="按入口默认"></label>
         <label>超时（秒）<input type="number" min="1" name="timeoutSeconds" placeholder="10800"></label>
         <label>推理档位<select name="effort"><option value="">默认</option><option>low</option><option>medium</option><option>high</option><option>max</option></select></label></div>
       <label>Codex Windows 沙箱<select name="windowsSandbox"><option value="">CLI 原生配置</option><option value="mxc">MXC（兼容设备推荐）</option><option value="elevated">elevated</option><option value="unelevated">unelevated（网络隔离较弱）</option></select></label>
-      <p class="muted small">保存为草稿。原生模式允许权限与步骤语义差异；Codex/OpenCode 不执行金额上限，Codex 不执行轮数上限。仍执行超时，保留真实子代理及交接验证。已有工单快照不变。Codex/OpenCode 使用原生认证，凭据引用留空；OpenCode 的提供商环境变量在原生配置中设置并纳入身份核验。</p><button type="submit">保存草稿</button> <button type="reset">清空</button></form></section>
+      <p class="muted small">跟随 CLI 时不传模型与推理强度覆盖参数，新任务和续聊均遵循 CLI 原生选择规则。编排器调用失败直接报错，不自动切换备用 CLI 或模型；CLI 内部默认选择及原生回退仍由 CLI 配置决定。选择规则保存后无需重启，对新任务生效；已有工单需显式切换。保存配置为草稿，通过验证后可选择。原生模式允许权限与步骤语义差异；Codex/OpenCode 不执行金额上限，Codex 不执行轮数上限。仍执行超时，保留真实子代理及交接验证。</p><button type="submit">保存草稿</button> <button type="reset">清空</button></form></section>
       <section class="sec"><h2>能力验证</h2><div class="card"><p>选择用途后，点击配置的“验证”。验证使用隔离目录，调用数量按 CLI 原生能力计算；子代理或浏览器增加一次。执行前展示实际数量、原生限制和不支持的限制。费用没有绝对硬上限。</p>
       <div class="row">${view.entries.map(entry => `<label><input type="checkbox" data-probe-entry="${entry}"> ${esc(labels[entry])}</label>`).join('')}</div><label><input type="checkbox" id="probeBrowser" checked> 同时验证 Playwright 浏览器能力（未验证时不能用于 e2e: playwright）</label><pre id="probeReport" hidden></pre></div></section>
       <section class="sec"><h2>全局默认</h2>${selectionHtml(c.global, 'global')}</section>
       <section class="sec"><h2>项目覆盖</h2><p class="muted">同层级控制台选择优先于 PIPELINE.md；空白表示继承。可在文件使用 execution / execution.review 等键。</p>${view.projects.map(p => `<h3>${esc(p.alias)}</h3>${selectionHtml(c.projects[p.repo] || {}, p.repo)}`).join('')}
       <button id="saveSelections">保存选择规则</button></section>`;
     const form = $('#agentForm');
+    const syncModelSource = () => {
+      if (form.elements.constraintMode.value === 'strict') form.elements.modelSource.value = 'pipeline';
+      const follows = form.elements.modelSource.value === 'cli';
+      for (const key of ['provider', 'model', 'credentialRef', 'effort']) form.elements[key].disabled = follows;
+    };
+    form.elements.modelSource.onchange = syncModelSource;
+    form.elements.constraintMode.onchange = syncModelSource;
+    form.addEventListener('reset', () => setTimeout(syncModelSource, 0));
+    syncModelSource();
     form.onsubmit = async e => {
       e.preventDefault();
       const values = Object.fromEntries(new FormData(form));
       const profile = { id: values.id.trim(), name: values.name.trim(), cli: values.cli, constraintMode: values.constraintMode, state: 'draft', parameters: {} };
+      if (values.modelSource === 'cli') profile.modelSource = 'cli';
       for (const key of ['provider', 'model', 'credentialRef']) if (values[key]?.trim()) profile[key] = values[key].trim();
       for (const key of ['maxTurns', 'budgetUsd']) if (values[key]) profile.parameters[key] = Number(values[key]);
       if (values.timeoutSeconds) profile.parameters.timeoutMs = Number(values.timeoutSeconds) * 1000;
@@ -538,9 +549,11 @@
       form.reset();
       for (const key of ['id', 'name', 'cli', 'provider', 'model', 'credentialRef']) form.elements[key].value = p[key] || '';
       form.elements.constraintMode.value = p.constraintMode || 'native';
+      form.elements.modelSource.value = p.modelSource === 'cli' ? 'cli' : 'pipeline';
       if (p.state === 'legacy') { form.elements.id.value = `${p.cli}-custom`; form.elements.name.value = `${p.cli} 自定义`; }
       for (const key of ['maxTurns', 'budgetUsd', 'effort', 'windowsSandbox']) form.elements[key].value = p.parameters[key] || '';
       form.elements.timeoutSeconds.value = p.parameters.timeoutMs ? p.parameters.timeoutMs / 1000 : '';
+      syncModelSource();
       form.scrollIntoView({ behavior: 'smooth' });
     });
     main.querySelectorAll('[data-delete]').forEach(button => button.onclick = async () => {
@@ -554,7 +567,7 @@
       if (!entries.length) { toast('请先选择验证用途', true); return; }
       let plan;
       try { plan = await post('/api/agents/' + encodeURIComponent(button.dataset.probe) + '/validation-plan', { revision: c.revision, entries, browser }); } catch (err) { toast(err.message, true); return; }
-      if (!confirm('本次计划：' + plan.calls + ' 次模型调用。' + plan.budgetSemantics + '\n' + plan.contexts.map(g => g.entry + ' / ' + g.model + ': ' + g.calls + ' 次，' + (g.budgetPerCallUsd === null ? '无金额上限' : '原生预算参数 $' + g.budgetPerCallUsd)).join('\n') + '\n' + plan.errors.join('\n') + '\n现在开始？')) return;
+      if (!confirm('本次计划：' + plan.calls + ' 次模型调用。' + plan.budgetSemantics + '\n' + plan.contexts.map(g => g.entry + ' / ' + (g.model === '@cli-default' ? 'CLI 原生选择' : g.model) + ': ' + g.calls + ' 次，' + (g.budgetPerCallUsd === null ? '无金额上限' : '原生预算参数 $' + g.budgetPerCallUsd)).join('\n') + '\n' + plan.errors.join('\n') + '\n现在开始？')) return;
       button.disabled = true;
       const report = $('#probeReport'); report.hidden = false; report.textContent = '正在验证，请保持页面打开…';
       try { const result = await post(`/api/agents/${encodeURIComponent(button.dataset.probe)}/validate`, { revision: c.revision, entries, browser, confirmCost: true, planToken: plan.token }); report.textContent = [...result.checks, ...result.errors, result.costStatus === 'unknown' ? '美元费用未知；没有原生金额上限。' : `已报告费用：$${result.costUsd.toFixed(4)}${result.costStatus === 'partial' ? '（另有未报告费用，总额未知）' : ''}`, result.ok ? '验证通过，请刷新后设置选择规则。' : '未启用：请处理上述问题。'].join('\n'); }
