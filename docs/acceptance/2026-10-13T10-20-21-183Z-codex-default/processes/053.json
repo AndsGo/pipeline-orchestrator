@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a134d6-be89-7be2-88d6-0fd963fff8ab\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"f6bd2803-05e2-423e-bb53-9fcd7d239f5d\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":31088,\"cached_input_tokens\":15360,\"cache_write_input_tokens\":0,\"output_tokens\":80,\"reasoning_output_tokens\":20}}\n",
-  "stderr": "",
-  "code": 0
-}

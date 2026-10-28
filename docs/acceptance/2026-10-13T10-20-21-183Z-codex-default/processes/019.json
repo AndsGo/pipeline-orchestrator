@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-PmhJsd",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a134ce-60ee-70e1-831d-9f0b6fbca0de\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"nonce\\\":\\\"5e0ff362-fe72-4909-9f8d-62287c995918\\\"}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15767,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":35,\"reasoning_output_tokens\":0}}\n",
-  "stderr": "2026-10-13T10:28:27.895530Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out\n",
-  "code": 0
-}

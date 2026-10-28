@@ -1,7 +1,0 @@
-{
-  "command": "opencode",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-dAhQqZ",
-  "stdout": "{\"type\":\"step_start\",\"timestamp\":1791874568657,\"sessionID\":\"ses_ecbf3f835ffezGEgHBtI04w9iF\",\"part\":{\"id\":\"prt_1340c11d1001epK5UuJUuiEgmC\",\"sessionID\":\"ses_ecbf3f835ffezGEgHBtI04w9iF\",\"messageID\":\"msg_1340c0d61001aFX3NRtwIIkjs4\",\"type\":\"step-start\",\"snapshot\":\"01d4561887a4aba62846e6cf4be788374c07406b\"}}\n{\"type\":\"text\",\"timestamp\":1791874569343,\"sessionID\":\"ses_ecbf3f835ffezGEgHBtI04w9iF\",\"part\":{\"id\":\"prt_1340c12c4001nVfd8r6DK9KYHa\",\"sessionID\":\"ses_ecbf3f835ffezGEgHBtI04w9iF\",\"messageID\":\"msg_1340c0d61001aFX3NRtwIIkjs4\",\"type\":\"text\",\"text\":\"{\\\"nonce\\\":\\\"86feffe4-49c2-41eb-a66b-0aa1a85ff0ab\\\"}\",\"time\":{\"start\":1791874568900,\"end\":1791874569343}}}\n",
-  "stderr": "",
-  "code": 0
-}

@@ -5,7 +5,7 @@ import { runClaudeText, claudeTrace } from '../src/runner.js';
 if (!process.argv.includes('--allow-model-calls')) throw new Error('需要 --allow-model-calls');
 const short = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-claude-write-'));
 const canonical = fs.realpathSync.native(short);
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-write`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-write`);
 fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), probes: {} };
 for (const [kind, cwd] of [['short', short], ['canonical', canonical]]) {

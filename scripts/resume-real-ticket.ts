@@ -28,7 +28,7 @@ for (const key of Object.keys(process.env)) if (/^(FEISHU_|BITABLE_|JENKINS_|GIT
 const state = readSnapshot('REAL-001');
 if (!state || fs.realpathSync.native(state.repo) !== repo) throw new Error('没有对应真实工单快照');
 if (state.executionPlan?.plan.profile.cli === 'opencode') await localAcceptanceProvider(Number(process.env.PIPELINE_ACCEPTANCE_OUTPUT_TOKENS || 8192));
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-real-ticket-resume`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-real-ticket-resume`); fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), isolatedDirectory: root, resumedFrom: state.cursor, scope: 'Actual frozen ticket continuation; no model/CLI/constraint changes', messages: [] };
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 const port: InteractionPort = {

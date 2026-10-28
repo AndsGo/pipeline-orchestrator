@@ -11,5 +11,5 @@ const tokens = result.usage?.completion_tokens;
 const report = { scope: 'Paid local-provider generation-cap diagnostic, independent of profile or pipeline acceptance', model: provider.models.loaded.modelID,
   requestMaxTokens: 16, httpStatus: response.status, completionTokens: tokens, finishReason: result.choices?.[0]?.finish_reason, textLength: result.choices?.[0]?.message?.content?.length,
   capObserved: response.ok && typeof tokens === 'number' && tokens <= 16 && result.choices?.[0]?.finish_reason === 'length', costStatus: 'unknown' };
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-provider-cap`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-provider-cap`); fs.mkdirSync(output, { recursive: true });
 fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report)); console.log(`Evidence: ${output}`);

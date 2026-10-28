@@ -21,7 +21,7 @@ const state = JSON.parse(fs.readFileSync(path.join(root, 'data/REAL-001.json'), 
 if (state.haltedReason || !state.runs.some((r: { stage: string; status: string }) => r.stage === 'compound' && r.status === 'DONE')) throw new Error('Close the actual ticket before auditing roles');
 await localAcceptanceProvider(32768);
 const model = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT!).providers['acceptance-local'].models.loaded.modelID;
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-roles`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-roles`); fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), fixture: root, source, sourceDigest: createHash('sha256').update(fs.readFileSync(source)).digest('hex'), scope: 'Native role dispatch/completion and persisted child exports from the retained real implementation; current feature code unchanged; no model requests or stage result rewriting', actualConfiguredModel: model, roles: [] };
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 const trace = acceptanceTrace(output, save); report.processEvidence = { calls: trace.calls, errors: trace.errors };

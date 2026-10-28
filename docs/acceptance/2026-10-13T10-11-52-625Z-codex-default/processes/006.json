@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-wf3EDj",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a134c0-bb48-7f10-a9a5-f6a78f1861be\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"nonce\\\":\\\"9a99b7da-2eef-4432-842a-559aecef33aa\\\"}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15776,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":35,\"reasoning_output_tokens\":0}}\n",
-  "stderr": "2026-10-13T10:13:33.519447Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out\n2026-10-13T10:13:44.223269Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest(\"http/request failed: error sending request for url (https://chatgpt.com/backend-api/ps/mcp)\")))\n",
-  "code": 0
-}

@@ -8,9 +8,9 @@
 
 Codex 与 OpenCode 的 run 用途已真实通过并在隔离配置中启用；OpenCode implement 独立子代理通过，主会话不得读取隐藏标记。OpenCode 六阶段及原型的无浏览器预检全部通过。生产配置未改。
 
-[OpenCode 完整工单](2026-10-12T07-05-53-187Z-real-ticket/results.json)已实际完成 clarify 和 prototype；plan 产物已生成，但第一次最终回复不满足 JSON 契约。[同工单恢复](2026-10-12T07-21-13-951Z-real-ticket-resume/results.json)在 plan 达到 300 秒超时，尚未进入 implement。已定位反复原生压缩与重复读取，正在隔离环境重新验证压缩配置；不能以预检或文档生成代替功能完成。
+[OpenCode 完整工单](evidence-index.md#2026-10-12t07-05-53-187z-real-ticket)已实际完成 clarify 和 prototype；plan 产物已生成，但第一次最终回复不满足 JSON 契约。[同工单恢复](evidence-index.md#2026-10-12t07-21-13-951z-real-ticket-resume)在 plan 达到 300 秒超时，尚未进入 implement。已定位反复原生压缩与重复读取，正在隔离环境重新验证压缩配置；不能以预检或文档生成代替功能完成。
 
-16:00（UTC+8）：[重新验证与边界切换](2026-10-12T07-53-51-420Z-real-ticket-resume/results.json)全部能力预检通过，包含真实独立子代理。正式切换后 plan 仍达到 300 秒超时；实际四场景功能断言失败（padded 名字仍保留空格），`ticketFlowStatus: NOT_PASS`。没有进入 implement，不能宣称完整工单通过。当时“未再压缩”的判断仅来自运行中观察；2026-10-13 检查完整原生会话后确认后续存在 compaction，此处已纠正。
+16:00（UTC+8）：[重新验证与边界切换](evidence-index.md#2026-10-12t07-53-51-420z-real-ticket-resume)全部能力预检通过，包含真实独立子代理。正式切换后 plan 仍达到 300 秒超时；实际四场景功能断言失败（padded 名字仍保留空格），`ticketFlowStatus: NOT_PASS`。没有进入 implement，不能宣称完整工单通过。当时“未再压缩”的判断仅来自运行中观察；2026-10-13 检查完整原生会话后确认后续存在 compaction，此处已纠正。
 
 自动检查：42 个文件、550 项测试通过，TypeScript、真实验收脚本类型检查及前端语法检查通过，包含本次压缩与结构契约修复。Astra 仍受工作区额度耗尽阻塞；全任务和最终审计尚未通过。
 
@@ -24,11 +24,11 @@ Codex 与 OpenCode 的 run 用途已真实通过并在隔离配置中启用；Op
 
 用户确认 Claude 已可验证后重新运行：JSON、共用规则、原会话续聊、只读边界、轮数/预算停机、原生子代理和 Playwright 实际导航全部通过。修复了探测误判：num_turns 包含终止循环，应依据实际工具回合及 result subtype；只读验证依据工具清单、实际调用与写入 canary，不能依赖模型说出 DENIED。完整六阶段工单和角色模型分层仍待验证。
 
-[Claude 真实能力通过证据](2026-10-12T02-57-00-906Z/results.json)、[限制诊断证据](2026-10-12T02-55-00-770Z-claude-limits/results.json)。能力探测报告的 CLI 费用为 $1.636625，该值不包括本轮其他诊断调用，也不代表本地服务实际美元账单。
+[Claude 真实能力通过证据](evidence-index.md#2026-10-12t02-57-00-906z)、[限制诊断证据](evidence-index.md#2026-10-12t02-55-00-770z-claude-limits)。能力探测报告的 CLI 费用为 $1.636625，该值不包括本轮其他诊断调用，也不代表本地服务实际美元账单。
 
 按 v2 文档更新 OpenCode 接入后，使用私有提供商配置连接现有网关，文本、同 session 续聊、共用规则读取及严格 JSON 对象均通过。修复了 v2.0.6 缺失 step_finish 时的完成核验和输出纪律。其必需金额约束与完整工单仍未验收，整体状态仍未通过。
 
-[OpenCode 新通过证据](2026-10-12T03-15-30-784Z-opencode-local/results.json)、[v2 接入分析](../opencode-v2-analysis.md)。下文保留早先配置尚未可用时的历史结果。
+[OpenCode 新通过证据](evidence-index.md#2026-10-12t03-15-30-784z-opencode-local)、[v2 接入分析](../opencode-v2-analysis.md)。下文保留早先配置尚未可用时的历史结果。
 
 时间：2026-10-12 09:46–10:00（UTC+8）。全部调用使用本机真实 CLI、原生会话及隔离目录。没有启动生产工单、启用执行配置、修改原生登录或本地推理服务设置。
 
@@ -68,12 +68,12 @@ Codex 的真实基础调用成功，但工具白名单、原生模型轮数上�
 
 ## 证据
 
-- [三 CLI 首轮真实调用](2026-10-12T01-46-08-591Z/results.json)：该轮脚本的约束状态曾因临时修改 legacy profile 被错误标记；该字段不作为最终约束判定。原生 CLI 错误及 JSON 输出仍是实际结果。
-- [Codex 修复后的真实通过结果](2026-10-12T01-48-12-595Z/results.json)
-- [Claude 隔离原生认证诊断](2026-10-12T01-51-05-804Z/results.json)
-- [Claude 当前已加载模型的工具拒绝](2026-10-12T01-54-15-341Z/results.json)
-- [Claude 当前已加载模型的纯文本超时](2026-10-12T01-55-27-289Z/results.json)
-- [OpenCode 临时本地提供商纯文本诊断](2026-10-12T01-58-00-860Z-opencode-local/results.json)
+- [三 CLI 首轮真实调用](evidence-index.md#2026-10-12t01-46-08-591z)：该轮脚本的约束状态曾因临时修改 legacy profile 被错误标记；该字段不作为最终约束判定。原生 CLI 错误及 JSON 输出仍是实际结果。
+- [Codex 修复后的真实通过结果](evidence-index.md#2026-10-12t01-48-12-595z)
+- [Claude 隔离原生认证诊断](evidence-index.md#2026-10-12t01-51-05-804z)
+- [Claude 当前已加载模型的工具拒绝](evidence-index.md#2026-10-12t01-54-15-341z)
+- [Claude 当前已加载模型的纯文本超时](evidence-index.md#2026-10-12t01-55-27-289z)
+- [OpenCode 临时本地提供商纯文本诊断](evidence-index.md#2026-10-12t01-58-00-860z-opencode-local)
 
 Codex 不报告美元金额，未配置价格表，因此证据中的美元费用为 `null`，未将其当作免费调用。Claude 已返回用量的失败调用报告费用为 0；超时调用的最终费用未知。
 

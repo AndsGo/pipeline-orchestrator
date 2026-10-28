@@ -31,7 +31,7 @@ if (!picked.length) {
 }
 
 const schema = JSON.parse(wireSchema()) as object; // 线上版：API 不吃顶层 allOf，条件校验由回程补足
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-skill-eval`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-skill-eval`);
 fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), cli: 'claude', model: 'sonnet', cases: [], scope: 'Real existing plugin skill regressions; native stage budgets, original fixtures and assertions; no production data changes' };
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));

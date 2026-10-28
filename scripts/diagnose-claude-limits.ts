@@ -8,7 +8,7 @@ if (!process.argv.includes('--allow-model-calls')) throw new Error('需要 --all
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-claude-limits-'));
 fs.writeFileSync(path.join(root, 'step-one.txt'), 'Read step-two.txt next.');
 fs.writeFileSync(path.join(root, 'step-two.txt'), randomUUID());
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-limits`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-limits`);
 fs.mkdirSync(output, { recursive: true });
 const result: Record<string, unknown> = { startedAt: new Date().toISOString(), isolatedDirectory: root, probes: {} };
 const definitions = [

@@ -36,7 +36,7 @@ const mode = process.env.PIPELINE_ACCEPTANCE_WINDOWS_SANDBOX || 'mxc';
 if (!['mxc', 'elevated', 'unelevated'].includes(mode)) throw new Error('Unknown native sandbox mode');
 const headlessRuntime = process.argv.includes('--headless-runtime');
 const overrides = headlessRuntime ? ['-c', 'notify=[]', '-c', 'mcp_servers.node_repl.enabled=false'] : [];
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-codex-sandbox`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-codex-sandbox`); fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), scope: 'Actual native Codex sandbox commands in an isolated diagnostic repository; native refresh can update sandbox ACLs; original SDD helpers/test files, canary-only commit range; no model requests, ticket writes or saved native configuration changes; not functional ticket acceptance', mode, headlessRuntime, overrides, fixture: root, diagnosticRepository: diagnostic, reviewRange: { base, head }, inputDigests, checks: [] };
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
 const trace = acceptanceTrace(output, save); report.processEvidence = { calls: trace.calls, errors: trace.errors };

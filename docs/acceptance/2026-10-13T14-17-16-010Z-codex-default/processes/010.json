@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-3if9CA",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a135a1-5e55-7cc0-a968-3aa752ad7129\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"denied\\\":true}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15530,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":76,\"reasoning_output_tokens\":58}}\n",
-  "stderr": "",
-  "code": 0
-}

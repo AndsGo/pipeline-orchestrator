@@ -54,14 +54,14 @@ OpenCode 保留 OPENCODE_CONFIG_CONTENT 中的原生提供商定义，合并编�
 
 ## 已有真实证据
 
-[Codex/OpenCode run 用途](acceptance/2026-10-12T06-01-23-582Z-native-engines/results.json)完成 JSON、文本、原生续聊和只读验证，并实际在独立配置文件里启用为 active；生产配置未改。该结果不代表 implement 或完整工单通过。
+[Codex/OpenCode run 用途](acceptance/evidence-index.md#2026-10-12t06-01-23-582z-native-engines)完成 JSON、文本、原生续聊和只读验证，并实际在独立配置文件里启用为 active；生产配置未改。该结果不代表 implement 或完整工单通过。
 
-[原生 Codex 完整工单尝试](acceptance/2026-10-12T06-06-30-810Z-real-ticket/results.json)实际进入 clarify，Windows 执行辅助程序失败后返回 BLOCKED，功能样例失败；没有以差异许可绕过真实执行失败。其余证据见 [真实验收](acceptance/2026-10-12-real-engines.md)。Astra 尚未最终验收。
+[原生 Codex 完整工单尝试](acceptance/evidence-index.md#2026-10-12t06-06-30-810z-real-ticket)实际进入 clarify，Windows 执行辅助程序失败后返回 BLOCKED，功能样例失败；没有以差异许可绕过真实执行失败。其余证据见 [真实验收](acceptance/2026-10-12-real-engines.md)。Astra 尚未最终验收。
 
-[OpenCode implement 用途](acceptance/2026-10-12T06-32-06-702Z-native-engines/results.json)真实验证并隔离启用通过，包含独立子代理读取和禁止主会话读取隐藏标记的证据。其后六阶段及原型的无浏览器预检也通过，完整工单已实际发起：[完整工单当前证据](acceptance/2026-10-12T07-05-53-187Z-real-ticket/results.json)。不能以预检通过代替工单最终验收。
+[OpenCode implement 用途](acceptance/evidence-index.md#2026-10-12t06-32-06-702z-native-engines)真实验证并隔离启用通过，包含独立子代理读取和禁止主会话读取隐藏标记的证据。其后六阶段及原型的无浏览器预检也通过，完整工单已实际发起：[完整工单当前证据](acceptance/evidence-index.md#2026-10-12t07-05-53-187z-real-ticket)。不能以预检通过代替工单最终验收。
 
-同一工单真实完成 clarify、prototype，plan 生成工件后因最终非 JSON 回复停止；[首次恢复](acceptance/2026-10-12T07-21-13-951Z-real-ticket-resume/results.json)在 plan 达到 300 秒超时。记录显示多次原生压缩后重复读文件，隔离验收显式调整压缩参数，保留原生自动压缩和 32k 模型声明。身份核验拦截上下文变化，没有修改旧快照绕过核验。
+同一工单真实完成 clarify、prototype，plan 生成工件后因最终非 JSON 回复停止；[首次恢复](acceptance/evidence-index.md#2026-10-12t07-21-13-951z-real-ticket-resume)在 plan 达到 300 秒超时。记录显示多次原生压缩后重复读文件，隔离验收显式调整压缩参数，保留原生自动压缩和 32k 模型声明。身份核验拦截上下文变化，没有修改旧快照绕过核验。
 
-[重新验证及显式边界切换](acceptance/2026-10-12T07-53-51-420Z-real-ticket-resume/results.json)预检通过后，以正式切换事件保留新旧快照，继续 plan；CLI、模型、权限、回合和超时未改。代理 system 固定实际 JSON Schema，防止原始消息在压缩后失去输出约束，且明确 schema 不是应返回的任务结果。失败的早期重验证证据保留，未启用失败配置。开发自检最新 550 项测试、类型与脚本类型检查通过。
+[重新验证及显式边界切换](acceptance/evidence-index.md#2026-10-12t07-53-51-420z-real-ticket-resume)预检通过后，以正式切换事件保留新旧快照，继续 plan；CLI、模型、权限、回合和超时未改。代理 system 固定实际 JSON Schema，防止原始消息在压缩后失去输出约束，且明确 schema 不是应返回的任务结果。失败的早期重验证证据保留，未启用失败配置。开发自检最新 550 项测试、类型与脚本类型检查通过。
 
 2026-10-12 16:00（UTC+8）的阶段观察：当时看到 11 条完成的 assistant 工具消息，尚未再次压缩；后续确认存在原生 compaction，不能将这段观察扩展为整个会话“没有压缩”。该次 plan 在 300 秒超时，四场景功能断言失败，`ticketFlowStatus: NOT_PASS`。后续 OpenCode 完整工单与原生角色证据已通过；Codex 环境和 Astra 最终验收仍待完成，见 [闭环记录](acceptance/2026-10-13-release-closure.md)。

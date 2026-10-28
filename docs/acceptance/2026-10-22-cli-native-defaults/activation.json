@@ -1,8 +1,0 @@
-{
-  "at": "2026-10-22T07:19:55.306Z",
-  "status": "PASS",
-  "revision": 7,
-  "default": "codex-native",
-  "modelSource": "cli",
-  "identityPolicy": "cli-defaults-v1"
-}

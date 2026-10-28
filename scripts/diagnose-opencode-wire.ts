@@ -26,7 +26,7 @@ await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 const port = (server.address() as { port: number }).port;
 process.env.PIPELINE_WIRE_TEST_KEY = 'synthetic-wire-test';
 process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ providers: { recording: { env: ['PIPELINE_WIRE_TEST_KEY'], package: '@opencode/ai/providers/openai-compatible', settings: { baseURL: `http://127.0.0.1:${port}/v1` }, models: { mock: { modelID: 'wire-only', body: { max_tokens: 8192 }, limit: { context: 32768, output: 8192 } } } } } });
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-wire`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-wire`); fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { cli, scope: 'Synthetic loopback request-body diagnostic only; no model call, no profile activation or pipeline acceptance', requests };
 try {
   if (cli === 'claude') {

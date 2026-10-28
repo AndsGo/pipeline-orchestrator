@@ -7,7 +7,7 @@ import { validateProfile } from '../src/engine/validation.js';
 
 if (!process.argv.includes('--allow-model-calls')) throw new Error('需要 --allow-model-calls');
 const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-claude-roles-')));
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-roles`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-claude-roles`);
 fs.mkdirSync(output, { recursive: true });
 const secret = randomUUID();
 fs.writeFileSync(path.join(root, 'secret.txt'), secret);

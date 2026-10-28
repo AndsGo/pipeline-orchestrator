@@ -64,7 +64,7 @@ MCP 放在 `mcp.servers`，禁用字段为 `disabled`。空 servers 不会抹去
 
 ## 实测状态
 
-- [纯文本与原会话续聊通过](acceptance/2026-10-12T03-08-13-091Z-opencode-local/results.json)
-- [共用规则、项目常识、JSON 与续聊通过](acceptance/2026-10-12T03-15-30-784Z-opencode-local/results.json)
+- [纯文本与原会话续聊通过](acceptance/evidence-index.md#2026-10-12t03-08-13-091z-opencode-local)
+- [共用规则、项目常识、JSON 与续聊通过](acceptance/evidence-index.md#2026-10-12t03-15-30-784z-opencode-local)
 - 本次使用现有本地网关凭据的环境变量引用和已加载模型；提供商配置只注入私有诊断进程，未写入生产配置或登录文件。
 - 尚未完成金额约束、角色子代理、浏览器及完整 OpenCode 工单验收。生产 wrapper 继续拒绝不满足必需能力的配置。

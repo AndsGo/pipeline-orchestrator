@@ -10,7 +10,7 @@ if (!process.argv.includes('--allow-model-calls')) throw new Error('需要 --all
 const production = configurationFile();
 const fingerprint = () => fs.existsSync(production) ? createHash('sha256').update(fs.readFileSync(production)).digest('hex') : 'absent';
 const before = fingerprint();
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-native-engines`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-native-engines`);
 fs.mkdirSync(output, { recursive: true });
 const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-native-engines-')));
 process.env.PIPELINE_AGENT_CONFIG_FILE = path.join(root, 'agent-config.json');

@@ -17,7 +17,7 @@ const models = await response.json() as { data: { id: string; loaded: boolean }[
 const loaded = models.data.find(m => m.loaded);
 if (!loaded) throw new Error('没有已加载的本地模型');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-opencode-constraints-'));
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-constraints`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-constraints`);
 fs.mkdirSync(output, { recursive: true });
 const secret = randomUUID();
 fs.writeFileSync(path.join(root, 'step-one.txt'), 'Read step-two.txt next.');

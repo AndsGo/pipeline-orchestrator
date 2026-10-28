@@ -14,7 +14,7 @@ for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
 const { ENTRIES, freezeExecution, readConfiguration, assertExecutable } = await import('../src/engine/configuration.js');
 const { assertRuntimeIdentity } = await import('../src/engine/identity.js');
 const { codexEnvironment } = await import('../src/engine/codex.js');
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-default-readback`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-default-readback`);
 fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = {
   startedAt: new Date().toISOString(),

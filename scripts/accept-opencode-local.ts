@@ -19,7 +19,7 @@ const models = await response.json() as { data: { id: string; loaded: boolean }[
 const loaded = models.data.find(m => m.loaded);
 if (!loaded) throw new Error('没有已加载的本地模型');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-opencode-local-'));
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-local`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-opencode-local`);
 fs.mkdirSync(output, { recursive: true });
 const nonce = randomUUID();
 const withTools = process.argv.includes('--with-tools');

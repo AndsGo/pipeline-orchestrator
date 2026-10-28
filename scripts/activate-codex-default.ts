@@ -18,7 +18,7 @@ const nativeHome = nativeHomeArg >= 0 ? fs.realpathSync.native(process.argv[nati
 const envFile = path.resolve('.env'), envMtime = nativeHome ? fs.statSync(envFile).mtimeMs : undefined;
 if (nativeHome) process.env.PIPELINE_CODEX_HOME = nativeHome;
 const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-codex-default-')));
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-codex-default`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-codex-default`); fs.mkdirSync(output, { recursive: true });
 // A different mode gets a new named profile; preserve the old profile and tickets.
 const profile: AgentProfile = { id: windowsSandbox === 'unelevated' ? 'codex-default' : `codex-default-${windowsSandbox}`, name: windowsSandbox === 'unelevated' ? 'Codex default' : `Codex default (${windowsSandbox})`, cli: 'codex', model: 'gpt-6.1-sol', constraintMode: 'native', parameters: { windowsSandbox }, state: 'draft' };
 const report: Record<string, unknown> = { startedAt: new Date().toISOString(), scope: 'User-requested global Codex default; real all-entry validation before active profile selection; no daemon restart or native authentication change', configuration: production, priorRevision: original.revision, isolatedDirectory: root, browserScope: 'No browser proof: Playwright projects remain blocked until separate successful native MCP validation', plan: validationPlan(profile, [...ENTRIES], { browser: false }) };

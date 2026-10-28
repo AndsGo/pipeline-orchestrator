@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-0Zh0CZ",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a134dd-24f9-7630-a282-a4b67019c586\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"I’ll create one child to read the public test marker, wait for it to finish, and return the content it reports.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"collab_tool_call\",\"tool\":\"wait\",\"sender_thread_id\":\"01a134dd-24f9-7630-a282-a4b67019c586\",\"receiver_thread_ids\":[],\"prompt\":null,\"agents_states\":{},\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"collab_tool_call\",\"tool\":\"wait\",\"sender_thread_id\":\"01a134dd-24f9-7630-a282-a4b67019c586\",\"receiver_thread_ids\":[],\"prompt\":null,\"agents_states\":{},\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"983b46e2-4131-4aab-a466-01642f4faf95\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":49385,\"cached_input_tokens\":32384,\"cache_write_input_tokens\":0,\"output_tokens\":194,\"reasoning_output_tokens\":0}}\n",
-  "stderr": "",
-  "code": 0
-}

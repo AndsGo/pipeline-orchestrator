@@ -1,7 +1,0 @@
-{
-  "command": "opencode",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-dAhQqZ",
-  "stdout": "{\"type\":\"step_start\",\"timestamp\":1791874631846,\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"part\":{\"id\":\"prt_1340d08a6001y2QazW0sjY74iZ\",\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"messageID\":\"msg_1340d07d4001mMTnmt76BTaBab\",\"type\":\"step-start\",\"snapshot\":\"14a0636057a624457a9af8a62211e9a7b84851eb\"}}\n{\"type\":\"text\",\"timestamp\":1791874633050,\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"part\":{\"id\":\"prt_1340d0bec001qagD1t9wsMyq3P\",\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"messageID\":\"msg_1340d07d4001mMTnmt76BTaBab\",\"type\":\"text\",\"text\":\"acbcacff-c2ce-4560-b216-04abf5090713\",\"time\":{\"start\":1791874632684,\"end\":1791874633050}}}\n{\"type\":\"step_finish\",\"timestamp\":1791874633104,\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"part\":{\"id\":\"prt_1340d0d90001HTi54TkILLdCm5\",\"sessionID\":\"ses_ecbf31641ffefqcap9Gy2LOgt7\",\"messageID\":\"msg_1340d07d4001mMTnmt76BTaBab\",\"type\":\"step-finish\",\"reason\":\"stop\",\"snapshot\":\"14a0636057a624457a9af8a62211e9a7b84851eb\",\"cost\":0,\"tokens\":{\"input\":27,\"output\":87,\"reasoning\":0,\"cache\":{\"read\":2163,\"write\":0}}}}\n",
-  "stderr": "",
-  "code": 0
-}

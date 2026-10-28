@@ -24,7 +24,7 @@ const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'pipel
 const cli = currentDefault ? selectProfile(undefined, 'implement', currentDefault).cli : knownCli(process.env.PIPELINE_ACCEPTANCE_ENGINE || 'claude');
 const profileId = `acceptance-${cli}`;
 const repo = path.join(root, 'repo');
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-real-ticket`);
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-real-ticket`);
 fs.mkdirSync(repo); fs.mkdirSync(output, { recursive: true });
 process.env.PIPELINE_DATA_DIR = path.join(root, 'data');
 process.env.PIPELINE_AGENT_CONFIG_FILE = path.join(root, 'agent-config.json');

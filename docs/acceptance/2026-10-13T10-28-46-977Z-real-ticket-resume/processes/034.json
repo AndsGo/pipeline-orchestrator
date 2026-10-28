@@ -1,7 +1,0 @@
-{
-  "command": "opencode",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-GazqSr",
-  "stdout": "{\"type\":\"step_start\",\"timestamp\":1791887406331,\"sessionID\":\"ses_ecb301467ffeK0flwJmNGgMA6i\",\"part\":{\"id\":\"prt_134cff4fb001ZVXxVelfiPYQO7\",\"sessionID\":\"ses_ecb301467ffeK0flwJmNGgMA6i\",\"messageID\":\"msg_134cff25a001VLFnrt4fF2rM6s\",\"type\":\"step-start\",\"snapshot\":\"92a84c18557e2d4a2ddfce1d79ebf7205f9e78f6\"}}\n{\"type\":\"text\",\"timestamp\":1791887406708,\"sessionID\":\"ses_ecb301467ffeK0flwJmNGgMA6i\",\"part\":{\"id\":\"prt_134cff62d0017zSuaweYsFl5us\",\"sessionID\":\"ses_ecb301467ffeK0flwJmNGgMA6i\",\"messageID\":\"msg_134cff25a001VLFnrt4fF2rM6s\",\"type\":\"text\",\"text\":\"{\\\"denied\\\":true}\",\"time\":{\"start\":1791887406637,\"end\":1791887406708}}}\n",
-  "stderr": "",
-  "code": 0
-}

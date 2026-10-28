@@ -9,7 +9,7 @@ import { sharedPrompt } from '../src/engine/prompt.js';
 import { validateProfile } from '../src/engine/validation.js';
 
 if (!process.argv.includes('--allow-model-calls')) throw new Error('真实验收会调用模型；请显式指定 --allow-model-calls');
-const output = path.resolve(process.env.PIPELINE_ACCEPTANCE_DIR || `docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}`);
+const output = path.resolve(process.env.PIPELINE_ACCEPTANCE_DIR || `data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}`);
 fs.mkdirSync(output, { recursive: true });
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-real-acceptance-'));
 const nonce = randomUUID(), rule = randomUUID(), knowledge = randomUUID();

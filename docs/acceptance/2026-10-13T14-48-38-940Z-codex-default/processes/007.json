@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-agent-probe-zAMd4j",
-  "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a135be-056c-79c3-8d1e-09bb2c334338\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"error\",\"message\":\"Selected model is at capacity. Please try a different model.\"}\n{\"type\":\"turn.failed\",\"error\":{\"message\":\"Selected model is at capacity. Please try a different model.\"}}\n",
-  "stderr": "",
-  "code": 1
-}

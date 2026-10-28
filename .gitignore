@@ -6,3 +6,8 @@ backups/
 .eval-tmp/
 node_modules/
 *.log
+
+# Raw acceptance output belongs in local data/acceptance, not documentation.
+/docs/acceptance/*/
+/docs/acceptance/*.json*
+/docs/acceptance/*.log

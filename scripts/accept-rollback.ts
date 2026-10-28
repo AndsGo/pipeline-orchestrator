@@ -11,7 +11,7 @@ if (!/^pipeline-full-ticket-[^/\\]+$/.test(path.relative(fs.realpathSync.native(
 const file = path.join(root, 'data/REAL-001.json');
 const state = JSON.parse(fs.readFileSync(file, 'utf8'));
 const closed = !state.haltedReason && !state.pendingGate && !state.pendingRewind && state.runs.some((run: { stage: string; status: string }) => run.stage === 'compound' && run.status === 'DONE');
-const output = path.resolve(`docs/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-rollback`); fs.mkdirSync(output, { recursive: true });
+const output = path.resolve(`data/acceptance/${new Date().toISOString().replace(/[:.]/g, '-')}-rollback`); fs.mkdirSync(output, { recursive: true });
 const report: Record<string, unknown> = { scope: 'Isolated code-version switch and completed-ticket data preservation; no daemon restart, model calls, live ticket execution or credential changes', fixture: root, closed, safeDuringInflight: false };
 if (!closed) { report.status = 'BLOCKED'; report.reason = 'Drain and complete the real ticket before rolling back a version that lacks frozen execution plans.'; }
 else {

@@ -1,7 +1,0 @@
-{
-  "command": "D:\\Programs\\nodejs\\node.exe",
-  "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-020RUx\\sandbox-diagnostic-AA5pxK",
-  "stdout": "",
-  "stderr": "windows sandbox failed: helper_unknown_error: setup refresh had errors\n",
-  "code": 1
-}

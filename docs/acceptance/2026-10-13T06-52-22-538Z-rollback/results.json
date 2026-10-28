@@ -1,8 +1,0 @@
-{
-  "scope": "Isolated code-version switch and completed-ticket data preservation; no daemon restart, model calls, live ticket execution or credential changes",
-  "fixture": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pipeline-full-ticket-onWoCh",
-  "closed": false,
-  "safeDuringInflight": false,
-  "status": "BLOCKED",
-  "reason": "Drain and complete the real ticket before rolling back a version that lacks frozen execution plans."
-}
