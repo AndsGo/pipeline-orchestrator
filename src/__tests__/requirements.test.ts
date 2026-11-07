@@ -7,10 +7,14 @@ import type { ChatRef, GateDecision } from '../ports.js';
 import type { Project } from '../projects.js';
 import {
   createReq,
+  composeInterviewPrompt,
   intakeContextOf,
   MAX_INTERVIEW_ROUNDS,
   nextReqId,
   parseBrief,
+  parseRequirementCard,
+  renderRequirementCard,
+  type RequirementCard,
   readReq,
   remainingSplits,
   renderPool,
@@ -26,6 +30,8 @@ import type { DaemonContext, DaemonPort } from '../daemon/context.js';
 
 // 流程测试要隔离掉会读真实工单/多维表格的依赖
 vi.mock('../bitable/reqSync.js', () => ({ projectReq: vi.fn(async () => {}) }));
+const agent = vi.hoisted(() => ({ runText: vi.fn() }));
+vi.mock('../engine/index.js', () => ({ engineFor: vi.fn(() => agent) }));
 vi.mock('../bitable/sync.js', async (orig) => ({ ...(await orig<typeof import('../bitable/sync.js')>()), fetchGlossaryBrief: vi.fn(async () => '') }));
 const loads = vi.hoisted(() => ({ tickets: [] as string[], events: {} as Record<string, Array<{ ts: string; type: string; summary: string }>> }));
 vi.mock('../events.js', async (orig) => ({
@@ -35,8 +41,9 @@ vi.mock('../events.js', async (orig) => ({
 }));
 vi.mock('../ticket.js', async (orig) => ({ ...(await orig<typeof import('../ticket.js')>()), readSnapshot: vi.fn(() => null) }));
 
-const { afterReqTurn, confirmLoop, isClosure, onTicketClosed, pumpQueue, remindStale, scheduleLoop, startReq } = await import('../daemon/reqFlow.js');
+const { afterReqTurn, beginReqTurn, failReqTurn, recoverReqs, confirmLoop, isClosure, onTicketClosed, pumpQueue, remindStale, scheduleLoop, startReq } = await import('../daemon/reqFlow.js');
 const { DROPPED } = await import('../feishu/port.js');
+const { execAdhoc, runFollowup } = await import('../daemon/adhoc.js');
 
 const BRIEF = `好的，整理如下。
 
@@ -69,6 +76,11 @@ const BRIEF = `好的，整理如下。
 `;
 
 describe('parseBrief', () => {
+  it('兼容真实历史输出的编号标题与粗体标题', () => {
+    const p = parseBrief(BRIEF.replace('# 需求说明', '# 需求说明（REQ-001）').replace('标题：数据域快速查出未设权限的表', '**标题：数据域快速查出未设权限的表**'))!;
+    expect(p.title).toBe('数据域快速查出未设权限的表');
+    expect(p.splits).toHaveLength(2);
+  });
   it('没有《需求说明》标题 → null（这一轮还在问问题）', () => {
     expect(parseBrief('Q1 你们多久检查一次？\n1. 每周 2. 每月（推荐）')).toBeNull();
   });
@@ -85,6 +97,22 @@ describe('parseBrief', () => {
   it('「不拆」「无」不算拆分项；圆圈编号和短横线都认', () => {
     expect(parseBrief('# 需求说明\n标题：x\n## 建议拆分\n1. 不拆，一张单即可')!.splits).toEqual([]);
     expect(parseBrief('# 需求说明\n标题：x\n## 建议拆分\n① 甲\n- 乙')!.splits).toEqual(['甲', '乙']);
+  });
+});
+
+const CARD: RequirementCard = { title: '策略停用时清理历史任务', problem: '历史任务仍在队列', expected: '取消未下发任务，已下发任务继续跟踪', acceptance: '未下发任务不再执行', questions: ['是否包含旧版本？'], facts: ['用户要求清理历史队列'], assumptions: ['建议只取消未下发任务'], splits: [], ready: false };
+const cardOutput = (c: RequirementCard = CARD) => '```requirement-card\n' + JSON.stringify(c) + '\n```';
+
+describe('产品卡片协议', () => {
+  it('解析待补充卡片并渲染业务摘要，不泄漏协议 JSON', () => {
+    expect(parseRequirementCard(cardOutput())).toEqual(CARD);
+    expect(renderRequirementCard(CARD)).toContain('取消未下发任务');
+    expect(renderRequirementCard(CARD)).not.toContain('"ready"');
+  });
+  it('缺字段、原始标题和未解决问题不能作为可确认卡片', () => {
+    expect(parseRequirementCard(cardOutput({ ...CARD, ready: true }))).toBeNull();
+    expect(parseRequirementCard(cardOutput({ ...CARD, title: '将这个需求写入列表' }))).toBeNull();
+    expect(parseRequirementCard('```requirement-card\n{"ready":true}\n```')).toBeNull();
   });
 });
 
@@ -124,7 +152,7 @@ describe('纯函数', () => {
 
   it(`第 ${MAX_INTERVIEW_ROUNDS} 轮起追加「必须出说明」`, () => {
     expect(roundNudge({ id: 'REQ-1', rounds: MAX_INTERVIEW_ROUNDS - 2 } as Requirement)).toBe('');
-    expect(roundNudge({ id: 'REQ-1', rounds: MAX_INTERVIEW_ROUNDS - 1 } as Requirement)).toContain('必须输出完整的《需求说明》');
+    expect(roundNudge({ id: 'REQ-1', rounds: MAX_INTERVIEW_ROUNDS - 1 } as Requirement)).toContain('ready=false');
   });
 
   it('只有真正的闭环事件算闭环（compound 的「交付文档已生成」也是 type=done）', () => {
@@ -229,6 +257,7 @@ beforeEach(() => {
   process.env.PIPELINE_DATA_DIR = dir;
   loads.tickets = [];
   loads.events = {};
+  agent.runText.mockReset();
 });
 afterEach(() => {
   delete process.env.PIPELINE_DATA_DIR;
@@ -238,10 +267,132 @@ afterEach(() => {
 function seed(over: Partial<Requirement> = {}): Requirement {
   const r = createReq({ project: 'lake', requester: 'ou_req', chatId: 'oc_lake', rootId: 'om_root', raw: '想一眼看出哪些表没设权限' });
   bindReqThread('om_root', r.id, 'oc_lake', 'lake');
-  return saveReq({ ...r, ...over });
+  return saveReq({ ...r, title: '想一眼看出哪些表没设权限', ...over });
 }
 
 describe('需求流程', () => {
+  it('真实执行入口：首轮失败后仍可从原话题恢复，不回退到群会话', async () => {
+    const f = fakeCtx();
+    const r = seed();
+    const chat = { chatId: r.chatId, rootId: r.rootId };
+    agent.runText.mockRejectedValueOnce(new Error('CLI unavailable'));
+    await execAdhoc(f.ctx, PROJECTS[0], r.raw, r.raw, [], 0, { chat });
+    expect(readReq(r.id)?.processing).toBe('整理失败');
+    agent.runText.mockResolvedValueOnce({ text: cardOutput(), turns: 1, costUsd: 0, isError: false, sessionId: 'retry' });
+    await runFollowup(f.ctx, '重试整理，保留已经下发的任务', chat);
+    expect(readReq(r.id)).toMatchObject({ title: CARD.title, processing: '等待补充', revision: 1 });
+    expect(readReq(r.id)?.supplements?.at(-1)?.text).toContain('保留已经下发');
+    expect(agent.runText.mock.calls[1][0].prompt).toContain(r.raw);
+    expect(getThread(r.rootId)?.run?.sessionId).toBe('retry');
+  });
+  it('需求话题的斜杠输入不会被包装成不存在的 skill；发送失败不丢卡片', async () => {
+    const f = fakeCtx();
+    const r = seed();
+    agent.runText.mockResolvedValueOnce({ text: cardOutput(), turns: 1, costUsd: 0, isError: false, sessionId: 's' });
+    f.ctx.port.sendResult = async () => { throw new Error('network'); };
+    await execAdhoc(f.ctx, PROJECTS[0], '/dashborad', '/dashborad', [], 0, { chat: { chatId: r.chatId, rootId: r.rootId } });
+    expect(agent.runText.mock.calls[0][0].prompt.trim().startsWith('/')).toBe(false);
+    expect(readReq(r.id)).toMatchObject({ title: CARD.title, processing: '等待补充' });
+  });
+  it('消息发送尚未完成时不开放确认；开放后会话指针已落盘', async () => {
+    const f = fakeCtx({ gate: { approved: false, dropped: true } });
+    const r = seed();
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    f.ctx.port.sendResult = async () => { await pending; return undefined; };
+    agent.runText.mockResolvedValueOnce({ text: cardOutput({ ...CARD, questions: [], ready: true }), turns: 1, costUsd: 0, isError: false, sessionId: 'latest' });
+    const running = execAdhoc(f.ctx, PROJECTS[0], r.raw, r.raw, [], 0, { chat: { chatId: r.chatId, rootId: r.rootId } });
+    await settle();
+    expect(f.gates).toHaveLength(0);
+    expect(readReq(r.id)?.status).toBe('待确认');
+    finish();
+    await running;
+    await settle();
+    expect(f.gates).toHaveLength(1);
+    expect(getThread(r.rootId)?.run?.sessionId).toBe('latest');
+  });
+  it('备注保存后续聊中断，恢复提示仍包含备注且不会重复追加', async () => {
+    const f = fakeCtx({ gate: { approved: true, note: '执行中的任务不取消' } });
+    seed({ status: '待确认', brief: BRIEF, revision: 1 });
+    f.ctx.runFollowup = async () => { throw new Error('interrupted'); };
+    await expect(confirmLoop(f.ctx, 'REQ-001')).rejects.toThrow('interrupted');
+    const r = readReq('REQ-001')!;
+    expect(r.supplements).toHaveLength(1);
+    expect(composeInterviewPrompt(r, { openReqs: [] })).toContain('执行中的任务不取消');
+    beginReqTurn(f.ctx, 'om_root', r.supplements![0].text);
+    expect(readReq(r.id)?.supplements).toHaveLength(1);
+  });
+  it('同一需求的卡片续聊与文字续聊串行，后一轮读取最新会话', async () => {
+    const f = fakeCtx();
+    const r = seed();
+    const chat = { chatId: r.chatId, rootId: r.rootId };
+    let finish!: (value: unknown) => void;
+    agent.runText.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    agent.runText.mockResolvedValueOnce({ text: cardOutput(), turns: 1, costUsd: 0, isError: false, sessionId: 'new-session', execution: { entry: 'run', profile: { cli: 'codex' } } });
+    const first = runFollowup(f.ctx, '补充一', chat);
+    await settle();
+    const second = runFollowup(f.ctx, '补充二', chat);
+    await settle();
+    expect(agent.runText).toHaveBeenCalledTimes(1);
+    finish({ text: cardOutput(), turns: 1, costUsd: 0, isError: false, sessionId: 'new-session', execution: { entry: 'run', profile: { cli: 'codex' } } });
+    await Promise.all([first, second]);
+    expect(agent.runText.mock.calls[1][0].resumeSessionId).toBe('new-session');
+    expect(readReq(r.id)?.supplements?.map(s => s.text)).toEqual(['补充一', '补充二']);
+    expect(readReq(r.id)?.revision).toBe(2);
+  });
+  it('新轮次拒绝普通 Markdown 放行，旧说明保持可读', async () => {
+    const f = fakeCtx();
+    seed({ brief: BRIEF });
+    await afterReqTurn(f.ctx, 'om_root', BRIEF);
+    expect(readReq('REQ-001')).toMatchObject({ brief: BRIEF, processing: '整理失败', status: '梳理中' });
+    expect(f.gates).toHaveLength(0);
+  });
+  it('首次卡片即使未齐全也保存摘要，保留原话，不提前确认', async () => {
+    const f = fakeCtx();
+    const original = seed();
+    await afterReqTurn(f.ctx, 'om_root', cardOutput());
+    expect(readReq(original.id)).toMatchObject({ raw: original.raw, card: CARD, title: CARD.title, revision: 1, status: '梳理中', processing: '等待补充' });
+    expect(readReq(original.id)?.brief).toContain(CARD.expected);
+    expect(f.gates).toHaveLength(0);
+  });
+  it('补充时作废旧确认，失败保留卡片与新增原话，重试成功清除失败', async () => {
+    const f = fakeCtx({ gate: { approved: false, dropped: true } });
+    seed({ card: CARD, brief: renderRequirementCard(CARD), revision: 2, status: '待确认' });
+    beginReqTurn(f.ctx, 'om_root', '也包括旧版本');
+    failReqTurn(f.ctx, 'om_root');
+    expect(readReq('REQ-001')).toMatchObject({ processing: '整理失败', status: '梳理中', card: CARD, supplements: [{ text: '也包括旧版本' }] });
+    await afterReqTurn(f.ctx, 'om_root', cardOutput({ ...CARD, questions: [], ready: true }));
+    await settle();
+    expect(readReq('REQ-001')).toMatchObject({ revision: 3, status: '待确认', processing: '已整理' });
+    expect(readReq('REQ-001')?.processingError).toBeUndefined();
+  });
+  it('重启把中断整理标成失败，不自动重跑模型', () => {
+    const f = fakeCtx();
+    seed({ processing: '整理中' });
+    recoverReqs(f.ctx);
+    expect(readReq('REQ-001')?.processing).toBe('整理失败');
+    expect(f.adhoc).toHaveLength(0);
+  });
+  it('确认附备注先更新说明，不带着未整理的修改进入排期', async () => {
+    const f = fakeCtx({ gate: { approved: true, note: '只处理当前版本' } });
+    seed({ status: '待确认', brief: renderRequirementCard(CARD), revision: 1 });
+    await confirmLoop(f.ctx, 'REQ-001');
+    expect(readReq('REQ-001')?.status).toBe('梳理中');
+    expect(f.chooses).toHaveLength(0);
+    expect(f.followups[0]).toContain('只处理当前版本');
+    expect(intakeContextOf(readReq('REQ-001')!)).toContain('只处理当前版本');
+  });
+  it('等待确认期间版本变化，旧卡通过不得推进新稿', async () => {
+    const f = fakeCtx();
+    seed({ status: '待确认', brief: BRIEF, revision: 1 });
+    f.ctx.port.confirmGate = async () => {
+      saveReq({ ...readReq('REQ-001')!, revision: 2 });
+      return { approved: true };
+    };
+    await confirmLoop(f.ctx, 'REQ-001');
+    expect(readReq('REQ-001')?.status).toBe('待确认');
+    expect(f.chooses).toHaveLength(0);
+  });
   it('主线 /req：开话题、绑定、首轮访谈带清单进话题', async () => {
     const f = fakeCtx();
     await startReq(f.ctx, '想一眼看出哪些表没设权限', 'ou_req', 'oc_lake');
@@ -264,7 +415,7 @@ describe('需求流程', () => {
   it('访谈轮出了说明 → 待确认，确认卡只认提出人和负责人；通过 → 待排期，排期卡只认负责人', async () => {
     const f = fakeCtx({ choose: '搁置' });
     seed();
-    await afterReqTurn(f.ctx, 'om_root', BRIEF);
+    await afterReqTurn(f.ctx, 'om_root', cardOutput({ ...CARD, title: '数据域快速查出未设权限的表', questions: [], ready: true, splits: parseBrief(BRIEF)!.splits }));
     await settle();
     expect(f.gates[0]).toMatchObject({ ticket: 'REQ-001', gate: '需求确认', allowed: ['ou_req', 'ou_owner'] });
     expect(f.chooses[0]).toMatchObject({ ticket: 'REQ-001', allowed: ['ou_owner'] });
@@ -281,11 +432,11 @@ describe('需求流程', () => {
     expect(f.gates).toHaveLength(0);
   });
 
-  it('判定无需开发 → 不做', async () => {
+  it('模型不能通过旧无需开发标记擅自关闭需求', async () => {
     const f = fakeCtx();
     seed();
     await afterReqTurn(f.ctx, 'om_root', '【无需开发】导出如下……');
-    expect(readReq('REQ-001')).toMatchObject({ status: '不做', note: '无需开发，已在对话中处理' });
+    expect(readReq('REQ-001')).toMatchObject({ status: '梳理中', processing: '整理失败' });
   });
 
   it('提出人驳回 → 回到梳理中，意见作为下一轮续聊', async () => {

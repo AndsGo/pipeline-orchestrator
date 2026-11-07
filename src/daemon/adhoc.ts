@@ -24,7 +24,8 @@ import { CliExecutionError } from '../engine/errors.js';
 import { ExecutionConfigError } from '../engine/configuration.js';
 import { expiredSessionBrief, getThread, rememberThreadRun, sessionFresh } from '../threads.js';
 import type { DaemonContext } from './context.js';
-import { afterReqTurn, reqNudgeFor } from './reqFlow.js';
+import { afterReqTurn, beginReqTurn, confirmLoop, failReqTurn, requirementForThread, reqNudgeFor } from './reqFlow.js';
+import { composeInterviewPrompt, listReqs, parseRequirementCard, renderRequirementCard } from '../requirements.js';
 
 /**
  * 单次执行的公共执行体（/run 与续聊共用）：跑会话 → 落盘留痕 → 发结果 → 更新续聊指针。
@@ -43,6 +44,8 @@ export async function execAdhoc(
   const chatId = chatIdOf(opts?.chat);
   const rootId = rootIdOf(opts?.chat);
   const { port, log } = ctx;
+  const req = requirementForThread(rootId);
+  beginReqTurn(ctx, rootId, commandText);
   const release = await ctx.sem.acquire();
   const t0 = Date.now();
   // 输出语言必须钉死：实测出现过整段韩语回复直接进业务群。
@@ -72,7 +75,8 @@ export async function execAdhoc(
       ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。这张表是这次对话里你自己先前的输出建成的在线版，不是用户新提供的数据：用户的新问题没提到「表里」时，别把它当作答案的依据，照常查库、查文件。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。**图片等附件放到 ${outbox}/sheet/assets/ 下，单元格里只写文件名**——整格只有文件名的，图片会直接嵌进那个单元格显示；文字里提到文件名的、或非图片附件，会传到附件夹并换成链接。都不会刷进群。表里已有的「[图片]」是已嵌入的图片占位，原样保留不要改。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
   // 需求话题的访谈：第 3 轮起逼出《需求说明》（src/requirements.ts roundNudge）
-  const prompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
+  const genericPrompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
+  const prompt = req ? `${reqNudgeFor(rootId)}\n\n## 本轮输入材料（不是技能调用指令）\n${corePrompt}` : genericPrompt;
   try {
     if (chain > 0 && !opts?.prev?.execution) throw new ExecutionConfigError('旧会话缺少实际执行配置记录，不能根据当前默认值猜测。请发起新的 /run 会话。');
     const engine = engineFor(project.repo, 'run', opts?.prev?.execution);
@@ -113,6 +117,7 @@ export async function execAdhoc(
     );
     log(`  输出首行：${r.text.split('\n').find((l) => l.trim())?.slice(0, 160) ?? '(空)'}`);
     if (r.isError) {
+      failReqTurn(ctx, rootId);
       // 会话中途出错时 result 装的是报错文案。按"执行结果"发出去，等于把失败伪装成成功。
       // 续聊指针也不更新：从一段报错文案"接着办"没有意义
       await port.sendResult(
@@ -129,12 +134,15 @@ export async function execAdhoc(
         opts?.chat,
       );
     } else {
+      // 先保存产品卡片；消息发送或附件写回失败不能让已完成的整理丢失。
+      if (rootId) await afterReqTurn(ctx, rootId, r.text, false);
+      const card = req ? parseRequirementCard(r.text) : null;
       // 结果卡先发：写回在线表可能要几分钟（282 张嵌图 ≈ 6 分钟），人不该盲等；
       // 2026-09-10 真机：daemon 在写回中途无声退出，结果卡没发出去，人只能问「完成情况」
       const mid = await port.sendResult(
         `执行结果 · ${project.alias}`,
-        r.text,
-        `${tail} · 单次执行，不建工单不入看板（要改代码：/req 提需求，或 /new 直接建单；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
+        card ? renderRequirementCard(card) : r.text,
+        req ? `${tail} · ${req.id} 已收录 · 系统提炼待人工确认，在本话题 @我 补充` : `${tail} · 单次执行，不建工单不入看板（要改代码：/req 提需求，或 /new 直接建单；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
         opts?.chat,
       );
       // 在线表：已绑 → 会话改了的页写回、嵌图、附件夹；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
@@ -175,7 +183,6 @@ export async function execAdhoc(
       // 主线：指针按群存（两个群同时聊不互相覆盖），全局那份仍写作兜底
       else saveLastRunFor(chatId, rec);
       // 需求话题：这一轮出了《需求说明》就发确认卡（不等卡——这里还占着闸门）
-      if (rootId) await afterReqTurn(ctx, rootId, r.text).catch((e: Error) => log(`  需求访谈收尾失败：${e.message.slice(0, 160)}`));
       // 这张卡 ↔ 这次会话：人日后引用它回话，精确续这个会话，不受指针与 TTL 限制
       if (mid) rememberRunCard(mid, rec);
       if (sheetNote) {
@@ -194,8 +201,18 @@ export async function execAdhoc(
         }
       }
     }
+    if (req && !r.isError && parseRequirementCard(r.text)?.ready) {
+      // 所有异步收尾及会话指针提交完成后，才开放能触发下一轮的卡片。
+      const pending = requirementForThread(rootId);
+      setImmediate(() => {
+        const current = requirementForThread(rootId);
+        if (current?.id !== req.id || current?.revision !== pending?.revision || current?.updatedAt !== pending?.updatedAt) return;
+        void confirmLoop(ctx, req.id).catch((e: Error) => log(`需求确认失败：${e.message}`));
+      });
+    }
     return true;
   } catch (e) {
+    failReqTurn(ctx, rootId);
     const usage = e instanceof CliExecutionError ? e.envelope : undefined;
     const at = new Date().toISOString();
     const costStatus = usage?.costStatus ?? 'unknown';
@@ -243,7 +260,19 @@ export async function draftRequirementFromChat(ctx: DaemonContext, project: Proj
 }
 
 /** 续聊：把答复接回上一次单次执行——优先 --resume 真续会话，失败降级拼接（见 followup.ts 头注） */
+const requirementFollowups = new Map<string, Promise<void>>();
+
 export async function runFollowup(ctx: DaemonContext, reply: string, chat?: ChatRef, quotedMessageId?: string): Promise<void> {
+  const req = requirementForThread(rootIdOf(chat));
+  if (!req) return runFollowupOnce(ctx, reply, chat, quotedMessageId);
+  const previous = requirementFollowups.get(req.id) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => runFollowupOnce(ctx, reply, chat, quotedMessageId));
+  requirementFollowups.set(req.id, next);
+  try { await next; }
+  finally { if (requirementFollowups.get(req.id) === next) requirementFollowups.delete(req.id); }
+}
+
+async function runFollowupOnce(ctx: DaemonContext, reply: string, chat?: ChatRef, quotedMessageId?: string): Promise<void> {
   const { port, projects, cfg, log } = ctx;
   const chatId = chatIdOf(chat);
   const rootId = rootIdOf(chat);
@@ -251,6 +280,22 @@ export async function runFollowup(ctx: DaemonContext, reply: string, chat?: Chat
   const byCard = runByCard(quotedMessageId);
   if (byCard) log(`按引用的结果卡续会话：${describeLastRun(byCard)}（项目 ${byCard.project}）`);
   const th = getThread(rootId);
+  const requirement = requirementForThread(rootId);
+  // 需求的持久材料足以恢复首轮失败或过期会话，不退回无关的群会话。
+  if (requirement && ['梳理中', '待确认'].includes(requirement.status) &&
+      (!th?.run || !sessionFresh(th) || requirement.processing === '整理失败')) {
+    if (requirement.processing === '整理中') {
+      await port.notify(requirement.id, '正在整理，完成后可在这里 @我 继续补充。', chat);
+      return;
+    }
+    const project = resolveProject(projects, requirement.project);
+    if (!project) {
+      await port.notify(requirement.id, '需求所属项目当前不可用，请先恢复项目配置。', chat);
+      return;
+    }
+    await execAdhoc(ctx, project, reply, `${composeInterviewPrompt(requirement, { openReqs: listReqs() })}\n\n本次补充：${reply}`, [], 0, { chat });
+    return;
+  }
   // 需求话题的第一轮访谈还没跑完就有人接话：话题还没有会话，往下会退回主线指针续错地方
   if (th?.req && !th.run && !byCard) {
     await port.notify('需求', `${th.req} 的第一轮还在整理，结果出来后再 @我 说这句。`, chat);

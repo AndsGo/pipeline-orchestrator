@@ -243,7 +243,7 @@
   async function reqs() {
     const list = await api('/api/reqs');
     main.innerHTML = `<div class="head"><h1>需求池</h1><span class="aside">共 ${list.length} 条</span></div>` + (list.length ? `<div class="wrap"><table><thead><tr><th>需求</th><th>项目</th><th>标题</th><th>状态</th><th>拆分</th><th>工单</th><th>更新</th></tr></thead><tbody>
-      ${list.slice().reverse().map((r) => `<tr><td><a href="#/reqs/${esc(r.id)}">${esc(r.id)}</a></td><td>${esc(r.project)}</td><td>${esc(r.title)}</td><td>${pill(r.status, reqClass[r.status])}</td>
+      ${list.slice().reverse().map((r) => `<tr><td><a href="#/reqs/${esc(r.id)}">${esc(r.id)}</a></td><td>${esc(r.project)}</td><td>${esc(r.title)}${r.card ? `<div class="muted small">${esc(r.card.expected)}</div>` : ''}</td><td>${pill(r.status, reqClass[r.status])}<div class="muted small">${esc(r.processing || '')}</div></td>
         <td>${r.splits?.length || ''}</td><td>${(r.tickets || []).map((t) => `<a href="#/tickets/${esc(t)}">${esc(t)}</a>`).join(' ')}</td><td class="muted">${fmtAgo(Date.now() - Date.parse(r.updatedAt))}</td></tr>`).join('')}
       </tbody></table></div>` : `<div class="card" style="max-width:60rem">
         <h3>还没有需求</h3>
@@ -257,14 +257,16 @@
     main.innerHTML = `
       <div class="head"><h1>${esc(r.id)} ${pill(r.status, reqClass[r.status])}</h1><a class="aside" href="#/reqs">← 需求池</a></div>
       <p class="lead">${esc(r.title)}</p>
+      <p class="muted">${esc(r.processing || '历史需求')} · ${r.confirmedRevision && r.confirmedRevision === r.revision ? `第 ${r.revision} 版已确认` : `系统提炼 · 第 ${r.revision || 0} 版未确认`}</p>
+      ${r.processingError ? `<div class="notice">${esc(r.processingError)}</div>` : ''}
       <div class="split">
         <div class="stack">
           <section class="sec"><h2>需求说明</h2>
-            <div class="card doc">${r.brief ? md(r.brief) : '<span class="muted">访谈尚未产出《需求说明》</span>'}</div>
+            <div class="card doc">${r.brief ? md(r.brief) : '<span class="muted">已收录，等待提炼产品摘要。原始反馈保留在下方。</span>'}</div>
           </section>
-          <section class="sec"><h2>提出人原话</h2>
-            <div class="card"><pre>${esc(r.raw)}</pre></div>
-          </section>
+          <details class="sec"><summary>原始反馈与补充（追溯）</summary>
+            <div class="card"><pre>${esc(r.raw)}</pre>${(r.supplements || []).map(s => `<p class="muted">${fmtTs(s.at)}</p><pre>${esc(s.text)}</pre>`).join('')}</div>
+          </details>
         </div>
         <aside class="stack">
           ${r.note || r.dupOf ? `<div class="notices">${r.note ? `<div class="notice">${esc(r.note)}</div>` : ''}${r.dupOf ? `<div class="notice">并入 <a href="#/reqs/${esc(r.dupOf)}">${esc(r.dupOf)}</a></div>` : ''}</div>` : ''}

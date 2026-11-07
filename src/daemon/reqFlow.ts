@@ -1,4 +1,7 @@
 import { fetchGlossaryBrief } from '../bitable/sync.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PLUGIN_DIR } from '../config.js';
 import { projectReq } from '../bitable/reqSync.js';
 import { isClosure, listTickets, readEvents, type PipelineEvent } from '../events.js';
 import { DROPPED } from '../feishu/port.js';
@@ -10,9 +13,10 @@ import {
   findReqByTicket,
   intakeContextOf,
   listReqs,
-  NO_DEV_MARK,
   OPEN_STATUSES,
   parseBrief,
+  parseRequirementCard,
+  renderRequirementCard,
   queuedFor,
   readReq,
   remainingSplits,
@@ -96,6 +100,7 @@ export async function startReq(ctx: DaemonContext, text: string, sender: string,
   }
   r = save(ctx, r);
   bindReqThread(r.rootId, r.id, chatId, project.alias);
+  await port.notify(r.id, `已收录 ${r.id}，正在提炼标题和需求说明。原始反馈已保存，后续可在本话题 @我 补充。`, threadOf(r));
   log(`${r.id} 开始梳理（${project.alias}，by ${sender.slice(-6)}）${rootId ? '，沿用本话题' : ''}：${text.slice(0, 80)}`);
   const glossary = await fetchGlossaryBrief(text, project.alias);
   const prompt = `${glossary ? `${glossary}\n---\n` : ''}${composeInterviewPrompt(r, { openReqs: listReqs().filter((o) => OPEN_STATUSES.includes(o.status)), fromThread: !!th?.run })}`;
@@ -107,35 +112,53 @@ export async function startReq(ctx: DaemonContext, text: string, sender: string,
 export function reqNudgeFor(rootId: string | undefined): string {
   const req = rootId ? getThread(rootId)?.req : undefined;
   const r = req ? readReq(req) : null;
-  return r && (r.status === '梳理中' || r.status === '待确认') ? roundNudge(r) : '';
+  if (!r || (r.status !== '梳理中' && r.status !== '待确认')) return '';
+  const skill = path.join(PLUGIN_DIR, 'skills', 'pipeline-intake', 'SKILL.md');
+  return `\n\n${composeInterviewPrompt(r, { openReqs: listReqs().filter(o => OPEN_STATUSES.includes(o.status)) })}${roundNudge(r)}\n${fs.existsSync(skill) ? fs.readFileSync(skill, 'utf-8') : ''}`;
+}
+
+export function requirementForThread(rootId: string | undefined): Requirement | null {
+  const id = rootId ? getThread(rootId)?.req : undefined;
+  return id ? readReq(id) : null;
+}
+
+export function beginReqTurn(ctx: DaemonContext, rootId: string | undefined, text: string): void {
+  const r = requirementForThread(rootId);
+  if (!r || !['梳理中', '待确认'].includes(r.status)) return;
+  ctx.port.dropPending?.(r.id);
+  save(ctx, { ...r, status: '梳理中', processing: '整理中', processingError: undefined, confirmedRevision: undefined,
+    supplements: text === r.raw || r.supplements?.at(-1)?.text === text ? r.supplements : [...(r.supplements ?? []), { text, at: new Date().toISOString() }] });
+}
+
+export function failReqTurn(ctx: DaemonContext, rootId: string | undefined): void {
+  const r = requirementForThread(rootId);
+  if (r?.processing === '整理中') save(ctx, { ...r, processing: '整理失败', processingError: '本轮未完成，原话和已有卡片已保留。在原话题 @我 说“重试整理”可继续。' });
 }
 
 /**
  * 需求话题里每跑完一轮会话（execAdhoc 调）：记轮次；出了《需求说明》就发确认卡；判了「无需开发」就关单。
  * 不能等卡：这里还占着并发闸门，确认卡可能几天没人点
  */
-export async function afterReqTurn(ctx: DaemonContext, rootId: string, output: string): Promise<void> {
+export async function afterReqTurn(ctx: DaemonContext, rootId: string, output: string, openConfirmation = true): Promise<void> {
   const req = getThread(rootId)?.req;
   let r = req ? readReq(req) : null;
   if (!r || (r.status !== '梳理中' && r.status !== '待确认')) return;
   r = { ...r, rounds: r.rounds + 1 };
-  if (output.trimStart().startsWith(NO_DEV_MARK)) {
-    ctx.port.dropPending?.(r.id);
-    save(ctx, { ...r, status: '不做', note: '无需开发，已在对话中处理' });
-    ctx.log(`${r.id} 判定无需开发，已关闭`);
-    await ctx.port.notify(r.id, `这件事不用改代码，上面已经直接处理了；${r.id} 不进需求池。还有别的要做，在这里 @我 接着说。`);
-    return;
-  }
-  const parsed = parseBrief(output);
+  const card = parseRequirementCard(output);
+  const parsed = card ? parseBrief(renderRequirementCard(card)) : null;
   if (!parsed) {
-    save(ctx, r);
+    save(ctx, { ...r, processing: '整理失败', processingError: '未收到有效需求卡片，已有信息已保留。在原话题 @我 说“重试整理”可继续。' });
+    await ctx.port.notify(r.id, '本轮整理未形成有效需求卡片，已保留原始反馈和已有说明，可在这里 @我 重试整理。');
     return;
   }
   // 新版说明作废旧的确认卡：人对着旧卡点「通过」确认的会是一份已经不存在的说明
   ctx.port.dropPending?.(r.id);
-  r = save(ctx, { ...r, status: '待确认', brief: parsed.brief, title: parsed.title || r.title, splits: parsed.splits, dupOf: parsed.dups[0] });
+  const ready = card ? card.ready : !!parsed.title;
+  r = save(ctx, { ...r, status: ready ? '待确认' : '梳理中', card: card ?? undefined, revision: (r.revision ?? 0) + 1, confirmedRevision: undefined,
+    processing: ready ? '已整理' : '等待补充', processingError: undefined,
+    brief: parsed.brief, title: parsed.title || r.title, splits: parsed.splits, dupOf: parsed.dups[0] });
   ctx.log(`${r.id} 需求说明第 ${r.rounds} 轮出稿：${r.title}（拆 ${Math.max(1, r.splits?.length ?? 0)} 张）`);
-  void confirmLoop(ctx, r.id);
+  if (ready && openConfirmation) void confirmLoop(ctx, r.id);
 }
 
 const splitLines = (r: Requirement): string =>
@@ -149,24 +172,31 @@ export async function confirmLoop(ctx: DaemonContext, id: string): Promise<void>
   const d = await ctx.port.confirmGate(
     id,
     '需求确认',
-    `${atCard(r0.requester)} **${id}「${r0.title}」的需求说明整理好了**（上面那条结果就是全文）。\n\n建议拆成：\n${splitLines(r0)}\n\n通过 = 就是我要的，进需求池等负责人排期；驳回 = 在备注里写要改哪里（拆分不对也在这里说），我接着改。`,
+    `${atCard(r0.requester)} **${id}「${r0.title}」第 ${r0.revision ?? 0} 版待确认**\n\n${r0.brief ?? ''}\n\n建议拆成：\n${splitLines(r0)}\n\n通过 = 就是我要的，进需求池等负责人排期；有补充会先更新说明再请你确认。驳回 = 在备注里写要改哪里，我接着改。`,
     [],
     undefined,
     { allowed: [r0.requester, ...(owner ? [owner] : [])] },
   );
   if (d.dropped) return;
   const r = readReq(id);
-  if (!r || r.status !== '待确认') return;
+  if (!r || r.status !== '待确认' || r.revision !== r0.revision || r.brief !== r0.brief) return;
+  if (d.approved && d.note?.trim()) {
+    const text = `确认时补充：${d.note.trim()}。请更新需求卡片，保留原有范围，改动后重新确认。`;
+    save(ctx, { ...r, status: '梳理中', note: `确认时补充：${d.note.trim()}`, supplements: [...(r.supplements ?? []), { text, at: new Date().toISOString() }] });
+    await ctx.runFollowup(text, threadOf(r));
+    return;
+  }
   if (d.approved) {
-    save(ctx, { ...r, status: '待排期', note: d.note ? `提出人确认时补充：${d.note}` : r.note });
+    save(ctx, { ...r, status: '待排期', confirmedRevision: r.revision });
     ctx.log(`${id} 提出人已确认，进池待排期`);
     void scheduleLoop(ctx, id);
     return;
   }
-  save(ctx, { ...r, status: '梳理中', note: d.note });
+  const text = `提出人对需求说明的修改意见：${d.note?.trim() || '（没写具体意见——请用一两个问题问清楚哪里不对，不要猜）'}\n请据此修改，改好后重新输出完整产品卡片。`;
+  save(ctx, { ...r, status: '梳理中', note: d.note, supplements: [...(r.supplements ?? []), { text, at: new Date().toISOString() }] });
   ctx.log(`${id} 提出人驳回说明：${(d.note ?? '').slice(0, 80)}`);
   await ctx.runFollowup(
-    `提出人对需求说明的修改意见：${d.note?.trim() || '（没写具体意见——请用一两个问题问清楚哪里不对，不要猜）'}\n请据此修改，改好后重新输出完整的《需求说明》。`,
+    text,
     threadOf(r),
   );
 }
@@ -308,6 +338,7 @@ export function recoverReqs(ctx: DaemonContext, now = Date.now()): void {
   const all = listReqs();
   let n = 0;
   for (const r of all) {
+    if (r.processing === '整理中') save(ctx, { ...r, processing: '整理失败', processingError: '服务重启中断了整理，已有材料已保留。在原话题 @我 重试整理。' });
     const fresh = now - Date.parse(r.updatedAt) <= RECOVER_WINDOW_MS;
     if (r.status === '待确认' && fresh) {
       void confirmLoop(ctx, r.id);

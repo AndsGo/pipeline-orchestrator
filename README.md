@@ -94,6 +94,21 @@ scripts/start-daemon.sh        # Linux / macOS
 
 它会分诊、澄清、弹卡片问你。完整步骤见 [`docs/getting-started.md`](docs/getting-started.md)。
 
+## Web 控制台
+
+也可以通过浏览器管理流水线。控制台提供运行总览、工单与需求查看、文档与日志查看、环境与项目配置、Agent 执行配置及用途验证，以及暂停／继续工单、重启服务等操作。
+
+在 `.env` 中设置 `CONSOLE_TOKEN`（自行生成至少 8 位的独立口令），然后启动 Web 服务：
+
+```bash
+scripts/start-web.sh          # Linux / macOS
+.\scripts\start-web.ps1       # Windows
+```
+
+本机打开 **http://localhost:8377/**，输入 `CONSOLE_TOKEN` 登录；同一内网的其他电脑可使用执行机的 IP 地址访问。端口由 `GITLAB_WEBHOOK_PORT` 配置，默认 `8377`，与 GitLab MR 评审和结果预览共用；未配置有效口令时不启用控制台。
+
+控制台口令具有管理员权限，请仅向可信的内网管理员提供。页面会标明哪些配置修改需要重启；工单执行和飞书交互仍由 daemon 负责，需要同时运行。部署与看门狗配置见 [Web 服务运维说明](docs/operations.md#web-服务gitlab-评审--结果预览--控制台)，引擎选择与验证见 [Agent 执行配置](docs/agent-execution.md)。
+
 ## 文档
 
 | 想做什么 | 看哪里 |
