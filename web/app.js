@@ -668,9 +668,73 @@
     draw();
   }
 
+  // ---------- 问题 ----------
+  const bugStates = ['待分诊', '待复现', '待修复', '修复中', '待上线', '待验证', '已关闭', '重复', '已转需求', '使用问题'];
+  const bugMeaning = { S1: '核心不可用或严重数据问题', S2: '主要功能受阻', S3: '功能受影响但可绕过', S4: '轻微影响', P0: '立即安排', P1: '尽快安排', P2: '正常排期', P3: '低优先级排期' };
+  async function bugs() {
+    const [items, projects] = await Promise.all([api('/api/bugs'), api('/api/projects')]);
+    main.innerHTML = `<div class="head"><h1>问题</h1><span class="aside">共 ${items.length} 条</span></div>
+      <details class="card"><summary>登记问题</summary><form id="bugNew" class="stack">
+        <label>项目<select name="project" required><option value="">请选择项目</option>${projects.projects.map(p => `<option value="${esc(p.alias)}">${esc(p.alias)}</option>`).join('')}</select></label>
+        <label>标题<input name="title" required></label><label>原始反馈<textarea name="raw" required></textarea></label><label>附件或证据引用（每行一条）<textarea name="evidenceRefs"></textarea></label>
+        <label>提出人<input name="requester" required></label><button class="primary">登记</button></form></details>
+      <div class="row"><label>项目 <select id="bugProject"><option value="">全部</option>${projects.projects.map(p => `<option>${esc(p.alias)}</option>`).join('')}</select></label>
+        <label>状态 <select id="bugState"><option value="">全部</option>${bugStates.map(s => `<option>${s}</option>`).join('')}</select></label>
+        <label>负责人 <select id="bugOwner"><option value="">全部</option><option value="__none">未分配</option>${[...new Set(items.map(b => b.owner).filter(Boolean))].map(o => `<option>${esc(o)}</option>`).join('')}</select></label></div>
+      <div id="bugRows"></div>`;
+    const draw = () => {
+      const list = items.filter(b => (!$('#bugProject').value || b.project === $('#bugProject').value) && (!$('#bugState').value || b.status === $('#bugState').value) && (!$('#bugOwner').value || ($('#bugOwner').value === '__none' ? !b.owner : b.owner === $('#bugOwner').value)));
+      $('#bugRows').innerHTML = `<div class="wrap"><table><thead><tr><th>编号</th><th>标题</th><th>项目</th><th>严重程度</th><th>优先级</th><th>状态</th><th>负责人</th><th>更新时间</th></tr></thead><tbody>${list.map(b => `<tr><td><a href="#/bugs/${encodeURIComponent(b.id)}">${esc(b.id)}</a></td><td>${esc(b.title)}</td><td>${esc(b.project)}</td><td>${esc(b.severity)}<div class="small muted">${esc(bugMeaning[b.severity])}</div></td><td>${esc(b.priority)}<div class="small muted">${esc(bugMeaning[b.priority])}</div></td><td>${pill(b.status, b.status === '待验证' ? 'warn' : '')} ${b.waitingForInfo ? pill('等待补充', 'warn') : ''}</td><td>${b.owner ? esc(b.owner) : pill('未分配', 'warn')}</td><td>${esc(fmtTs(b.updatedAt))}</td></tr>`).join('')}</tbody></table></div>`;
+    };
+    ['bugProject', 'bugState', 'bugOwner'].forEach(id => $('#' + id).onchange = draw); draw();
+    let createRequestId; $('#bugNew').oninput = () => { createRequestId = undefined; };
+    $('#bugNew').onsubmit = async e => { e.preventDefault(); const f = new FormData(e.currentTarget); const requestId = createRequestId ||= crypto.randomUUID();
+      const button = e.currentTarget.querySelector('button'); button.disabled = true;
+      try { const b = await post('/api/bugs', { project: f.get('project'), title: f.get('title'), raw: f.get('raw'), requester: f.get('requester'), evidenceRefs: String(f.get('evidenceRefs') || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean), requestId }); location.hash = '#/bugs/' + encodeURIComponent(b.id); }
+      catch (err) { toast(err.message, true); } finally { button.disabled = false; } };
+  }
+
+  async function bug(id) {
+    const b = await api('/api/bugs/' + encodeURIComponent(id));
+    const queuedId = sessionStorage.getItem('bug-request:' + id);
+    const queued = queuedId ? await api('/api/bug-requests/' + encodeURIComponent(queuedId)).catch(() => null) : null;
+    const fields = {
+      triage: ['severity', 'priority', 'owner', 'summary', 'reason'], update: ['severity', 'priority', 'owner', 'summary', 'reason'],
+      'need-info': ['reason'], supplement: ['raw', 'evidenceRefs', 'reason'], reproduce: ['result', 'evidenceRefs', 'reason'],
+      'fix-ready': ['fixVersion', 'evidenceRefs'], deploy: ['deployedVersion', 'evidenceRefs'], 'verify-pass': ['evidenceRefs'],
+      'verify-fail': ['evidenceRefs', 'reason'], reopen: ['reason'], duplicate: ['duplicateOf', 'reason'],
+      reclassify: ['classification', 'relatedRequirement', 'reason'], 'start-fix': [], investigate: [],
+    };
+    const labels = { create: '登记', refine: '整理摘要', 'bind-thread': '绑定话题', 'reserve-ticket': '预留修复工单', 'link-ticket': '关联修复工单', 'ticket-start-failed': '修复工单启动失败', 'fix-ready': '修复完成', triage: '分诊', update: '手工更新摘要和分诊信息', 'need-info': '请求补充', supplement: '补充反馈', reproduce: '记录复现或定位', deploy: '登记上线', 'verify-pass': '验证通过并关闭', 'verify-fail': '验证失败', reopen: '重新打开', duplicate: '关联重复问题', reclassify: '改为使用问题或需求', 'start-fix': '请求修复', investigate: '提炼与调查' };
+    const fieldLabels = { severity: '严重程度', priority: '优先级', owner: '负责人', summary: '业务摘要', reason: '原因或说明', raw: '补充内容', evidenceRefs: '证据引用（每行一条）', result: '复现结果', fixVersion: '修复版本', deployedVersion: '上线版本', round: '验证轮次', duplicateOf: '重复的问题编号', classification: '归类', relatedRequirement: '关联需求编号（转需求必填）' };
+    const choices = { severity: ['S1', 'S2', 'S3', 'S4'], priority: ['P0', 'P1', 'P2', 'P3'], result: ['reproduced', 'located', 'not-reproduced'], classification: ['usage', 'requirement'] };
+    const choiceLabels = { S1: 'S1 · 核心不可用或严重数据问题', S2: 'S2 · 主要功能受阻', S3: 'S3 · 功能受影响但可绕过', S4: 'S4 · 轻微影响', P0: 'P0 · 立即安排', P1: 'P1 · 尽快安排', P2: 'P2 · 正常排期', P3: 'P3 · 低优先级排期', reproduced: '已复现', located: '已定位', 'not-reproduced': '未复现', usage: '使用问题', requirement: '需求' };
+    const requiredFields = { 'need-info': ['reason'], supplement: ['raw'], reproduce: ['result', 'evidenceRefs'], 'fix-ready': ['fixVersion', 'evidenceRefs'], deploy: ['deployedVersion', 'evidenceRefs'], 'verify-pass': ['evidenceRefs'], 'verify-fail': ['evidenceRefs', 'reason'], reopen: ['reason'], duplicate: ['duplicateOf', 'reason'], reclassify: ['classification', 'reason'] };
+    const historyReason = x => x.reason && x.reason !== x.action.type ? x.reason : '';
+    const actions = b.allowedActions || [];
+    main.innerHTML = `<div class="head"><h1>${esc(b.id)} ${pill(b.status)}</h1><a href="#/bugs">← 问题列表</a></div><p class="lead">${esc(b.title)}</p>
+      <div class="notices">${!b.owner ? '<div class="notice">尚未分配负责人</div>' : ''}${b.waitingForInfo ? `<div class="notice">等待补充信息：${esc(b.waitingForInfo.reason)}</div>` : ''}${b.status === '待验证' ? '<div class="notice">上线后等待验证</div>' : ''}${queued ? `<div class="notice">${queued.completedAt ? queued.error ? `请求处理失败：${esc(queued.error)}` : '请求已处理' : '请求已提交，等待处理；刷新页面查看结果'}</div>` : ''}</div>
+      <div class="split"><div class="stack"><section><h2>业务摘要</h2><div class="card doc">${b.summary ? md(b.summary) : ''}${b.card ? `<h3>实际情况</h3>${md(b.card.actual)}<h3>期望情况</h3>${md(b.card.expected)}<h3>影响</h3>${md(b.card.impact)}<h3>复现步骤</h3>${md((b.card.reproductionSteps || []).map(s => '- ' + s).join('\n'))}<h3>分析</h3>${md(b.card.analysis)}<h3>待确认</h3>${md((b.card.questions || []).map(s => '- ' + s).join('\n') || '无')}<p>建议分类：${esc(({ defect: '缺陷', usage: '使用问题', requirement: '需求', duplicate: '重复问题' })[b.card.suggestedClassification] || '待确认')}（待人工确认）</p><p>分析证据：${esc((b.card.evidenceRefs || []).join('、') || '无')}</p>` : b.summary ? '' : '<span class="muted">等待分诊填写摘要</span>'}</div></section>
+      <details><summary>原始反馈与附件引用</summary><div class="card"><pre>${esc(b.raw)}</pre><p>${(b.originalEvidenceRefs || []).map(esc).join('<br>') || '无原始附件引用'}</p>${(b.supplements || []).map(x => `<p>${esc(fmtTs(x.at))}</p><pre>${esc(x.raw)}</pre><p>${(x.evidenceRefs || []).map(esc).join('<br>')}</p>`).join('')}</div></details>
+      <section><h2>复现与定位</h2><div class="card">${b.reproduction ? `${esc(choiceLabels[b.reproduction.result] || b.reproduction.result)} · ${esc(b.reproduction.evidenceRefs.join('、'))}` : '暂无记录'}</div></section>
+      <section><h2>修复与上线</h2><div class="card">工单：${esc(b.ticket || '未关联')}<br>修复版本：${esc(b.fixVersion || '未登记')}<br>上线版本：${esc(b.deployedVersion || '未登记')}<br>历史修复工单：${esc((b.ticketAttempts || []).map(x => x.ticket).join('、') || '无')}</div></section>
+      <section><h2>验证与重开记录</h2><div class="card">${(b.history || []).filter(x => ['verify-pass', 'verify-fail', 'reopen'].includes(x.action.type)).map(x => `<p>第 ${esc(x.round)} 轮 · ${esc(labels[x.action.type])}${historyReason(x) ? ` · ${esc(historyReason(x))}` : ''}${x.action.evidenceRefs?.length ? ` · ${esc(x.action.evidenceRefs.join('、'))}` : ''}</p>`).join('') || '暂无记录'}</div></section>
+      <section><h2>时间线</h2><ul class="timeline">${(b.history || []).map(x => `<li><span class="ts">${esc(fmtTs(x.at))}</span><span>${esc(labels[x.action.type] || x.action.type)} · ${esc(x.actor)} · ${esc(x.from || '登记')} → ${esc(x.to)} ${esc(historyReason(x))}</span></li>`).join('')}</ul></section></div>
+      <aside class="stack"><div class="card">项目：${esc(b.project)}<br>严重程度：${esc(choiceLabels[b.severity] || b.severity)}<br>优先级：${esc(choiceLabels[b.priority] || b.priority)}<br>负责人：${esc(b.owner || '未分配')}<br>更新：${esc(fmtTs(b.updatedAt))}</div>
+      <section><h2>当前可执行操作</h2><div class="card">${actions.length ? `<form id="bugAction"><label>操作<select name="action">${actions.filter(a => labels[a]).map(a => `<option value="${esc(a)}">${esc(labels[a])}</option>`).join('')}</select></label><div id="bugActionFields"></div><button class="primary">提交</button></form>` : '当前没有可执行操作'}</div></section></aside></div>`;
+    const form = $('#bugAction'); if (!form) return;
+    const drawFields = () => { const action = form.elements.action.value; const snapshot = action === 'fix-ready' ? `当前工单：${esc(b.ticket)}。登记后进入待上线，仍需上线与验证。` : action === 'deploy' ? `修复版本：${esc(b.fixVersion)}` : action.startsWith('verify-') ? `验证第 ${esc(b.round)} 轮 · 修复版本 ${esc(b.fixVersion)} · 上线版本 ${esc(b.deployedVersion)}` : ''; $('#bugActionFields').innerHTML = (snapshot ? `<p class="muted">${snapshot}</p>` : '') + (fields[action] || []).map(key => { const required = (requiredFields[action] || []).includes(key); const label = action === 'verify-fail' && key === 'reason' ? '失败现象或原因' : fieldLabels[key]; return `<label>${label}${required ? '（必填）' : ''}${choices[key] ? `<select name="${key}" ${required ? 'required' : ''}><option value="">请选择</option>${choices[key].map(v => `<option value="${v}" ${b[key] === v ? 'selected' : ''}>${esc(choiceLabels[v] || v)}</option>`).join('')}</select>` : `<textarea name="${key}" ${required ? 'required' : ''}>${esc(['summary', 'owner'].includes(key) ? b[key] || '' : '')}</textarea>`}</label>`; }).join(''); };
+    let pendingId;
+    form.elements.action.onchange = () => { pendingId = undefined; drawFields(); }; form.oninput = () => { pendingId = undefined; }; drawFields();
+    form.onsubmit = async e => { e.preventDefault(); const data = new FormData(form); const action = { type: data.get('action') }; for (const key of fields[action.type] || []) { const value = String(data.get(key) || '').trim(); if (value) action[key] = key === 'evidenceRefs' ? value.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : value; }
+      if (action.type === 'fix-ready') action.ticket = b.ticket;
+      if (action.type === 'deploy' || action.type.startsWith('verify-')) action.fixVersion = b.fixVersion; if (action.type.startsWith('verify-')) { action.round = b.round; action.deployedVersion = b.deployedVersion; }
+      pendingId ||= crypto.randomUUID(); const button = form.querySelector('button'); button.disabled = true; try { const result = await post('/api/bugs/' + encodeURIComponent(id) + '/actions', { expectedRevision: b.revision, requestId: pendingId, action }); if (result.queued) sessionStorage.setItem('bug-request:' + id, pendingId); toast(result.queued ? '请求已提交，等待处理' : '已保存'); await bug(id); } catch (err) { toast(err.message, true); } finally { button.disabled = false; } };
+  }
+
   // ---------- 路由 ----------
   const routes = [
-    [/^$/, overview], [/^tickets$/, tickets], [/^tickets\/([^/]+)$/, ticket], [/^reqs$/, reqs], [/^reqs\/([^/]+)$/, req],
+    [/^$/, overview], [/^tickets$/, tickets], [/^tickets\/([^/]+)$/, ticket], [/^bugs$/, bugs], [/^bugs\/([^/]+)$/, bug], [/^reqs$/, reqs], [/^reqs\/([^/]+)$/, req],
     [/^docs(?:\/([^/]+)(?:\/([^/]+)(?:\/(.+))?)?)?$/, (a, t, f) => docs(a, t === '-' ? undefined : t, f)],
     [/^output-settings$/, outputSettings], [/^outputs$/, outputs], [/^outputs\/([^/]+)$/, outputDetail],
     [/^logs$/, logs], [/^env$/, env], [/^projects$/, projects], [/^stages$/, stages], [/^agents$/, agents], [/^restart$/, restart],

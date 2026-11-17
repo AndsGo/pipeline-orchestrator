@@ -8,6 +8,7 @@ import {
   DRAFT_FROM_CHAT,
   describeCommand,
   helpText,
+  isClearBugReport,
   isProjectSlashCommand,
   looksLikeCommand,
   looksLikeDefectReport,
@@ -330,10 +331,23 @@ describe('指令解析', () => {
     });
   });
 
-  it('分类提示词要求：线上故障且未指明工单 → run 而不是 note', () => {
+  it('分类提示词要求：明确报告线上故障且未指明工单 → bug', () => {
     const p = buildClassifyPrompt('生产上 MCP 连不上', []);
     expect(p).toContain('ticket 必填');
-    expect(p).toContain('run（先诊断）');
+    expect(p).toContain('明确报告线上故障/既有功能失效 → **bug**');
+    expect(p).not.toContain('run（先诊断）');
+    expect(normalize({ kind: 'bug', text: '分类器的改写' }, '生产上 MCP 连不上', [])).toEqual({ kind: 'bug', text: '生产上 MCP 连不上' });
+    expect(isClearBugReport('登录页面实际报500')).toBe(true);
+  });
+
+  it('明确只是调查或一般问题仍走run，不因包含报错就登记Bug', () => {
+    const questions = ['帮我调查页面报错的原因', '请帮我排查接口异常的原因', '只分析登录失败可能有哪些原因', '这个仓库的鉴权在哪', '如果登录报错如何处理'];
+    for (const original of questions) {
+      expect(isClearBugReport(original)).toBe(false);
+      expect(normalize({ kind: 'run' }, original, [])).toMatchObject({ kind: 'run', text: original });
+    }
+    expect(buildClassifyPrompt(questions[0], [])).toContain('仍是run，不因提到报错就登记bug');
+    expect(parseSlash('/run 登录页面实际报500')).toEqual({ kind: 'run', text: '登录页面实际报500' });
   });
 
   it('分类提示词不再声称 run 是只读的，并要求判定 side_effect', () => {

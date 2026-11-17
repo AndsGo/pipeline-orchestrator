@@ -16,6 +16,7 @@ import { executionModelRecord } from '../engine/configuration.js';
 import { resolveOutput, type OutputResolution } from '../output/configuration.js';
 import { createOutputRecord, renderOutput } from '../output/records.js';
 import { DELIVERY_FILE } from '../knowledge.js';
+import { ticketCompletionEvidence } from '../ticketEvidence.js';
 
 /**
  * 验收「不通过」必须附失败现象——它是修复轮最重要的输入，缺了修复只能瞎猜。
@@ -80,7 +81,7 @@ async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfil
   const total = run.state.runs.reduce((s, r) => s + r.costUsd, 0) + failureCost(ticket) + triageCost(ticket);
   const incomplete = ticketCostStatus(ticket) !== 'reported' || run.state.runs.some(r => r.costStatus === 'unknown' || r.costStatus === 'partial');
   const costLine = incomplete ? `已报告金额 $${total.toFixed(2)}；完整美元费用未知` : `合计 $${total.toFixed(2)}`;
-  appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，${costLine}` });
+  appendEvent({ ticket, type: 'done', summary: `闭环：${run.state.runs.length} 次会话，${costLine}`, payload: ticketCompletionEvidence(repo) });
   await broadcast(
     port,
     ticket,

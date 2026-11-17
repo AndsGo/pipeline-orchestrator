@@ -103,6 +103,8 @@ export interface IncomingMessage {
   rootId?: string;
   /** 消息在话题里（message.thread_id 非空）。话题 = 会话：见 src/threads.ts */
   inThread: boolean;
+  reportedAt?: string;
+  attachments?: string[];
 }
 
 /**
@@ -112,6 +114,7 @@ export interface IncomingMessage {
  * 回调路由与 SDK 解耦：handleCardAction 可单测。
  */
 export class FeishuPort implements InteractionPort {
+  onBugAction?: (value: CardAction, note: string | undefined, actor: string | undefined, context?: { chatId?: string; messageId?: string }) => Promise<Record<string, unknown> | 'failed'>;
   private pending = new Map<string, Pending>();
   private seq = 0;
 
@@ -146,7 +149,7 @@ export class FeishuPort implements InteractionPort {
           { chatId: data?.context?.open_chat_id, messageId: data?.context?.open_message_id },
         );
         if (update === 'denied') return { toast: { type: 'warning', content: '这张卡只有指定的人能处理（需求排期卡只认项目负责人）' } };
-        if (update === 'failed') return { toast: { type: 'error', content: '展开失败，原卡已保留，请稍后重试' } };
+        if (update === 'failed') return { toast: { type: 'error', content: (data.action?.value as CardAction)?.kind === 'bug' ? 'Bug操作未完成，请查看提示并使用最新材料' : '展开失败，原卡已保留，请稍后重试' } };
         return update
           ? { toast: { type: 'success', content: '已收到' }, card: { type: 'raw', data: update } }
           : { toast: { type: 'info', content: '该卡片已处理或已过期' } };
@@ -167,6 +170,7 @@ export class FeishuPort implements InteractionPort {
           thread_id?: string;
           /** 被 @ 的人：key 对应正文里的 @_user_N 占位，id.open_id 才能分清 @ 的是机器人还是同事 */
           mentions?: Array<{ key?: string; id?: string | { open_id?: string }; name?: string }>;
+          create_time?: string;
         };
         sender?: { sender_id?: { open_id?: string } };
       }) => {
@@ -189,10 +193,12 @@ export class FeishuPort implements InteractionPort {
         }
         if (parsed) {
           let text = parsed.text;
+          const attachments: string[] = [];
           // 仅为已验证 @机器人的富文本下载图片，并把路径接在正文后面。
           if (parsed.images?.length) {
             const mid = data.message?.message_id ?? '';
             const saved = await Promise.all(parsed.images.map((k) => port.downloadQuotedResource({ messageId: mid, fileKey: k, marker: '', kind: 'image' })));
+            attachments.push(...saved.filter((item): item is string => !!item));
             const lines = saved.map((s) => (s ? `[图片已保存：${s}——可用 Read 工具查看]` : '[图片，下载失败未解析]'));
             text = [text, ...lines].filter(Boolean).join('\n');
           }
@@ -205,7 +211,7 @@ export class FeishuPort implements InteractionPort {
             console.log(`[feishu] 消息 ${data.message?.message_id} root=${data.message?.root_id ?? '-'} thread=${data.message?.thread_id ?? '-'} parent=${data.message?.parent_id ?? '-'}`);
           }
           if (data.message?.parent_id && !quoteIsThreadRoot) {
-            const quoted = await port.fetchQuoted(data.message.parent_id);
+            const quoted = await port.fetchQuoted(data.message.parent_id, attachments);
             if (quoted) {
               text = `${text}\n\n【用户引用的消息】\n${quoted}`;
             } else {
@@ -222,6 +228,8 @@ export class FeishuPort implements InteractionPort {
             quotedMessageId: data.message?.parent_id,
             rootId: data.message?.root_id,
             inThread,
+            attachments,
+            ...(data.message?.create_time && Number.isFinite(Number(data.message.create_time)) ? { reportedAt: new Date(Number(data.message.create_time)).toISOString() } : {}),
           });
         }
         return { code: 0 };
@@ -383,6 +391,7 @@ export class FeishuPort implements InteractionPort {
   /** 回调核心（纯逻辑，可单测）：按 key 归位 pending，返回更新后的卡片；未命中返回 null */
   handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>, operator?: string, context?: { chatId?: string; messageId?: string }): Record<string, unknown> | null | 'denied' | Promise<Record<string, unknown> | 'failed'> {
     if (!value?.key) return null;
+    if (value.kind === 'bug') return this.onBugAction ? this.onBugAction(value, formValue?.note?.trim(), operator, context) : 'denied';
     if (value.kind === 'output') {
       if (value.level !== 'concise' && value.level !== 'professional') return null;
       const record = readOutputRecord(value.key);
@@ -417,6 +426,10 @@ export class FeishuPort implements InteractionPort {
   /** 发送卡片，返回 message_id（用于后续原位更新） */
   private postCard(card: Record<string, unknown>, to?: ChatRef | { chatId?: string; rootId?: string }): Promise<string | undefined> {
     return this.post('interactive', JSON.stringify(card), asTarget(to));
+  }
+
+  sendBugCard(card: Record<string, unknown>, to: ChatRef): Promise<string | undefined> {
+    return this.postCard(card, to);
   }
 
   /** 先确保续卡可达，再返回首卡供回调替换，失败时保留原卡的风险信息。 */
@@ -690,7 +703,7 @@ export class FeishuPort implements InteractionPort {
    * 可下载的图片落到 data/quoted/，文本里替换成文件路径（执行会话用 Read 工具就能看图）。
    * 失败返回 null（缺 im:message.group_msg 权限 / 消息过久），由调用方决定怎么向人交代。
    */
-  async fetchQuoted(messageId: string): Promise<string | null> {
+  async fetchQuoted(messageId: string, attachments?: string[]): Promise<string | null> {
     try {
       const res = (await this.client.im.message.get({ path: { message_id: messageId } })) as {
         data?: { items?: QuotedItem[] };
@@ -699,6 +712,7 @@ export class FeishuPort implements InteractionPort {
       let out = text;
       for (const ref of resources) {
         const saved = await this.downloadQuotedResource(ref);
+        if (saved) attachments?.push(saved);
         const what = ref.kind === 'image' ? '图片' : '文件';
         out = out.replace(
           ref.marker,

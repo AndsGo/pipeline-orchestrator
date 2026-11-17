@@ -14,6 +14,7 @@ import * as note from './note.js';
 import * as pool from './pool.js';
 import * as pause from './pause.js';
 import * as req from './req.js';
+import * as bug from './bug.js';
 import * as resume from './resume.js';
 import * as rewind from './rewind.js';
 import * as run from './run.js';
@@ -38,6 +39,7 @@ export const handlers: { [K in Command['kind']]: Handler<K> } = {
   followup: followup.handle,
   new: newTicket.handle,
   req: req.handle,
+  bug: bug.handle,
   pool: pool.handle,
   use: use.handle,
   bind: bind.handle,

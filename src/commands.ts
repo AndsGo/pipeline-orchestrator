@@ -22,6 +22,7 @@ export type Command =
   | { kind: 'new'; ticket?: string; repo?: string; requirement: string }
   /** 提需求：进需求池，bot 在话题里访谈梳理，提出人确认、负责人排期后才建单（设计稿 2026-09-23-requirements-pool.md） */
   | { kind: 'req'; project?: string; text: string }
+  | { kind: 'bug'; project?: string; text: string; messageId?: string; quotedMessageId?: string; reportedAt?: string; attachments?: string[] }
   /** 需求池一览 */
   | { kind: 'pool' }
   /** 回答待确认卡片：target 为 Q 编号或卡点名，text 为答案（含可选补充说明） */
@@ -104,6 +105,13 @@ export function looksLikeDefectReport(text: string): boolean {
   );
 }
 
+/** Concrete observed failures can be retained even when the classifier is unavailable. */
+export function isClearBugReport(text: string): boolean {
+  if (/^(如果|假如|假设|怎么|如何|请问|能否|能不能)|会不会|是否会|如何处理/.test(text.trim())) return false;
+  if (/^(?:(?:请|麻烦|帮我|先|只|仅)\s*)*(?:调查|排查|分析|诊断|查一下|看看)/.test(text.trim())) return false;
+  return /(?:点击|打开|登录|提交|保存|导出|上传|下载|页面|接口|系统|按钮|现在|刚才|今天|一直|每次|实际).{0,60}(?:报错|报\s*[45]\d\d|异常|白屏|闪退|没反应|无法|不能|失败|失效|不生效)|(?:发现|遇到).{0,30}(?:bug|报错|故障)/i.test(text);
+}
+
 /**
  * 显式斜杠命令的语义体检（只在明显冲突时拦一下，保住"斜杠即明确"的效率）。
  * 触发场景来自真机事故：验收阶段用 /amend 报缺陷现象，会把工单退回澄清、作废全部下游工作。
@@ -148,6 +156,7 @@ export function isProjectSlashCommand(text: string): boolean {
 export function helpText(): string {
   return [
     '**流水线指令**（斜杠命令，或直接用中文说；群里需 @ 我）：',
+    '`/bug 登录后报500，预期进入首页` 报告问题：保留原话与截图，分诊、复现、修复、上线验证后关闭',
     '`/req 数据域里想一眼看出哪些表没设权限` 提需求：我在话题里跟你把需求聊清楚，你确认后进需求池，负责人排期后自动建工单',
     '`/pool` 需求池一览（梳理中 / 待确认 / 待排期 / 排队中 / 开发中）',
     '`/new LS-004 给 /mcp 端点加限流` 直接建工单、不经过需求池（开发自己用；工单号可省略，我会自动编号）',
@@ -172,7 +181,7 @@ export function helpText(): string {
 /** 全部斜杠命令名（拼错提示用） */
 const SLASH_COMMANDS = [
   'help', 'list', 'dashboard', 'status', 'pause', 'resume', 'amend', 'rewind',
-  'note', 'new', 'req', 'pool', 'run', 're', 'use', 'bind', 'addproject',
+  'note', 'new', 'req', 'bug', 'pool', 'run', 're', 'use', 'bind', 'addproject',
 ];
 
 /** 斜杠命令拼错时给最接近的候选（「/dashborad」实测，2026-09-01）；对不上返回 null */
@@ -259,6 +268,8 @@ export function parseSlash(text: string): Command | null {
       // 不带正文也是合法的：daemon 会把最近的 /run 对话整理成需求、弹卡确认后建单（零输入建单）
       return { kind: 'new', ticket: ticketOk, repo, requirement: body ?? '' };
     }
+    case 'bug':
+      return arg ? { kind: 'bug', text: arg } : { kind: 'unknown', text: t };
     case 'req':
       return arg ? { kind: 'req', text: arg } : { kind: 'unknown', text: t };
     case 'pool':
@@ -301,7 +312,7 @@ export const COMMAND_SCHEMA = {
       type: 'string',
       enum: [
         'status', 'list', 'dashboard', 'pause', 'resume', 'rewind',
-        'amend', 'note', 'new', 'req', 'pool', 'answer', 'run', 'followup', 'help', 'unknown',
+        'amend', 'note', 'new', 'req', 'bug', 'pool', 'answer', 'run', 'followup', 'help', 'unknown',
       ],
     },
     ticket: { type: ['string', 'null'] },
@@ -367,12 +378,14 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
     ...followupOption,
     'answer：回答某张待确认卡片（**只有现场显示"正在等回答"时才可用**）。target 填 Q 编号或卡点名，text 填答案本身（如"不通过 页面报500"）。',
     'note：给**某个工单**追加一条说明/缺陷现象，不改需求、不回退。text 填说明内容，ticket 必填。',
-    '  线上出故障、但没指明是哪个工单 → **run（先诊断）**，不要 note——挂不到工单上的 note 没有意义。',
+    '  明确报告线上故障/既有功能失效 → **bug**；纯追加工单上下文、尚未报告独立问题才是note。',
     'amend：**修改需求本身**（会回退到澄清重跑）。只有明确要求增删改需求时才用。',
     'rewind：回退到指定阶段重跑，需要 stage。',
     'run：单次执行——问代码库的问题、跑测试、跑一条已有的指令/skill，不建工单。**它有 Bash 权限，不是只读的**。',
     '  "这个仓库的鉴权在哪""跑一下前端测试""帮我看看 X 是怎么实现的" → run。',
     '  注意与 req/new 的分界：**想要系统多一个功能或改一个行为就是 req**（进需求池梳理），只是想看/问/验证/跑现成命令、查数导出才是 run。',
+    'bug：明确报告已发生的报错、功能失效、实际行为不符合预期；保留原话进入Bug闭环，分诊由人工确认。问如何使用、假设性讨论不是bug。',
+    '  明确只是调查/排查/分析原因、询问一般问题（如「帮我调查页面报错的原因」「这个仓库的鉴权在哪」）仍是run，不因提到报错就登记bug。',
     'req：提需求——描述一件希望系统新增或改变的事（「我想要…」「能不能加个…」「有没有一个功能…」「这里应该改成…」），没说要直接建单。',
     '  会先在话题里把需求聊清楚、提出人确认、负责人排期，之后自动建工单。**描述新功能/改进时默认 req，不是 new**。',
     'new：直接建工单、不经过需求池——**只有**明确说「建单/开工单/直接建工单」、或给了工单号时才用。',
@@ -388,7 +401,7 @@ export function buildClassifyPrompt(text: string, contexts: TicketContext[], las
     '',
     '## 判定规则（按优先级）',
     '1. 现场正在等回答，且这句话像是在回应那个问题 → answer。',
-    '2. 描述"某功能报错/异常/不通过/无法使用"等**现象** → note 或 answer，**绝不是 amend**。',
+    '2. 描述"某功能报错/异常/无法使用"等已经发生的具体问题 → bug；正在回答待验收卡才是answer。**绝不是 amend**。',
     '   报缺陷不等于改需求——误判为 amend 会作废已完成的计划与实现。',
     '3. 明确说"需求改成…/再加一个要求/这个不做了" → amend，**但仅限于正在进行中的工单**。',
     '4. **描述一件要做的事、却没指明是哪个在跑的工单 → req（新需求进池），不是 amend**；明确要求直接建单才是 new。',
@@ -538,6 +551,8 @@ export function normalize(
       return ticket && so.text ? { kind: 'note', ticket, text: so.text } : { kind: 'unknown', text: original };
     case 'new':
       return so.text ? { kind: 'new', requirement: so.text } : { kind: 'unknown', text: original };
+    case 'bug':
+      return { kind: 'bug', text: original };
     case 'req':
       // 同 run：一律用原话——提出人的原话要原样进需求记录，分类器的转述会丢细节
       return { kind: 'req', text: original };

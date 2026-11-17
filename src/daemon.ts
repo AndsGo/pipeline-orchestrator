@@ -4,6 +4,7 @@ import {
   classifyCommand,
   describeCommand,
   helpText,
+  isClearBugReport,
   needsConfirm,
   parseSlash,
   slashSanityIssue,
@@ -37,6 +38,8 @@ import { recoverReqs, reqEventListener, startReqTicker } from './daemon/reqFlow.
 import { readReq, REQ_RE } from './requirements.js';
 import { runTicket } from './ticketRunner.js';
 import { allocateWorkspace } from './workspace.js';
+import { handleBugCard, onBugTicketEvent, recoverBugs, startBugTicker } from './daemon/bugFlow.js';
+import { readBug } from './bugs.js';
 
 const projects = loadProjects();
 if (!projects.length) {
@@ -217,7 +220,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
   let newFromBatchTail: string | undefined;
   if (!slash) {
     // 有待确认卡片时，先看这句话是不是在回答它（明确表决/选项才拦截，不劫持指令）
-    const ans = port.tryAnswerByText(m.text, false, th?.ticket ?? th?.req, m.sender);
+    const ans = port.tryAnswerByText(m.text, false, th?.ticket ?? th?.req ?? th?.bug, m.sender);
     if (ans.status === 'resolved') {
       await port.notify('回答', `已记录 ${ans.label} → ${ans.answer}${ans.note ? `（补充：${ans.note}）` : ''}`, origin);
       return;
@@ -261,6 +264,8 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
         return;
       }
     }
+  } else if (th?.bug || isClearBugReport(m.text)) {
+    cmd = { kind: 'bug', project: th?.project, text: m.text };
   } else {
     // The ingress gate has already verified that this message explicitly @bot.
     // 工单话题里只看这张单的现场；带上的「最近一次 /run」也只认话题自己的会话（群指针是主线兜底）
@@ -333,7 +338,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
     if (cmd.kind === 'answer') {
       const c = cmd;
       const composed = c.target ? `${c.target} ${c.text}` : c.text;
-      const r = port.tryAnswerByText(composed, true, th?.req, m.sender);
+      const r = port.tryAnswerByText(composed, true, th?.req ?? th?.bug, m.sender);
       if (await reportAnswer(r, origin)) return;
       cmd = { kind: 'note', ticket: c.ticket ?? '', text: c.text }; // 卡片已过期 → 退化为说明
       if (!cmd.ticket) cmd = { kind: 'unknown', text: m.text };
@@ -359,7 +364,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
 
     if (cmd.kind === 'unknown') {
       // 没听懂但有待答卡片 → 当作自由文本答案（人的话不该被丢掉）
-      if (await reportAnswer(port.tryAnswerByText(m.text, true, th?.ticket ?? th?.req, m.sender), origin)) return;
+      if (await reportAnswer(port.tryAnswerByText(m.text, true, th?.ticket ?? th?.req ?? th?.bug, m.sender), origin)) return;
       if (!m.mentioned && !th) return; // 没 @ 又没听懂：安静退出（话题里除外，见上）
     }
   }
@@ -418,6 +423,7 @@ async function handleMessage(m: IncomingMessage, th: ThreadRec | null): Promise<
   }
 
   try {
+    if (cmd.kind === 'bug') cmd = { ...cmd, messageId: m.messageId, quotedMessageId: m.quotedMessageId, reportedAt: m.reportedAt, attachments: m.attachments };
     await handleCommand(cmd, m.sender, origin);
   } catch (e) {
     log(`指令处理失败：${(e as Error).message}`);
@@ -467,10 +473,10 @@ log(boardOn ? '看板投影已启用（多维表格）' : '看板投影未配置
 
 port = await FeishuPort.create(feishuConfigFromEnv(), (m) => void onMessage(m));
 // 工单生命周期通知按项目绑定群路由（/bind 设置）：工单号前缀 → 项目，或直接给项目别名
-port.routeChat = (t) => (REQ_RE.test(t) ? readReq(t)?.chatId : (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId);
+port.routeChat = (t) => (/^BUG-\d+$/.test(t) ? readBug(t)?.chatId : REQ_RE.test(t) ? readReq(t)?.chatId : (projectOfTicket(projects, t) ?? projects.find((p) => p.alias === t))?.chatId);
 // 工单绑了话题就把它的卡片/进度投进话题（src/threads.ts；广播另在主线留一份）
 // 需求（REQ-xxx）的卡片与进度进它的来源话题
-port.routeThread = (t) => (REQ_RE.test(t) ? readReq(t)?.rootId || undefined : threadOfTicket(t)?.rootId);
+port.routeThread = (t) => (/^BUG-\d+$/.test(t) ? readBug(t)?.rootId : REQ_RE.test(t) ? readReq(t)?.rootId || undefined : threadOfTicket(t)?.rootId);
 // 业务受众（PIPELINE.md audience: business）的工单主线安静：过程只进话题，主线只发决策指路与收尾（拍板 2026-09-14）
 port.quietMain = (t) => {
   const repo = peekTicketRepo(t);
@@ -500,6 +506,10 @@ await port.notify('流水线', `编排器已上线。并发上限 ${cfg.maxConcu
 await announceInterruptedTickets(ctx);
 // 需求池：工单闭环回推提出人并出队；重启丢了的确认/排期卡按状态重发；每日提醒超期待排期
 onEvent(reqEventListener(ctx));
+port.onBugAction = (value, note, actor, source) => handleBugCard(ctx, value, note, actor, source);
+onEvent(event => { void onBugTicketEvent(ctx, event).catch((error: Error) => log(`Bug工单回推失败：${error.message}`)); });
+await recoverBugs(ctx);
+startBugTicker(ctx);
 recoverReqs(ctx);
 startReqTicker(ctx);
 startKbAudit(ctx);

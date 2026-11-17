@@ -13,6 +13,7 @@ import { formatCost } from '../cost.js';
 import { executionModelRecord } from '../engine/configuration.js';
 import { resolveOutput } from '../output/configuration.js';
 import { createOutputRecord, renderOutput } from '../output/records.js';
+import { ticketCompletionEvidence } from '../ticketEvidence.js';
 
 /**
  * 分诊 + 快车道（P0 任务分级）。返回 true 表示工单已在快车道闭环，runner 应直接退出；
@@ -88,7 +89,7 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
         risks: [], actions: [], evidence: [], sourceRef: ticket };
       if (port.sendOutput) await port.sendOutput(draft, undefined, outputResolution);
       else await port.notify(ticket, renderOutput(createOutputRecord(draft, undefined, outputResolution)));
-      appendEvent({ ticket, type: 'done', summary: '快车道闭环' });
+      appendEvent({ ticket, type: 'done', summary: '快车道闭环', payload: ticketCompletionEvidence(repo) });
       run.save();
       return true;
     }

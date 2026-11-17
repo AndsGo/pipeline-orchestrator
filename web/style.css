@@ -208,3 +208,5 @@ body.login form { background: var(--surface); border: 1px solid var(--line); bor
 @media (max-width: 1500px) { .docs.with-toc { grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); } .toc { display: none; } }
 .output-preview { flex: 1 1 280px; }
 .output-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+#bugNew, #bugAction, #bugActionFields { display: grid; gap: .7rem; margin-top: .8rem; }
+#bugAction label, #bugNew label { display: grid; gap: .25rem; }

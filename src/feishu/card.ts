@@ -10,11 +10,17 @@ import type { OutputLevel } from '../output/configuration.js';
  */
 
 export interface CardAction {
-  kind: 'answer' | 'gate' | 'output';
+  kind: 'answer' | 'gate' | 'output' | 'bug';
   key: string;
   answer?: string;
   decision?: 'approve' | 'reject';
   level?: OutputLevel;
+}
+
+export function bugActionCard(title: string, summary: string, key: string, actions: Array<{ label: string; action: string }>): Record<string, unknown> {
+  return { config: { wide_screen_mode: true }, header: header(title, 'blue'), elements: [md(summary),
+    ...(actions.length ? [{ tag: 'action', actions: actions.map(item => button(item.label, 'default', { kind: 'bug', key, answer: item.action })) }] : []),
+    typeHint('/bug 补充实际表现、预期、复现步骤及证据；也可在Web填写完整材料') ] };
 }
 
 function header(title: string, template: string): Record<string, unknown> {

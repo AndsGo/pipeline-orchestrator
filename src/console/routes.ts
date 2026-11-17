@@ -37,6 +37,8 @@ const runningProbes = new Set<string>();
 import { queueExecutionSwitch, pendingSwitch } from '../engine/tickets.js';
 import { readOutputConfiguration, writeOutputConfiguration, OutputConfigurationError, OutputConfigurationConflictError } from '../output/configuration.js';
 import { listOutputRecords, readOutputRecord } from '../output/records.js';
+import { applyBugAction, BugConflictError, BugStoreError, createBug, listBugs, readBug, type BugAction, type BugRecord } from '../bugs.js';
+import { enqueueBugRequest, readBugRequest } from '../daemon/bugMailbox.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -113,6 +115,14 @@ function projectsNow(): Project[] {
 
 const TICKET_RE = /^[A-Za-z]{1,6}-\d{1,6}$/;
 
+function bugActions(bug: BugRecord): string[] {
+  const common = ['update', 'supplement'];
+  if (bug.waitingForInfo) return [...common, 'need-info'];
+  if (['已关闭', '重复', '已转需求', '使用问题'].includes(bug.status)) return [...common, 'reopen'];
+  const stage: Record<string, string[]> = { 待分诊: ['triage', 'investigate'], 待复现: ['triage', 'reproduce', 'investigate'], 待修复: ['reproduce', 'start-fix'], 修复中: bug.fixAttempt?.status === 'linked' ? ['fix-ready'] : [], 待上线: ['deploy'], 待验证: ['verify-pass', 'verify-fail'] };
+  return [...common, 'need-info', ...(['待分诊', '待复现', '待修复'].includes(bug.status) ? ['duplicate', 'reclassify'] : []), ...(stage[bug.status] ?? [])];
+}
+
 function runDoctor(): Promise<{ lines: string[]; code: number | null }> {
   return new Promise((resolve) => {
     const p = spawn('npx', ['tsx', 'scripts/doctor.ts', '--no-infer'], { cwd: root, shell: true, env: process.env });
@@ -176,6 +186,51 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
   const p = url.pathname;
   const method = req.method ?? 'GET';
   const dir = dataDir();
+
+  if (p === '/api/bugs' && method === 'GET') return json(res, 200, listBugs());
+  if (p === '/api/bugs' && method === 'POST') {
+    const b = await readBody(req) as Record<string, unknown>;
+    if (!b || typeof b.project !== 'string' || typeof b.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(b.requestId)) return json(res, 400, { error: '项目或请求编号不合法' });
+    const project = projectsNow().find(item => item.alias === b.project);
+    if (!project) return json(res, 400, { error: '请选择已配置的项目' });
+    const bug = createBug({ project: project.alias, repo: path.resolve(project.repo), requester: b.requester as string, raw: b.raw as string, title: b.title as string | undefined, evidenceRefs: b.evidenceRefs as string[] | undefined, requestId: b.requestId }, '控制台');
+    return json(res, 201, bug);
+  }
+  const bugRequestMatch = /^\/api\/bug-requests\/([A-Za-z0-9_-]{8,100})$/.exec(p);
+  if (bugRequestMatch && method === 'GET') {
+    const request = readBugRequest(bugRequestMatch[1]);
+    return request ? json(res, 200, request) : json(res, 404, { error: '无此请求' });
+  }
+  const bugMatch = /^\/api\/bugs\/([^/]+)(?:\/(actions))?$/.exec(p);
+  if (bugMatch) {
+    let id: string;
+    try { id = decodeURIComponent(bugMatch[1]); } catch { return json(res, 400, { error: '问题编号不合法' }); }
+    if (!/^BUG-\d{3,}$/.test(id)) return json(res, 400, { error: '问题编号不合法' });
+    const bug = readBug(id);
+    if (!bug) return json(res, 404, { error: '无此问题' });
+    if (!bugMatch[2] && method === 'GET') return json(res, 200, { ...bug, allowedActions: bugActions(bug) });
+    if (bugMatch[2] && method === 'POST') {
+      const b = await readBody(req) as { expectedRevision?: number; requestId?: string; action?: BugAction | { type: 'start-fix' | 'investigate' } };
+      if (!b || !Number.isSafeInteger(b.expectedRevision) || typeof b.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(b.requestId) || !b.action || typeof b.action !== 'object') return json(res, 400, { error: '操作、版本或请求编号不合法' });
+      if (b.action.type === 'start-fix' || b.action.type === 'investigate') {
+        if (Object.keys(b.action).some(key => key !== 'type')) return json(res, 400, { error: '操作包含非法字段' });
+        const previous = readBugRequest(b.requestId);
+        if (previous) {
+          if (previous.id !== id || previous.expectedRevision !== b.expectedRevision || previous.operation !== b.action.type || previous.by !== '控制台' || previous.channel !== 'console') return json(res, 409, { error: '请求编号已用于另一项操作' });
+          return json(res, 202, { queued: true, requestId: b.requestId, completedAt: previous.completedAt, error: previous.error });
+        }
+        if (!bugActions(bug).includes(b.action.type)) return json(res, 400, { error: '当前状态不允许此操作' });
+        if (bug.revision !== b.expectedRevision) return json(res, 409, { error: '问题已变更，请刷新后重试' });
+        try { enqueueBugRequest({ id, expectedRevision: b.expectedRevision!, requestId: b.requestId, by: '控制台', channel: 'console', operation: b.action.type }); }
+        catch (error) { if ((error as Error).message === 'requestId 已用于另一项 Bug 操作') throw new BugConflictError('请求编号已用于另一项操作'); throw error; }
+        return json(res, 202, { queued: true, requestId: b.requestId });
+      }
+      if (!['triage', 'update', 'need-info', 'supplement', 'reproduce', 'fix-ready', 'deploy', 'verify-pass', 'verify-fail', 'reopen', 'duplicate', 'reclassify'].includes(b.action.type)) return json(res, 400, { error: '操作不合法' });
+      if (b.action.type === 'fix-ready' && bug.waitingForInfo) return json(res, 400, { error: '请先补充所需信息' });
+      return json(res, 200, applyBugAction(id, b.expectedRevision!, { ...b.action, requestId: b.requestId } as BugAction, '控制台'));
+    }
+    return json(res, 405, { error: 'method' });
+  }
 
   if (p === '/api/output-settings' && method === 'GET') return json(res, 200, readOutputConfiguration());
   if (p === '/api/output-settings' && method === 'PUT') {
@@ -412,7 +467,7 @@ export function createConsoleRoute(consoleToken: string, logger: (m: string) => 
       serveStatic(url.pathname, res);
     } catch (e) {
       log(`${req.method} ${url.pathname} 失败：${(e as Error).message}`);
-      if (!res.headersSent) json(res, e instanceof OutputConfigurationConflictError ? 409 : e instanceof ExecutionConfigError || e instanceof OutputConfigurationError || (e as Error).message === 'bad json' ? 400 : 500, { error: (e as Error).message });
+      if (!res.headersSent) json(res, e instanceof OutputConfigurationConflictError || e instanceof BugConflictError ? 409 : e instanceof ExecutionConfigError || e instanceof OutputConfigurationError || e instanceof BugStoreError || (e as Error).message === 'bad json' ? 400 : 500, { error: (e as Error).message });
     }
     return true;
   };

@@ -17,6 +17,7 @@ export interface ThreadRec {
   ticket?: string;
   /** 需求话题：访谈在这里进行（需求池，src/requirements.ts）。与 ticket 二选一 */
   req?: string;
+  bug?: string;
   /** 对话会话：最近一轮 /run（含 sessionId） */
   run?: LastRun;
   createdAt: string;
@@ -132,6 +133,14 @@ export function bindReqThread(rootId: string, req: string, chatId: string, proje
   writeThreads(all, file, now);
 }
 
+export function bindBugThread(rootId: string, bug: string, chatId: string, project: string, file = threadsFile(), now = Date.now()): void {
+  const all = readThreads(file);
+  const at = new Date(now).toISOString();
+  const prev = all[rootId];
+  all[rootId] = { ...prev, chatId, project, bug, createdAt: prev?.createdAt ?? at, lastAt: at, turns: prev?.turns ?? 0 };
+  writeThreads(all, file, now);
+}
+
 /** 需求 → 话题根 */
 export function threadOfReq(req: string, file = threadsFile()): { rootId: string; rec: ThreadRec } | null {
   for (const [rootId, rec] of Object.entries(readThreads(file))) if (rec.req === req) return { rootId, rec };
@@ -150,6 +159,7 @@ export function rememberThreadRun(rootId: string, chatId: string, run: LastRun, 
     project: run.project,
     ticket: prev?.ticket,
     req: prev?.req,
+    bug: prev?.bug,
     // 过程留一份压缩版（最近 12 轮、每轮几百字）：会话到期重开时靠它接手。此前不存 transcript，重开的会话只拿到
     // 上次输出前 600 字——2026-09-12 真机：第 29 轮用内网生图接口跑了 282 张图，第 31 轮（新会话）却说「环境里没有生图工具」
     run: { ...run, output: run.output.slice(0, STORED_OUTPUT_CAP), transcript: compactRounds(run.transcript ?? [{ command: run.command, output: run.output }]) },
@@ -205,6 +215,9 @@ export function expiredSessionBrief(rec: ThreadRec): string | null {
  * 纯函数：返回同一引用表示「没改」
  */
 export function routeInThread(cmd: Command, th: ThreadRec | null, text: string, rootIsRunCard: boolean): Command {
+  if (th?.bug && ['bug', 'followup', 'run', 'unknown', 'note'].includes(cmd.kind)) {
+    return { kind: 'bug', project: th.project, text: text.replace(/^\/(?:bug|run|re)\s*/i, '').trim() };
+  }
   if (th?.ticket) {
     const t = th.ticket;
     switch (cmd.kind) {
