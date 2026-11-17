@@ -78,10 +78,10 @@ export function taskDigest(plan: string): string {
 }
 
 /** 组装某个卡点的决策材料；无可提取内容时返回空串（卡片退回纯摘要） */
-export function gateDetail(gate: string, repo: string, ticket: string): string {
+export function gateDetail(gate: string, repo: string, ticket: string, material?: string): string {
   try {
     if (gate === 'prd-confirm') {
-      const prd = read(repo, ticket, '10-prd.md');
+      const prd = material ?? read(repo, ticket, '10-prd.md');
       if (!prd) return '';
       const ac = acDigest(prd);
       const scope = scopeDigest(prd);
@@ -93,7 +93,7 @@ export function gateDetail(gate: string, repo: string, ticket: string): string {
       return clip(parts.join('\n\n'));
     }
     if (gate === 'plan-approval') {
-      const plan = read(repo, ticket, '20-plan.md');
+      const plan = material ?? read(repo, ticket, '20-plan.md');
       if (!plan) return '';
       const summary = section(plan, '审批摘要');
       const tasks = taskDigest(plan);
@@ -101,6 +101,7 @@ export function gateDetail(gate: string, repo: string, ticket: string): string {
       return clip(parts.join('\n\n'));
     }
     if (gate === 'deploy-approval') {
+      if (material !== undefined) return clip(section(material, '本阶段结论'), 1500);
       const rev = fs
         .readdirSync(ticketDir(repo, ticket))
         .filter((f) => /^30-review-r\d+\.md$/.test(f))
@@ -109,8 +110,24 @@ export function gateDetail(gate: string, repo: string, ticket: string): string {
       const md = rev ? read(repo, ticket, rev) : null;
       return md ? clip(section(md, '本阶段结论'), 1500) : '';
     }
+    if (gate === 'release-approval' && material) return clip(section(material, '本阶段结论'), 1500);
   } catch {
     /* 提取失败不能挡住审批 */
+  }
+  return '';
+}
+
+/** 完整审批材料快照；摘要提取只负责卡片排版，不能替代审批依据。 */
+export function gateMaterial(gate: string, repo: string, ticket: string): string {
+  const file = gate === 'prd-confirm' ? '10-prd.md' : gate === 'plan-approval' ? '20-plan.md' : gate === 'release-approval' ? '40-acceptance.md' : undefined;
+  if (file) return read(repo, ticket, file) ?? '';
+  if (gate === 'deploy-approval') {
+    const dir = ticketDir(repo, ticket);
+    if (!fs.existsSync(dir)) return '';
+    const reviews = fs.readdirSync(dir).filter(name => /^30-review-r\d+\.md$/.test(name));
+    reviews.sort((a, b) => Number(/r(\d+)/.exec(a)![1]) - Number(/r(\d+)/.exec(b)![1]));
+    const latest = reviews.at(-1);
+    return latest ? read(repo, ticket, latest) ?? '' : '';
   }
   return '';
 }

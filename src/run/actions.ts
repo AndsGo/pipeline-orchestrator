@@ -13,6 +13,9 @@ import { deliverAndCompound, reviewKnowledge, reviewStaleHints, reviewSuggestion
 import type { TicketRun } from './context.js';
 import { askGate } from './gates.js';
 import { executionModelRecord } from '../engine/configuration.js';
+import { resolveOutput, type OutputResolution } from '../output/configuration.js';
+import { createOutputRecord, renderOutput } from '../output/records.js';
+import { DELIVERY_FILE } from '../knowledge.js';
 
 /**
  * 验收「不通过」必须附失败现象——它是修复轮最重要的输入，缺了修复只能瞎猜。
@@ -48,11 +51,22 @@ export async function ensureRejectionEvidence(
 }
 
 /** done：沉淀收尾（建议人审 → 交付文档 + 知识投影 → 知识/术语人审）并宣告闭环 */
-async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfile | null): Promise<void> {
+async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfile | null, outputResolution = resolveOutput(run.repo, 'delivery')): Promise<void> {
   const { repo, ticket, port, project } = run;
   const biz = audienceOf(profile) === 'business';
   // compound 的结论此前被通知逻辑丢弃（只有卡点阶段消费 summary_for_card），人根本不知道有教训沉淀
-  if (res.summary_for_card) await port.notify(ticket, `${biz ? '本单总结' : '沉淀结论'}：${res.summary_for_card}`);
+  const deliveryFile = path.join(ticketDir(repo, ticket), DELIVERY_FILE);
+  const delivery = fs.existsSync(deliveryFile) ? fs.readFileSync(deliveryFile, 'utf-8') : '';
+  if (res.summary_for_card || delivery) {
+    const pendingChecks = run.state.postReleaseChecks ?? [];
+    const draft = { repo, project: project?.alias, stage: 'delivery' as const, title: `${ticket} 交付总结`,
+      summary: res.summary_for_card ?? '', detail: delivery || res.summary_for_card || '',
+      risks: [...(res.concerns ?? []), ...pendingChecks.map(q => `尚未完成上线后实测：${q.id} ${q.question}`)],
+      actions: pendingChecks.map(q => `上线后补验：${q.id} ${q.question}`),
+      evidence: delivery ? [deliveryFile] : [], sourceRef: ticket };
+    if (port.sendOutput) await port.sendOutput(draft, undefined, outputResolution);
+    else await port.notify(ticket, renderOutput(createOutputRecord(draft, undefined, outputResolution)));
+  }
   await reviewSuggestions(repo, ticket, port);
   const kb = await deliverAndCompound(repo, ticket, port, project);
   await reviewKnowledge(repo, ticket, port, kb.createdKnowledge, kb.updatedKnowledge);
@@ -76,7 +90,7 @@ async function actDone(run: TicketRun, res: StageResult, profile: PipelineProfil
 }
 
 /** gate：prd-confirm 先生成结果预览；先落盘 pendingGate 再弹卡 */
-async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>, stage: Stage): Promise<void> {
+async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>, stage: Stage, outputResolution = resolveOutput(run.repo, 'confirmation')): Promise<void> {
   const { repo, ticket, port } = run;
   let gateSummary = action.summary;
   // 结果预览（grill-me 定稿 2026-09-01）：prd-confirm 是决策质量最差的一环——业务人员面对
@@ -105,7 +119,7 @@ async function actGate(run: TicketRun, action: Extract<Action, { kind: 'gate' }>
     gateSummary += '\n\n_按钮之外有任何意见，直接在群里说即可：小的记进需求，大的会回澄清重做。_';
   }
   // 先落盘再弹卡：卡随进程内存消失，盘上的这条记录是重启后重发它的唯一依据
-  run.state = { ...run.state, pendingGate: { gate: action.gate, summary: gateSummary, concerns: action.concerns, stage } };
+  run.state = { ...run.state, pendingGate: { gate: action.gate, summary: gateSummary, concerns: action.concerns, stage, outputResolution } };
   run.save();
   await askGate(run, run.state.pendingGate!);
 }
@@ -186,17 +200,18 @@ export async function dispatchAction(
   res: StageResult,
   stage: Stage,
   profile: PipelineProfile | null,
+  outputResolution?: OutputResolution,
 ): Promise<'continue' | 'return'> {
   switch (action.kind) {
     case 'done':
-      await actDone(run, res, profile);
+      await actDone(run, res, profile, outputResolution);
       return 'return';
     case 'halt':
       run.state = { ...run.state, haltedReason: action.reason };
       run.save();
       return 'continue';
     case 'gate':
-      await actGate(run, action, stage);
+      await actGate(run, action, stage, outputResolution);
       return 'continue';
     case 'ask':
       await actAsk(run, action, stage, profile);

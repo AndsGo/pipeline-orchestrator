@@ -32,6 +32,7 @@ import { broadcast } from './ports.js';
 import { withInvocationTicket } from './engine/invocations.js';
 import { CliExecutionError, failureUsage } from './engine/errors.js';
 import { type Audience, audienceOf, endLine as bizEndLine, errorLine, progressLine, staleBlockWarning } from './voice.js';
+import { resolveOutput } from './output/configuration.js';
 
 export { ensureRejectionEvidence } from './run/actions.js';
 
@@ -296,6 +297,7 @@ async function runTicketImpl(opts: RunTicketOpts): Promise<void> {
     }
 
     const stageModel = await prepareStage(run, stage, profile);
+    const outputResolution = resolveOutput(repo, stage === 'compound' ? 'delivery' : 'confirmation');
     const stageStartedMs = Date.now();
     const ledgerWatch = stage === 'implement' ? watchLedger(repo, ticket, port, audienceOf(profile)) : null;
     let envelope: Envelope;
@@ -446,7 +448,7 @@ async function runTicketImpl(opts: RunTicketOpts): Promise<void> {
       }
     }
 
-    if ((await dispatchAction(run, action, res, stage, profile)) === 'return') return;
+    if ((await dispatchAction(run, action, res, stage, profile, outputResolution)) === 'return') return;
   }
 }
 

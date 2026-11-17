@@ -7,7 +7,9 @@ import { dataDir, removeFile } from '../paths.js';
 import { getThread } from '../threads.js';
 import { GATE_CN } from '../voice.js';
 import { SheetService } from './sheet.js';
-import { type ChatRef, chatIdOf, type GateDecision, type InteractionPort, rootIdOf } from '../ports.js';
+import { type ChatRef, chatIdOf, type GateDecision, type GateOutputOptions, type InteractionPort, outputMatchesOrigin, rootIdOf } from '../ports.js';
+import { bindOutputMessage, createOutputRecord, readOutputRecord, renderOutput, type OutputDraft } from '../output/records.js';
+import { resolveOutput, type OutputLevel, type OutputResolution } from '../output/configuration.js';
 import type { OpenQuestion } from '../types.js';
 import {
   chooseCard,
@@ -17,6 +19,7 @@ import {
   questionsCard,
   resolvedCard,
   resultCard,
+  outputCards,
   statusCard,
   type CardAction,
   type QuestionItem,
@@ -135,13 +138,15 @@ export class FeishuPort implements InteractionPort {
     if (!botOpenId) console.log('[feishu] 未取到机器人 open_id，消息指令已停用；卡片按钮仍可操作');
 
     const handlers: Record<string, (data: never) => Promise<unknown>> = {
-      'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> }; operator?: { open_id?: string } }) => {
-        const update = port.handleCardAction(
+      'card.action.trigger': (async (data: { action?: { value?: unknown; form_value?: Record<string, string> }; operator?: { open_id?: string }; context?: { open_chat_id?: string; open_message_id?: string } }) => {
+        const update = await port.handleCardAction(
           data?.action?.value as CardAction | undefined,
           data?.action?.form_value,
           data?.operator?.open_id,
+          { chatId: data?.context?.open_chat_id, messageId: data?.context?.open_message_id },
         );
         if (update === 'denied') return { toast: { type: 'warning', content: '这张卡只有指定的人能处理（需求排期卡只认项目负责人）' } };
+        if (update === 'failed') return { toast: { type: 'error', content: '展开失败，原卡已保留，请稍后重试' } };
         return update
           ? { toast: { type: 'success', content: '已收到' }, card: { type: 'raw', data: update } }
           : { toast: { type: 'info', content: '该卡片已处理或已过期' } };
@@ -376,8 +381,16 @@ export class FeishuPort implements InteractionPort {
   }
 
   /** 回调核心（纯逻辑，可单测）：按 key 归位 pending，返回更新后的卡片；未命中返回 null */
-  handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>, operator?: string): Record<string, unknown> | null | 'denied' {
+  handleCardAction(value: CardAction | undefined, formValue?: Record<string, string>, operator?: string, context?: { chatId?: string; messageId?: string }): Record<string, unknown> | null | 'denied' | Promise<Record<string, unknown> | 'failed'> {
     if (!value?.key) return null;
+    if (value.kind === 'output') {
+      if (value.level !== 'concise' && value.level !== 'professional') return null;
+      const record = readOutputRecord(value.key);
+      if (!record || (record.stage === 'confirmation' && record.sourceRef) || !record.chatId || !record.messageId || record.chatId !== context?.chatId || record.messageId !== context?.messageId) return 'denied';
+      const cards = outputCards(record, value.level);
+      if (cards.length > 1) return this.prepareOutputUpdate(cards, { chatId: record.chatId, rootId: record.rootId });
+      return cards[0];
+    }
     const p = this.pending.get(value.key);
     if (!p) return null;
     if (p.allowed?.length && operator && !p.allowed.includes(operator)) return 'denied';
@@ -406,12 +419,27 @@ export class FeishuPort implements InteractionPort {
     return this.post('interactive', JSON.stringify(card), asTarget(to));
   }
 
+  /** 先确保续卡可达，再返回首卡供回调替换，失败时保留原卡的风险信息。 */
+  private async prepareOutputUpdate(cards: Record<string, unknown>[], to: { chatId: string; rootId?: string }): Promise<Record<string, unknown> | 'failed'> {
+    try {
+      for (const continuation of cards.slice(1)) {
+        if (!await this.postCard(continuation, to)) throw new Error('续卡发送未返回消息编号');
+      }
+      return cards[0];
+    } catch (e) {
+      console.warn(`[feishu] 输出展开失败，原卡已保留：${(e as Error).message}`);
+      return 'failed';
+    }
+  }
+
   /** 原位更新已发出的卡片（打字回答时用——回调窗口更新只在点按钮时可用） */
-  private async patchCard(messageId: string, card: Record<string, unknown>): Promise<void> {
+  private async patchCard(messageId: string, card: Record<string, unknown>): Promise<boolean> {
     try {
       await this.client.im.message.patch({ path: { message_id: messageId }, data: { content: JSON.stringify(card) } });
+      return true;
     } catch (e) {
       console.warn(`[feishu] 卡片更新失败（不影响回答已记录）：${(e as Error).message}`);
+      return false;
     }
   }
 
@@ -587,11 +615,26 @@ export class FeishuPort implements InteractionPort {
     summary: string,
     concerns: string[],
     detail?: string,
-    opts?: { allowed?: string[] },
+    opts?: GateOutputOptions,
   ): Promise<GateDecision> {
     const key = this.nextKey(`gate:${ticket}:${gate}`);
     const wait = this.waitFor(key, `${ticket} 卡点 ${gate} 已处理`, summary, { kind: 'gate', label: gate, ticket, allowed: opts?.allowed });
-    await this.postCard(gateCard(ticket, gate, summary, concerns, key, detail), this.targetFor(ticket));
+    const target = this.targetFor(ticket);
+    const record = createOutputRecord({ repo: opts?.repo, project: opts?.project, stage: 'confirmation', title: `${ticket} ${gate}`,
+      summary, detail: opts?.fullDetail ?? detail ?? summary, risks: concerns,
+      actions: opts?.actions ?? ['通过后继续后续流程；驳回后按意见修订，再次确认。'], evidence: [], materialRevision: opts?.materialRevision, sourceRef: ticket },
+      { chatId: target.chatId ?? this.cfg.chatId, rootId: target.rootId }, opts?.resolution ?? resolveOutput(opts?.repo, 'confirmation'));
+    const display = outputCards(record, 'concise');
+    const firstBody = ((display[0].elements as Array<{ text?: { content?: string } }>)[0].text?.content) ?? renderOutput(record, 'concise');
+    const card = gateCard(ticket, gate, firstBody, [], key, record.level === 'professional' ? detail?.slice(0, 3000) : undefined);
+    const base = process.env.PREVIEW_BASE_URL?.trim().replace(/\/+$/, '');
+    if (base) (card.elements as Record<string, unknown>[]).push({ tag: 'div', text: { tag: 'lark_md', content: `[查看${opts?.materialRevision === undefined ? '' : `第 ${opts.materialRevision} 版`}完整材料](${base}/#/outputs/${encodeURIComponent(record.id)})` } });
+    const mid = await this.postCard(card, target);
+    if (mid) bindOutputMessage(record.id, mid);
+    for (const continuation of display.slice(1)) await this.postCard(continuation, target);
+    // 独立材料卡对业务审批人直接可达；展开不重绘审批卡，也不会丢失审批备注。
+    const fullDetail = opts?.fullDetail ?? detail;
+    if (fullDetail?.trim()) await this.sendOutput({ repo: opts?.repo, project: opts?.project, stage: 'confirmation', title: `${ticket} ${gate} · 材料`, summary: `此卡只展示材料；通过、驳回请使用原确认卡。${fullDetail.length > 6000 ? '完整材料较长，另附 Markdown 文件。' : ''}`, detail: fullDetail, risks: concerns, actions: [], evidence: [], materialRevision: opts?.materialRevision }, { ...target, chatId: target.chatId ?? this.cfg.chatId }, { level: 'concise', source: record.levelSource, revision: record.configRevision });
     await this.pointMain(ticket, `${GATE_CN[gate] ?? gate} 通过 / 驳回`);
     const { value, note } = await wait;
     return { approved: value === 'approve', note, ...(value === DROPPED ? { dropped: true } : {}) };
@@ -712,6 +755,32 @@ export class FeishuPort implements InteractionPort {
     if (body.length <= 600) return this.postText(title, `${body}${footer ? `\n\n${footer}` : ''}`, to);
     const clipped = body.length > 8000 ? body.slice(0, 8000) + '\n\n…（输出过长已截断）' : body;
     return this.postCard(resultCard(title, clipped, footer), this.targetFor(title, to));
+  }
+
+  async sendOutput(draft: OutputDraft, to?: ChatRef, resolution?: OutputResolution): Promise<string | undefined> {
+    const target = this.targetFor(draft.sourceRef ?? draft.project ?? draft.title, to);
+    const record = createOutputRecord(draft, { chatId: target.chatId ?? this.cfg.chatId, rootId: target.rootId }, resolution);
+    const cards = outputCards(record);
+    const mid = await this.postCard(cards[0], target);
+    if (mid) bindOutputMessage(record.id, mid);
+    for (const continuation of cards.slice(1)) await this.postCard(continuation, target);
+    if (draft.detail.length > 6000) {
+      const file = path.join(dataDir(), 'outputs', `${record.id}.md`);
+      fs.writeFileSync(file, draft.detail, 'utf-8');
+      const to = { ...target, chatId: target.chatId ?? this.cfg.chatId };
+      const uploaded = await this.sendFiles(draft.sourceRef ?? draft.project ?? draft.title, [file], to);
+      if (uploaded.failed.length) await this.notify(draft.title, '⚠ 完整材料附件发送失败；原文已保存，请稍后重发。审批前请确认已看到完整依据。', to);
+    }
+    return mid;
+  }
+
+  async showOutput(id: string, level: OutputLevel, to?: ChatRef): Promise<boolean> {
+    const record = readOutputRecord(id);
+    if (!record?.messageId || record.stage === 'confirmation' || !outputMatchesOrigin(record, to ?? this.cfg.chatId)) return false;
+    const cards = outputCards(record, level);
+    const prepared = await this.prepareOutputUpdate(cards, { chatId: record.chatId!, rootId: rootIdOf(to) ?? record.rootId });
+    if (prepared === 'failed') return false;
+    return this.patchCard(record.messageId, prepared);
   }
 
   /** 发送运行面板卡片（/dashboard 指令） */

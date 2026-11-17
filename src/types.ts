@@ -112,7 +112,7 @@ export interface TicketState {
    * （OP-002 实测 2026-09-02：plan-approval 没人答，盘上 cursor 已是 implement）。
    * 有它在，重进 runner 先原样重发这张卡：不重跑产出它的阶段，更不跳过它。答复落地即清。
    */
-  pendingGate?: { gate: GateName; summary: string; concerns: string[]; stage: Stage };
+  pendingGate?: { gate: GateName; summary: string; concerns: string[]; stage: Stage; outputResolution?: import('./output/configuration.js').OutputResolution; outputDetail?: string };
   /**
    * 上线环节（由仓库 docs/pipeline/PIPELINE.md 的 release 开关启用，编排器原生步骤，不是会话阶段）。
    * postReleaseChecks：项目没有测试环境时，验收的人工项不弹卡、先记在这里，上线后再弹；

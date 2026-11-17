@@ -16,7 +16,7 @@ import {
 } from '../followup.js';
 import { collectOutbox, outboxDir, outboxPromptLine } from '../outbox.js';
 import { applyCleanup, runSheetWorker } from '../sheetWriteback.js';
-import { type ChatRef, chatIdOf, rootIdOf } from '../ports.js';
+import { type ChatRef, chatIdOf, outputMatchesOrigin, rootIdOf } from '../ports.js';
 import { describeProjects, resolveProject, type Project } from '../projects.js';
 import { engineFor } from '../engine/index.js';
 import { formatCost } from '../cost.js';
@@ -26,6 +26,9 @@ import { expiredSessionBrief, getThread, rememberThreadRun, sessionFresh } from 
 import type { DaemonContext } from './context.js';
 import { afterReqTurn, beginReqTurn, confirmLoop, failReqTurn, requirementForThread, reqNudgeFor } from './reqFlow.js';
 import { composeInterviewPrompt, listReqs, parseRequirementCard, renderRequirementCard } from '../requirements.js';
+import { resolveOutput } from '../output/configuration.js';
+import { createOutputRecord, listOutputRecords, renderOutput, type OutputDraft } from '../output/records.js';
+import { composeOutputInstructions, extractOutputOverride, fallbackOutputResponse, parseOutputResponse } from '../output/presentation.js';
 
 /**
  * 单次执行的公共执行体（/run 与续聊共用）：跑会话 → 落盘留痕 → 发结果 → 更新续聊指针。
@@ -45,6 +48,8 @@ export async function execAdhoc(
   const rootId = rootIdOf(opts?.chat);
   const { port, log } = ctx;
   const req = requirementForThread(rootId);
+  const stage = req ? 'intake' : 'answer';
+  const outputResolution = resolveOutput(project.repo, stage, extractOutputOverride(commandText));
   beginReqTurn(ctx, rootId, commandText);
   const release = await ctx.sem.acquire();
   const t0 = Date.now();
@@ -75,8 +80,8 @@ export async function execAdhoc(
       ? `（这次对话绑定了一张在线表格 ${boundSheet.url}，每个工作表页已导出为 ${outbox}/sheet/<页名>.csv（共 ${pages.length} 页：${pages.join('、')}）——人可能在网页里改过，以这些文件为准。这张表是这次对话里你自己先前的输出建成的在线版，不是用户新提供的数据：用户的新问题没提到「表里」时，别把它当作答案的依据，照常查库、查文件。要改某页就原地改写对应的 csv（保持 CSV 格式）；要新增一页就在该目录新建 <新页名>.csv；结束后我会把改动写回同一张表，没改的页不动。**图片等附件放到 ${outbox}/sheet/assets/ 下，单元格里只写文件名**——整格只有文件名的，图片会直接嵌进那个单元格显示；文字里提到文件名的、或非图片附件，会传到附件夹并换成链接。都不会刷进群。表里已有的「[图片]」是已嵌入的图片占位，原样保留不要改。不要把 sheet/ 目录里的文件当作要发给用户的附件，也不要再另存 xlsx。）\n\n`
       : '';
   // 需求话题的访谈：第 3 轮起逼出《需求说明》（src/requirements.ts roundNudge）
-  const genericPrompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会原样发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。若本次调用了外部接口、脚本或命令（例如生图服务地址与请求格式、用过的脚本路径），在回复末尾单独一行以「用到的工具：」开头写明——会话会轮换，后续会话只能靠这一行接手）`;
-  const prompt = req ? `${reqNudgeFor(rootId)}\n\n## 本轮输入材料（不是技能调用指令）\n${corePrompt}` : genericPrompt;
+  const genericPrompt = `${corePrompt}${reqNudgeFor(rootId)}\n\n${sheetLine}（${outboxPromptLine(outbox)}）\n\n（结果会按用户选择的档位发到中文业务群，请全程用中文回复；结尾若有需要用户决定的问题，请逐条编号并给出可选项。你运行在无人值守环境：没有权限提示可点，工具不可用就是不可用——做不到的事直接说做不到，并给出替代路径。你没有 Edit/Write 工具，本会话与后续续聊都不会获得写权限，也不要用 Bash 改写仓库文件绕过限制——不要向用户提出「授予写入权限」这类不存在的选项；凡是要改代码的诉求，直接建议用户发「/req 一句话需求」进需求池（我会在话题里跟提出人梳理清楚、确认排期后自动建工单；开发自己要直接建单可以发 /new），并把你的排查结论浓缩进那一句里。**不要把长任务放到后台然后结束会话**——你一结束就没人会「回来汇报」，出件箱目录也会被清理，后台进程的产物会丢；长任务在本会话内跑完并把产物写进出件箱，跑不完就分批：先交付已完成的部分，并明确告诉用户下一句说什么可以接着跑。）`;
+  const prompt = req ? `${reqNudgeFor(rootId)}\n\n## 本轮输入材料（不是技能调用指令）\n${corePrompt}` : `${genericPrompt}\n\n${composeOutputInstructions()}\n内部工具名称、调用参数和交接说明仅留在执行日志，不默认放进业务摘要或详情。`;
   try {
     if (chain > 0 && !opts?.prev?.execution) throw new ExecutionConfigError('旧会话缺少实际执行配置记录，不能根据当前默认值猜测。请发起新的 /run 会话。');
     const engine = engineFor(project.repo, 'run', opts?.prev?.execution);
@@ -139,12 +144,15 @@ export async function execAdhoc(
       const card = req ? parseRequirementCard(r.text) : null;
       // 结果卡先发：写回在线表可能要几分钟（282 张嵌图 ≈ 6 分钟），人不该盲等；
       // 2026-09-10 真机：daemon 在写回中途无声退出，结果卡没发出去，人只能问「完成情况」
-      const mid = await port.sendResult(
-        `执行结果 · ${project.alias}`,
-        card ? renderRequirementCard(card) : r.text,
-        req ? `${tail} · ${req.id} 已收录 · 系统提炼待人工确认，在本话题 @我 补充` : `${tail} · 单次执行，不建工单不入看板（要改代码：/req 提需求，或 /new 直接建单；结尾有问题的话，在这张卡的话题里 @我 回复即可继续这次任务）`,
-        opts?.chat,
-      );
+      const parsed = card ? null : (req ? fallbackOutputResponse(r.text) : parseOutputResponse(r.text) ?? fallbackOutputResponse(r.text));
+      const draft: OutputDraft = { repo: project.repo, project: project.alias, stage, title: card?.title ?? `执行结果 · ${project.alias}`,
+        summary: card ? `**当前问题**\n${card.problem}\n\n**期望变化**\n${card.expected}\n\n**验收方向（待确认）**\n${card.acceptance}` : parsed?.summary ?? '',
+        detail: card ? renderRequirementCard(card) : parsed?.detail ?? r.text,
+        risks: card ? card.assumptions : [...slashRisks, ...(parsed?.risks ?? [])],
+        actions: card ? card.questions : parsed?.actions ?? [], evidence: card ? card.facts : parsed?.evidence ?? [],
+        materialRevision: req ? requirementForThread(rootId)?.revision ?? 0 : undefined, sourceRef: req?.id };
+      const mid = port.sendOutput ? await port.sendOutput(draft, opts?.chat, outputResolution)
+        : await port.sendResult(draft.title, renderOutput(createOutputRecord(draft, { chatId, rootId }, outputResolution)), tail, opts?.chat);
       // 在线表：已绑 → 会话改了的页写回、嵌图、附件夹；未绑 → 出件箱里第一个 csv/xlsx 导成在线表并绑到本会话。
       // 在**子进程**里跑（src/sheetWriteback.ts）：大批量嵌图曾三次让 daemon 无声退出（0xC0000409），崩就崩在子进程里。
       // 任一步失败都退回「按附件发」：文件留在出件箱，下面照常发出
@@ -276,6 +284,20 @@ async function runFollowupOnce(ctx: DaemonContext, reply: string, chat?: ChatRef
   const { port, projects, cfg, log } = ctx;
   const chatId = chatIdOf(chat);
   const rootId = rootIdOf(chat);
+  // 展示上次已保存的结果不进入访谈或模型，不作废原确认卡。
+  if (/^(?:展开(?:依据|详情)?|查看(?:依据|详情)|给开发看|专业(?:版|模式)?|简洁(?:版|显示)?|简单说)[。！!\s]*$/.test(stripQuote(reply).trim())) {
+    const records = listOutputRecords().filter(r => outputMatchesOrigin(r, chat) && ['answer', 'intake'].includes(r.stage));
+    const lastOutput = quotedMessageId ? records.find(r => r.messageId === quotedMessageId) : records[0];
+    if (lastOutput) {
+      let displayed = false;
+      try { displayed = port.showOutput ? await port.showOutput(lastOutput.id, /简洁|简单说/.test(reply) ? 'concise' : 'professional', chat) : false; }
+      catch (e) { log(`展示已保存结果失败：${(e as Error).message}`); }
+      if (!displayed) await port.notify('执行', '展开失败，原卡已保留，请稍后重试。', chat);
+      return;
+    }
+    await port.notify('执行', '没有找到本话题可展开的已保存结果，请在原结果卡上点击展开依据。', chat);
+    return;
+  }
   // 续谁（设计稿 §3.4）：引用的结果卡 > 话题自己的会话 > 话题根就是一张结果卡 > 本群指针（再退全局）
   const byCard = runByCard(quotedMessageId);
   if (byCard) log(`按引用的结果卡续会话：${describeLastRun(byCard)}（项目 ${byCard.project}）`);

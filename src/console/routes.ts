@@ -35,6 +35,8 @@ import { capabilities, ENTRIES, freezePlan, profileFingerprint, readConfiguratio
 import { recordValidation, validateProfile, validationPlan } from '../engine/validation.js';
 const runningProbes = new Set<string>();
 import { queueExecutionSwitch, pendingSwitch } from '../engine/tickets.js';
+import { readOutputConfiguration, writeOutputConfiguration, OutputConfigurationError, OutputConfigurationConflictError } from '../output/configuration.js';
+import { listOutputRecords, readOutputRecord } from '../output/records.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -175,6 +177,22 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
   const method = req.method ?? 'GET';
   const dir = dataDir();
 
+  if (p === '/api/output-settings' && method === 'GET') return json(res, 200, readOutputConfiguration());
+  if (p === '/api/output-settings' && method === 'PUT') {
+    const b = await readBody(req) as { revision?: number; configuration?: unknown };
+    if (!b || !Number.isInteger(b.revision) || !b.configuration) return json(res, 400, { error: '配置或版本不合法' });
+    return json(res, 200, writeOutputConfiguration(b.revision!, b.configuration));
+  }
+  if (p === '/api/outputs' && method === 'GET') return json(res, 200, listOutputRecords());
+  const outputMatch = /^\/api\/outputs\/([^/]+)$/.exec(p);
+  if (outputMatch && method === 'GET') {
+    let id: string;
+    try { id = decodeURIComponent(outputMatch[1]); } catch { return json(res, 400, { error: '记录编号不合法' }); }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return json(res, 400, { error: '记录编号不合法' });
+    const record = readOutputRecord(id);
+    return record ? json(res, 200, record) : json(res, 404, { error: '无此回复记录' });
+  }
+
   if (p === '/api/agents' && method === 'GET') {
     const configuration = readConfiguration();
     return json(res, 200, { configuration, entries: ENTRIES, capabilities: Object.fromEntries(['claude', 'codex', 'opencode'].map(cli => [cli, capabilities(cli as AgentProfile['cli'])])), projects: projectsNow().map(project => ({ alias: project.alias, repo: project.repo })) });
@@ -253,7 +271,10 @@ async function api(req: http.IncomingMessage, res: Res, url: URL): Promise<void>
     return json(res, r.ok ? 200 : 409, r);
   }
 
-  if (p === '/api/projects' && method === 'GET') return json(res, 200, readProjectsView(envFile));
+  if (p === '/api/projects' && method === 'GET') {
+    const view = readProjectsView(envFile);
+    return json(res, 200, { ...view, projects: view.projects.map(project => ({ ...project, outputRepo: path.resolve(project.repo) })) });
+  }
   if (p === '/api/projects' && method === 'PUT') {
     const b = (await readBody(req)) as { mtime?: number; projects?: Project[] };
     const list = (b.projects ?? []).map((x) => ({
@@ -391,7 +412,7 @@ export function createConsoleRoute(consoleToken: string, logger: (m: string) => 
       serveStatic(url.pathname, res);
     } catch (e) {
       log(`${req.method} ${url.pathname} 失败：${(e as Error).message}`);
-      if (!res.headersSent) json(res, e instanceof ExecutionConfigError ? 400 : 500, { error: (e as Error).message });
+      if (!res.headersSent) json(res, e instanceof OutputConfigurationConflictError ? 409 : e instanceof ExecutionConfigError || e instanceof OutputConfigurationError || (e as Error).message === 'bad json' ? 400 : 500, { error: (e as Error).message });
     }
     return true;
   };

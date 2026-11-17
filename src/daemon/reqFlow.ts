@@ -169,13 +169,14 @@ export async function confirmLoop(ctx: DaemonContext, id: string): Promise<void>
   const r0 = readReq(id);
   if (!r0 || r0.status !== '待确认') return;
   const owner = ownerOf(ctx, r0);
+  const project = ctx.projects.find(p => p.alias === r0.project);
   const d = await ctx.port.confirmGate(
     id,
     '需求确认',
-    `${atCard(r0.requester)} **${id}「${r0.title}」第 ${r0.revision ?? 0} 版待确认**\n\n${r0.brief ?? ''}\n\n建议拆成：\n${splitLines(r0)}\n\n通过 = 就是我要的，进需求池等负责人排期；有补充会先更新说明再请你确认。驳回 = 在备注里写要改哪里，我接着改。`,
-    [],
-    undefined,
-    { allowed: [r0.requester, ...(owner ? [owner] : [])] },
+    `${atCard(r0.requester)} **${id}「${r0.title}」第 ${r0.revision ?? 0} 版待确认**\n\n${r0.card ? `期望变化：${r0.card.expected}\n\n验收方向：${r0.card.acceptance}` : r0.brief ?? ''}\n\n建议拆成：\n${splitLines(r0)}\n\n通过 = 就是我要的，进需求池等负责人排期；有补充会先更新说明再请你确认。驳回 = 在备注里写要改哪里，我接着改。`,
+    r0.card?.assumptions ?? [],
+    r0.brief,
+    { allowed: [r0.requester, ...(owner ? [owner] : [])], repo: project?.repo, project: r0.project, materialRevision: r0.revision ?? 0, actions: ['通过后进入需求池，等待负责人排期；有补充先更新说明重新确认。', '驳回后按备注继续整理并重新确认。'] },
   );
   if (d.dropped) return;
   const r = readReq(id);

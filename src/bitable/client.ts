@@ -30,6 +30,11 @@ function linkOf(v: unknown): string | undefined {
 
 const indexFile = (): string => path.join(dataDir(), 'bitable-index.json');
 
+// projectReq 每次新建 Board；锁和记录缓存必须跨实例共享。
+const reqWrites = new Map<string, Promise<boolean>>();
+const reqRecords = new Map<string, string>();
+const uncertainReqCreates = new Set<string>();
+
 export interface BitableCfg {
   appToken: string;
   ticketTableId: string;
@@ -326,17 +331,46 @@ export class BitableBoard {
   /** 需求行 upsert（按需求号）。未配需求池表返回 false */
   async upsertReq(id: string, fields: Record<string, unknown>): Promise<boolean> {
     if (!this.cfg.reqTableId) return false;
-    const existing = await this.findRecord(this.cfg.reqTableId, '需求号', id);
+    const key = JSON.stringify([this.cfg.appToken, this.cfg.reqTableId, id]);
+    const previous = reqWrites.get(key) ?? Promise.resolve(true);
+    const next = previous.catch(() => false).then(() => this.writeReq(key, id, fields));
+    reqWrites.set(key, next);
+    try { return await next; }
+    finally { if (reqWrites.get(key) === next) reqWrites.delete(key); }
+  }
+
+  private async writeReq(key: string, id: string, fields: Record<string, unknown>): Promise<boolean> {
+    const tableId = this.cfg.reqTableId!;
+    let existing = reqRecords.get(key);
+    if (!existing) {
+      const res = await this.client.bitable.appTableRecord.search({
+        path: { app_token: this.cfg.appToken, table_id: tableId },
+        data: { filter: { conjunction: 'and', conditions: [{ field_name: '需求号', operator: 'is', value: [id] }] } },
+        params: { page_size: 2 },
+      });
+      if (res.code !== 0 || !Array.isArray(res.data?.items)) throw new Error(`需求查询失败，停止创建：${res.code ?? '响应不完整'}`);
+      if (res.data.items.length > 1 || res.data.has_more) throw new Error(`需求 ${id} 在飞书有重复记录，停止同步，需先去重`);
+      existing = res.data.items[0]?.record_id;
+      if (res.data.items.length && !existing) throw new Error('需求查询缺少 record_id，停止创建');
+      if (existing) reqRecords.set(key, existing);
+    }
     if (existing) {
-      await this.client.bitable.appTableRecord.update({
-        path: { app_token: this.cfg.appToken, table_id: this.cfg.reqTableId, record_id: existing },
+      const res = await this.client.bitable.appTableRecord.update({
+        path: { app_token: this.cfg.appToken, table_id: tableId, record_id: existing },
         data: { fields: fields as Record<string, never> },
       });
+      if (res.code !== 0) throw new Error(`需求更新失败，保留记录 ID，不新建：${res.code}`);
+      uncertainReqCreates.delete(key);
     } else {
-      await this.client.bitable.appTableRecord.create({
-        path: { app_token: this.cfg.appToken, table_id: this.cfg.reqTableId },
+      if (uncertainReqCreates.has(key)) throw new Error(`需求 ${id} 上次创建结果不确定，停止重复创建，等待查到记录或人工核查`);
+      uncertainReqCreates.add(key);
+      const res = await this.client.bitable.appTableRecord.create({
+        path: { app_token: this.cfg.appToken, table_id: tableId },
         data: { fields: fields as Record<string, never> },
       });
+      if (res.code !== 0 || !res.data?.record?.record_id) throw new Error(`需求创建未确认成功：${res.code ?? '响应不完整'}`);
+      reqRecords.set(key, res.data.record.record_id);
+      uncertainReqCreates.delete(key);
     }
     return true;
   }

@@ -588,10 +588,91 @@
     };
   }
 
+  // ---------- 回复展示 ----------
+  const outputStages = { answer: '普通问答', intake: '需求收集', confirmation: '确认卡', delivery: '交付总结' };
+  const outputLevels = { concise: '简洁', professional: '专业' };
+  const outputOptions = (value, inherit = false) => `${inherit ? '<option value="">继承</option>' : ''}${Object.entries(outputLevels).map(([key, label]) => `<option value="${key}" ${key === value ? 'selected' : ''}>${label}</option>`).join('')}`;
+  function outputMarkdown(value) {
+    const template = document.createElement('template');
+    template.innerHTML = mdRaw(value);
+    template.content.querySelectorAll('[href], [src]').forEach(el => {
+      for (const attr of ['href', 'src']) if (el.hasAttribute(attr)) {
+        try {
+          const protocol = new URL(el.getAttribute(attr), location.href).protocol;
+          if (!(attr === 'href' ? ['http:', 'https:', 'mailto:'] : ['http:', 'https:']).includes(protocol)) el.removeAttribute(attr);
+        } catch { el.removeAttribute(attr); }
+      }
+    });
+    return template.innerHTML;
+  }
+
+  async function outputSettings() {
+    const [saved, projectView] = await Promise.all([api('/api/output-settings'), api('/api/projects')]);
+    const draft = structuredClone(saved);
+    const projects = projectView.projects || [];
+    let selected = projects[0]?.outputRepo || '';
+    const draw = () => {
+      const project = draft.projects[selected] || {};
+      const dirty = JSON.stringify(saved) !== JSON.stringify(draft);
+      main.innerHTML = `<div class="head"><h1>回复展示</h1><a href="#/outputs">查看回复记录 →</a></div>
+        <p class="muted">保存后新回复立即使用新设置；正在执行的本轮保持原设置。</p>
+        <section class="sec"><h2>全局默认</h2><div class="card"><label>展示档位 <select id="outputGlobal">${outputOptions(draft.defaultLevel)}</select></label></div></section>
+        <section class="sec"><h2>项目覆盖</h2><div class="card">${projects.length ? `<label>项目 <select id="outputProject">${projects.map(p => `<option value="${esc(p.outputRepo)}" ${p.outputRepo === selected ? 'selected' : ''}>${esc(p.alias)}（${esc(p.repo)}）</option>`).join('')}</select></label>
+          <p><label>项目默认 <select id="outputDefault">${outputOptions(project.defaultLevel, true)}</select></label></p>
+          <div class="wrap"><table><thead><tr><th>阶段</th><th>覆盖</th><th>最终生效值与来源</th></tr></thead><tbody>${Object.entries(outputStages).map(([stage, label]) => {
+            const own = project.stages?.[stage];
+            const effective = own || project.defaultLevel || draft.defaultLevel;
+            const source = own ? '阶段覆盖' : project.defaultLevel ? '项目默认' : '全局默认';
+            return `<tr><td>${label}</td><td><select data-output-stage="${stage}">${outputOptions(own, true)}</select></td><td>${outputLevels[effective]} · ${source}</td></tr>`;
+          }).join('')}</tbody></table></div><button id="outputInherit">恢复项目继承</button>` : '<p class="muted">尚无项目，请先在项目配置中添加。</p>'}</div></section>
+        <section class="sec"><h2>固定示例预览</h2><p class="muted">示例展示两档的内容结构，不调用模型。</p><div class="row"><div class="card output-preview"><h3>简洁</h3><p><b>订单导出已完成</b></p><p>已支持按日期导出订单，验收通过。</p><p>风险：历史订单尚未回填。</p><p>待办：安排历史数据回填。</p></div><div class="card output-preview"><h3>专业</h3><p><b>订单导出已完成</b></p><p>已支持按日期筛选并导出订单，验收通过。</p><p>验证：日期筛选与导出文件已通过验收。</p><p>风险：历史订单尚未回填。</p><p>待办：安排历史数据回填。</p></div></div></section>
+        <div class="row"><button id="saveOutput" ${dirty ? '' : 'disabled'}>保存设置</button><span class="${dirty ? 'err' : 'muted'}">${dirty ? '有未保存的修改' : '已保存'}</span></div>`;
+      $('#outputGlobal').onchange = e => { draft.defaultLevel = e.target.value; draw(); };
+      if (projects.length) {
+        $('#outputProject').onchange = e => { selected = e.target.value; draw(); };
+        const change = (key, value) => {
+          const item = draft.projects[selected] ||= {};
+          if (key === 'defaultLevel') { if (value) item.defaultLevel = value; else delete item.defaultLevel; }
+          else { if (value) (item.stages ||= {})[key] = value; else if (item.stages) delete item.stages[key]; if (item.stages && !Object.keys(item.stages).length) delete item.stages; }
+          if (!Object.keys(item).length) delete draft.projects[selected];
+          draw();
+        };
+        $('#outputDefault').onchange = e => change('defaultLevel', e.target.value);
+        main.querySelectorAll('[data-output-stage]').forEach(el => el.onchange = e => change(el.dataset.outputStage, e.target.value));
+        $('#outputInherit').onclick = () => { delete draft.projects[selected]; draw(); };
+      }
+      $('#saveOutput').onclick = async () => {
+        try { await put('/api/output-settings', { revision: saved.revision, configuration: draft }); toast('设置已保存，新回复立即生效'); await outputSettings(); }
+        catch (err) { toast(err.message, true); }
+      };
+    };
+    draw();
+  }
+
+  async function outputs() {
+    const records = await api('/api/outputs');
+    main.innerHTML = `<div class="head"><h1>回复记录</h1><a href="#/output-settings">回复展示设置</a></div>${records.length ? `<div class="wrap"><table><thead><tr><th>标题</th><th>项目 / 阶段</th><th>生成时间</th><th>档位</th></tr></thead><tbody>${records.map(r => `<tr><td><a href="#/outputs/${encodeURIComponent(r.id)}">${esc(r.title)}</a></td><td>${esc(r.project || r.repo || '—')} / ${esc(outputStages[r.stage] || r.stage)}</td><td>${esc(fmtTs(r.createdAt))}</td><td>${esc(outputLevels[r.level] || r.level)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="card muted">暂无回复记录。</div>'}`;
+  }
+
+  async function outputDetail(id) {
+    const record = await api('/api/outputs/' + encodeURIComponent(id));
+    let level = record.level || 'concise';
+    const list = (title, values) => `<h3>${title}</h3>${values?.length ? `<ul>${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul>` : '<p class="muted">无</p>'}`;
+    const draw = () => {
+      const body = record.summary ? outputMarkdown(record.summary) : '<p class="muted">此记录没有保存摘要，以下为原文。</p>';
+      const detail = (!record.summary || level === 'professional') && record.detail ? outputMarkdown(record.detail) : '';
+      main.innerHTML = `<div class="head"><h1>${esc(record.title)}</h1><a href="#/outputs">← 回复记录</a></div><p class="muted">${esc(fmtTs(record.createdAt))} · ${esc(record.project || record.repo || '—')} · ${esc(outputStages[record.stage] || record.stage)} · 业务版本：${esc(record.materialRevision ?? '未记录')}</p><div class="row"><button id="outputConcise" ${level === 'concise' ? 'disabled' : ''}>摘要</button><button id="outputProfessional" ${level === 'professional' ? 'disabled' : ''}>详情</button></div><section class="sec card"><div class="output-body">${body}${detail}</div>${list('风险', record.risks)}${list('待办', record.actions)}${level === 'professional' ? list('依据', record.evidence) : ''}</section>`;
+      $('#outputConcise').onclick = () => { level = 'concise'; draw(); };
+      $('#outputProfessional').onclick = () => { level = 'professional'; draw(); };
+    };
+    draw();
+  }
+
   // ---------- 路由 ----------
   const routes = [
     [/^$/, overview], [/^tickets$/, tickets], [/^tickets\/([^/]+)$/, ticket], [/^reqs$/, reqs], [/^reqs\/([^/]+)$/, req],
     [/^docs(?:\/([^/]+)(?:\/([^/]+)(?:\/(.+))?)?)?$/, (a, t, f) => docs(a, t === '-' ? undefined : t, f)],
+    [/^output-settings$/, outputSettings], [/^outputs$/, outputs], [/^outputs\/([^/]+)$/, outputDetail],
     [/^logs$/, logs], [/^env$/, env], [/^projects$/, projects], [/^stages$/, stages], [/^agents$/, agents], [/^restart$/, restart],
   ];
   async function route() {

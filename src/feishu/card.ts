@@ -1,5 +1,7 @@
 import type { OpenQuestion } from '../types.js';
 import { GATE_CN } from '../voice.js';
+import { renderOutput, type OutputRecord } from '../output/records.js';
+import type { OutputLevel } from '../output/configuration.js';
 
 /**
  * 飞书互动卡片构建器（纯函数，可单测）。
@@ -8,10 +10,11 @@ import { GATE_CN } from '../voice.js';
  */
 
 export interface CardAction {
-  kind: 'answer' | 'gate';
+  kind: 'answer' | 'gate' | 'output';
   key: string;
   answer?: string;
   decision?: 'approve' | 'reject';
+  level?: OutputLevel;
 }
 
 function header(title: string, template: string): Record<string, unknown> {
@@ -19,7 +22,24 @@ function header(title: string, template: string): Record<string, unknown> {
 }
 
 function md(content: string): Record<string, unknown> {
-  return { tag: 'div', text: { tag: 'lark_md', content } };
+  return { tag: 'div', text: { tag: 'lark_md', content: cardMarkdown(content) } };
+}
+
+/** 旧版 lark_md 不渲染 ATX 标题和 Markdown 列表；只转换展示，保留代码块内容。 */
+function cardMarkdown(content: string): string {
+  let fence: { char: string; length: number } | undefined;
+  return content.split('\n').map(line => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) {
+      if (!fence) fence = { char: marker[0], length: marker.length };
+      else if (marker[0] === fence.char && marker.length >= fence.length && line.trim() === marker) fence = undefined;
+      return line;
+    }
+    if (fence) return line;
+    const heading = /^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+    if (heading) return `**${heading[1].replace(/^\*\*(.*)\*\*$/, '$1')}**`;
+    return line.replace(/^(\s*)[-*+]\s+/, '$1• ');
+  }).join('\n');
 }
 
 function button(text: string, type: 'primary' | 'default' | 'danger', value: CardAction): Record<string, unknown> {
@@ -175,6 +195,36 @@ export function resultCard(title: string, body: string, footer?: string): Record
   const elements: Record<string, unknown>[] = [md(body)];
   if (footer) elements.push({ tag: 'note', elements: [{ tag: 'plain_text', content: footer }] });
   return { config: { wide_screen_mode: true }, header: header(title, 'turquoise'), elements };
+}
+
+/** 展示按钮只引用持久结果，不携带可被篡改的正文或审批状态。 */
+export function outputCards(record: OutputRecord, level: OutputLevel = record.level): Record<string, unknown>[] {
+  const visible = record.summary && record.detail.length > 6000 ? { ...record, detail: `${record.detail.slice(0, 6000)}\n（详细材料过长，卡片显示前 6000 字；完整材料已保存）` } : record;
+  const body = cardMarkdown(renderOutput(visible, level));
+  // 按最终 JSON 文本的 UTF-8 字节分卡，风险与行动不截断。
+  const chunks: string[] = [];
+  let chunk = '';
+  let bytes = 0;
+  for (const character of body) {
+    const size = Buffer.byteLength(JSON.stringify(character).slice(1, -1));
+    if (bytes + size > 16000 && chunk) { chunks.push(chunk); chunk = ''; bytes = 0; }
+    chunk += character;
+    bytes += size;
+  }
+  if (chunk) chunks.push(chunk);
+  const cards = chunks.map((text, i) => resultCard(chunks.length > 1 ? `${record.title}（${i + 1}/${chunks.length}）` : record.title, text));
+  const card = cards[0];
+  const elements = card.elements as Record<string, unknown>[];
+  elements.push({ tag: 'action', actions: [button(level === 'concise' ? '展开依据' : '简洁显示', 'default', {
+    kind: 'output', key: record.id, level: level === 'concise' ? 'professional' : 'concise',
+  })] });
+  const base = process.env.PREVIEW_BASE_URL?.trim().replace(/\/+$/, '');
+  if (base) elements.push(md(`[完整详情](${base}/#/outputs/${encodeURIComponent(record.id)})`));
+  return cards;
+}
+
+export function outputCard(record: OutputRecord, level: OutputLevel = record.level): Record<string, unknown> {
+  return outputCards(record, level)[0];
 }
 
 /** 候选选择卡片：识别不确定时不猜，把 2-3 个候选交给人点 */

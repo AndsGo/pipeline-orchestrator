@@ -1,15 +1,25 @@
-import { gateDetail } from '../artifacts.js';
+import { gateDetail, gateMaterial } from '../artifacts.js';
 import { appendEvent } from '../events.js';
 import { appendFeedback } from '../feedback.js';
 import { GATE_SOURCE } from '../machine.js';
 import type { TicketState } from '../types.js';
 import type { TicketRun } from './context.js';
+import { resolveOutput } from '../output/configuration.js';
 
 /** 弹卡点并落地答复。卡在 state.pendingGate 里持久化到答复为止——重启后重发这张卡，而不是跳过它 */
 export async function askGate(run: TicketRun, g: NonNullable<TicketState['pendingGate']>): Promise<void> {
   const { repo, ticket, port } = run;
   appendEvent({ ticket, type: 'gate.asked', stage: g.stage, summary: `卡点 ${g.gate} 等待人工` });
-  const d = await port.confirmGate(ticket, g.gate, g.summary, g.concerns, gateDetail(g.gate, repo, ticket));
+  const resolution = g.outputResolution ?? resolveOutput(repo, 'confirmation');
+  if (!g.outputResolution || g.outputDetail === undefined) {
+    g = { ...g, outputResolution: resolution, outputDetail: g.outputDetail ?? gateMaterial(g.gate, repo, ticket) };
+    run.state = { ...run.state, pendingGate: g };
+    run.save();
+  }
+  const d = await port.confirmGate(ticket, g.gate, g.summary, g.concerns, gateDetail(g.gate, repo, ticket, g.outputDetail), {
+    repo, project: run.project?.alias, resolution, fullDetail: g.outputDetail,
+    actions: [g.gate === 'deploy-approval' ? '通过后继续部署；驳回后暂停并记录意见。' : g.gate === 'release-approval' ? '通过后继续上线；驳回后暂停并记录意见。' : '通过后按本版材料继续后续阶段；驳回后返回材料产出阶段修订。'],
+  });
   appendEvent({
     ticket,
     type: 'gate.answered',

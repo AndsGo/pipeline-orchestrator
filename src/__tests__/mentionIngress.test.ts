@@ -69,4 +69,18 @@ describe('explicit bot mention at message ingress', () => {
     const result = await sdk.handlers['card.action.trigger']({ action: { value: { kind: 'answer' } }, operator: { open_id: 'human' } });
     expect(action).toHaveBeenCalled(); expect(result).toMatchObject({ toast: { type: 'warning' } });
   });
+  it('awaits output continuation delivery and reports failure without replacing the original card', async () => {
+    const h = await ingress();
+    let finish: (value: 'failed') => void = () => {};
+    const pending = new Promise<'failed'>(resolve => { finish = resolve; });
+    vi.spyOn(h.port, 'handleCardAction').mockReturnValue(pending);
+    let completed = false;
+    const response = sdk.handlers['card.action.trigger']({ action: { value: { kind: 'output' } } }).then(value => { completed = true; return value; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    finish('failed');
+    const result = await response;
+    expect(result).toMatchObject({ toast: { type: 'error', content: expect.stringContaining('原卡已保留') } });
+    expect(result).not.toHaveProperty('card');
+  });
 });

@@ -11,6 +11,8 @@ import type { TicketRun } from './context.js';
 import { applyExecutionSwitch } from '../engine/tickets.js';
 import { formatCost } from '../cost.js';
 import { executionModelRecord } from '../engine/configuration.js';
+import { resolveOutput } from '../output/configuration.js';
+import { createOutputRecord, renderOutput } from '../output/records.js';
 
 /**
  * 分诊 + 快车道（P0 任务分级）。返回 true 表示工单已在快车道闭环，runner 应直接退出；
@@ -52,6 +54,7 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
     );
     if (n) await port.notify(ticket, `已预取 ${n} 条历史知识提示供快车道参考`);
     appendEvent({ ticket, type: 'stage.start', stage: 'fast', summary: '快车道会话开始' });
+    const outputResolution = resolveOutput(repo, 'delivery');
     const { result, costUsd, costStatus, turns, sessionId, observedModel, execution } = await run.withGate(() => runFastlane(repo, ticket, run.state.executionPlan?.fast));
     run.state = {
       ...run.state,
@@ -79,7 +82,12 @@ export async function triageAndFastlane(run: TicketRun): Promise<boolean> {
       payload: { costUsd, costStatus, turns, sessionId },
     });
     if (result.status === 'DONE') {
-      await port.notify(ticket, `快车道完成：${result.summary_for_card}${result.branch ? `（分支 ${result.branch}）` : ''}`);
+      const draft = { repo, project: project?.alias, stage: 'delivery' as const, title: `${ticket} 交付总结`,
+        summary: result.summary_for_card,
+        detail: [result.summary_for_card, ...(result.branch ? [`分支：${result.branch}`] : []), ...(result.reason ? [`补充说明：${result.reason}`] : []), '快车道未提供额外交付报告。'].join('\n\n'),
+        risks: [], actions: [], evidence: [], sourceRef: ticket };
+      if (port.sendOutput) await port.sendOutput(draft, undefined, outputResolution);
+      else await port.notify(ticket, renderOutput(createOutputRecord(draft, undefined, outputResolution)));
       appendEvent({ ticket, type: 'done', summary: '快车道闭环' });
       run.save();
       return true;

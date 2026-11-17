@@ -1,6 +1,18 @@
 import readline from 'node:readline/promises';
 import type { Answer } from './backfill.js';
 import type { OpenQuestion } from './types.js';
+import type { OutputDraft } from './output/records.js';
+import type { OutputResolution } from './output/configuration.js';
+
+export interface GateOutputOptions {
+  allowed?: string[];
+  repo?: string;
+  project?: string;
+  materialRevision?: number;
+  actions?: string[];
+  resolution?: OutputResolution;
+  fullDetail?: string;
+}
 
 /** 卡点结果：通过与否 + 人的说明（驳回时说明会驱动重跑） */
 export interface GateDecision {
@@ -23,6 +35,12 @@ export type ChatRef = string | Origin;
 export const chatIdOf = (ref: ChatRef | undefined): string | undefined => (typeof ref === 'string' ? ref : ref?.chatId);
 export const rootIdOf = (ref: ChatRef | undefined): string | undefined => (typeof ref === 'string' ? undefined : ref?.rootId);
 
+/** 主群结果消息本身可以成为话题根；其他话题仍须严格匹配。 */
+export function outputMatchesOrigin(record: { chatId?: string; rootId?: string; messageId?: string }, origin: ChatRef | undefined): boolean {
+  const rootId = rootIdOf(origin);
+  return record.chatId === chatIdOf(origin) && (record.rootId === rootId || (!record.rootId && !!record.messageId && record.messageId === rootId));
+}
+
 /** 广播：有工单话题时主线与话题各发一份（开工/收尾/上线/闭环/挂起）；端口没实现就退回 notify */
 /**
  * 主线 + 工单话题各发一条。业务受众（audience: business，拍板 2026-09-14）的工单主线安静：过程只进话题，
@@ -40,7 +58,8 @@ export interface InteractionPort {
   /** NEEDS_CONTEXT：逐题收集回答（含选填的补充说明） */
   askQuestions(ticket: string, questions: OpenQuestion[]): Promise<Answer[]>;
   /** 人工卡点：通过/驳回 + 说明。detail 为从工件提取的决策材料（AC 清单/任务拆分） */
-  confirmGate(ticket: string, gate: string, summary: string, concerns: string[], detail?: string): Promise<GateDecision>;
+  confirmGate(ticket: string, gate: string, summary: string, concerns: string[], detail?: string, opts?: GateOutputOptions): Promise<GateDecision>;
+  sendOutput?(draft: OutputDraft, to?: ChatRef, resolution?: OutputResolution): Promise<string | undefined>;
   /** 单向通知 */
   notify(ticket: string, message: string): Promise<void>;
   /** 结构化报告（如验收 AC 结果表）：比 notify 长、要排版。可选——未实现的端口由调用方降级为 notify */

@@ -206,3 +206,5 @@ body.login form { background: var(--surface); border: 1px solid var(--line); bor
 .toc a:hover { color: var(--text); text-decoration: none; }
 .toc a.l3 { padding-left: 1.4rem; font-size: .8rem; }
 @media (max-width: 1500px) { .docs.with-toc { grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); } .toc { display: none; } }
+.output-preview { flex: 1 1 280px; }
+.output-body { white-space: pre-wrap; overflow-wrap: anywhere; }
